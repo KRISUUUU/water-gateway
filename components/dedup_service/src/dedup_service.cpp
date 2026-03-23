@@ -1,12 +1,13 @@
-﻿#include "dedup_service/dedup_service.hpp"
+#include "dedup_service/dedup_service.hpp"
 
 namespace dedup_service {
 
-DedupService::DedupService(common::Milliseconds window_ms)
-    : window_ms_(window_ms) {
+DedupService& DedupService::instance() {
+    static DedupService svc;
+    return svc;
 }
 
-bool DedupService::seen_recently(const std::string& key, common::TimestampMs now_ms) {
+bool DedupService::seen_recently(const std::string& key, int64_t now_ms) {
     prune(now_ms);
 
     for (const auto& entry : entries_) {
@@ -14,23 +15,22 @@ bool DedupService::seen_recently(const std::string& key, common::TimestampMs now
             return true;
         }
     }
-
     return false;
 }
 
-void DedupService::remember(const std::string& key, common::TimestampMs now_ms) {
-    prune(now_ms);
+void DedupService::remember(const std::string& key, int64_t now_ms) {
     entries_.push_back({key, now_ms});
 }
 
-void DedupService::prune(common::TimestampMs now_ms) {
-    while (!entries_.empty()) {
-        const auto age = now_ms - entries_.front().timestamp_ms;
-        if (age <= window_ms_) {
-            break;
-        }
+void DedupService::prune(int64_t now_ms) {
+    int64_t cutoff = now_ms - window_ms_;
+    while (!entries_.empty() && entries_.front().timestamp_ms < cutoff) {
         entries_.pop_front();
     }
 }
 
-}  // namespace dedup_service
+void DedupService::clear() {
+    entries_.clear();
+}
+
+} // namespace dedup_service

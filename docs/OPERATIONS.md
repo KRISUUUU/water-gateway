@@ -1,13 +1,77 @@
-﻿# Operations
+# Operations Guide
 
-This document will describe:
-- normal operational behavior
-- diagnostics workflow
-- log usage
-- OTA workflow
-- recommended recovery flows
-- expected service actions
+## Normal Operation
 
-## Initial Direction
+After provisioning, the device operates autonomously:
+1. Connects to configured WiFi network
+2. Synchronizes time via NTP
+3. Connects to MQTT broker
+4. Initializes CC1101 radio in RX mode
+5. Receives WMBus frames, deduplicates, and publishes via MQTT
+6. Serves web panel on port 80
+7. Publishes periodic telemetry (every 30s)
 
-Operational clarity is a project goal, not an afterthought.
+## Monitoring
+
+### MQTT Status Topic
+
+Subscribe to `wmbus-gw/{id}/status` (retained) to monitor online/offline state.
+The Last Will ensures the status shows offline if the device disconnects unexpectedly.
+
+### Telemetry Topic
+
+Subscribe to `wmbus-gw/{id}/telemetry` for periodic metrics:
+- `uptime_s`, `free_heap_bytes`, `frames_received`, `mqtt_publishes`
+- If `frames_received` stops incrementing, the radio may have an issue
+- If `mqtt_failures` is climbing, check broker connectivity
+
+### Events Topic
+
+Subscribe to `wmbus-gw/{id}/events` for discrete alerts:
+- `radio_error`, `wifi_disconnected`, `mqtt_disconnected`, `ota_*`, `health_degraded`
+
+### Web Panel Dashboard
+
+Access `http://{hostname}.local/` for a visual overview.
+
+## Common Operational Tasks
+
+### Updating Firmware
+1. Open web panel → OTA page
+2. Upload new `.bin` file, or enter HTTPS URL
+3. Wait for reboot; device auto-verifies new firmware
+4. If verification fails, device rolls back to previous firmware
+
+### Changing Configuration
+1. Open web panel → Configuration page
+2. Modify fields, click Save
+3. Some changes (WiFi, MQTT) trigger reconnection automatically
+
+### Exporting Configuration
+1. Open web panel → Configuration page → Export
+2. Save JSON file (secrets are redacted)
+
+### Downloading Support Bundle
+1. Open web panel → System page → Download Support Bundle
+2. JSON file includes diagnostics, metrics, config (redacted), and recent logs
+3. Useful for remote troubleshooting
+
+### Factory Reset
+1. Open web panel → System page → Factory Reset
+2. Confirm the action
+3. Device reboots into provisioning mode
+
+## LED Indicators (If Available)
+
+The firmware does not assume specific LED hardware. If LEDs are connected,
+a future GPIO indicator module can signal:
+- Solid: normal operation
+- Slow blink: provisioning mode
+- Fast blink: error state
+
+## Power Considerations
+
+- The device should be powered via stable USB or regulated 3.3V supply
+- Brown-out detection is enabled by default in ESP-IDF
+- Unexpected power loss may cause NVS write corruption in rare cases;
+  the config store uses atomic NVS operations to minimize this risk

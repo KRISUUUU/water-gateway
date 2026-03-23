@@ -1,6 +1,15 @@
-﻿#include "config_store/config_store.hpp"
-
+#include "config_store/config_store.hpp"
 #include "config_store/config_migration.hpp"
+#include "config_store/config_validation.hpp"
+
+#ifndef HOST_TEST_BUILD
+#include "esp_log.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+static const char* TAG = "config_store";
+#endif
 
 namespace config_store {
 
@@ -11,63 +20,220 @@ ConfigStore& ConfigStore::instance() {
 
 common::Result<void> ConfigStore::initialize() {
     if (initialized_) {
-        return common::Result<void>(common::ErrorCode::AlreadyInitialized);
+        return common::Result<void>::error(common::ErrorCode::AlreadyInitialized);
     }
 
-    current_config_ = AppConfig{};
-    const auto validation = validate_config(current_config_);
-    has_valid_config_ = validation.valid;
+#ifndef HOST_TEST_BUILD
+    mutex_ = xSemaphoreCreateMutex();
+    if (!mutex_) {
+        ESP_LOGE(TAG, "Failed to create config store mutex");
+        return common::Result<void>::error(common::ErrorCode::Unknown);
+    }
+
+    // Initialize NVS flash if not already done
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
+        err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS partition corrupted or version mismatch, erasing");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS flash init failed: %d", err);
+        return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
+    }
+#endif
+
     initialized_ = true;
 
-    return common::Result<void>();
+    auto load_result = load_from_nvs();
+    if (load_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "No stored config found, applying defaults");
+#endif
+        config_ = AppConfig::make_default();
+        auto persist_result = persist_to_nvs(config_);
+        if (persist_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+            ESP_LOGE(TAG, "Failed to persist default config");
+#endif
+            return persist_result;
+        }
+    }
+
+    loaded_ = true;
+    return common::Result<void>::ok();
 }
 
-common::Result<AppConfig> ConfigStore::load() const {
-    if (!initialized_) {
-        return common::Result<AppConfig>(common::ErrorCode::NotInitialized);
+AppConfig ConfigStore::config() const {
+#ifndef HOST_TEST_BUILD
+    if (mutex_) {
+        xSemaphoreTake(static_cast<SemaphoreHandle_t>(
+                           const_cast<void*>(mutex_)),
+                       portMAX_DELAY);
     }
+#endif
 
-    return common::Result<AppConfig>(current_config_);
+    AppConfig copy = config_;
+
+#ifndef HOST_TEST_BUILD
+    if (mutex_) {
+        xSemaphoreGive(static_cast<SemaphoreHandle_t>(
+                           const_cast<void*>(mutex_)));
+    }
+#endif
+
+    return copy;
 }
 
-common::Result<void> ConfigStore::save(const AppConfig& config) {
+common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) {
     if (!initialized_) {
-        return common::Result<void>(common::ErrorCode::NotInitialized);
+        return common::Result<ValidationResult>::error(
+            common::ErrorCode::NotInitialized);
     }
 
-    const auto migrated = migrate_to_current(config);
-    if (!migrated.ok()) {
-        return common::Result<void>(migrated.error());
-    }
-
-    const auto validation = validate_config(migrated.value());
+    // Validate first
+    auto validation = validate_config(new_config);
     if (!validation.valid) {
-        return common::Result<void>(common::ErrorCode::ValidationFailed);
+        return common::Result<ValidationResult>::ok(validation);
     }
 
-    current_config_ = migrated.value();
-    has_valid_config_ = true;
+    // Migrate if needed
+    auto migrated = migrate_to_current(new_config);
+    if (migrated.is_error()) {
+        return common::Result<ValidationResult>::error(migrated.error());
+    }
 
-    return common::Result<void>();
+    // Persist
+    auto persist_result = persist_to_nvs(migrated.value());
+    if (persist_result.is_error()) {
+        return common::Result<ValidationResult>::error(persist_result.error());
+    }
+
+#ifndef HOST_TEST_BUILD
+    xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
+#endif
+
+    config_ = migrated.value();
+
+#ifndef HOST_TEST_BUILD
+    xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
+#endif
+
+    loaded_ = true;
+    return common::Result<ValidationResult>::ok(validation);
 }
 
 common::Result<void> ConfigStore::reset_to_defaults() {
     if (!initialized_) {
-        return common::Result<void>(common::ErrorCode::NotInitialized);
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
 
-    current_config_ = AppConfig{};
-    has_valid_config_ = validate_config(current_config_).valid;
+    AppConfig defaults = AppConfig::make_default();
+    auto result = persist_to_nvs(defaults);
+    if (result.is_error()) {
+        return result;
+    }
 
-    return common::Result<void>();
+#ifndef HOST_TEST_BUILD
+    xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
+#endif
+
+    config_ = defaults;
+
+#ifndef HOST_TEST_BUILD
+    xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
+#endif
+
+    loaded_ = true;
+    return common::Result<void>::ok();
 }
 
-bool ConfigStore::is_initialized() const {
-    return initialized_;
+common::Result<void> ConfigStore::load_from_nvs() {
+#ifdef HOST_TEST_BUILD
+    // In host test builds, there is no NVS. Return error to trigger defaults.
+    return common::Result<void>::error(common::ErrorCode::NvsReadFailed);
+#else
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(kNvsNamespace, NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGD(TAG, "NVS namespace not found (first boot?)");
+        return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
+    }
+
+    size_t required_size = sizeof(AppConfig);
+    AppConfig loaded{};
+    err = nvs_get_blob(handle, kNvsKey, &loaded, &required_size);
+    nvs_close(handle);
+
+    if (err != ESP_OK || required_size != sizeof(AppConfig)) {
+        ESP_LOGW(TAG, "NVS config read failed or size mismatch");
+        return common::Result<void>::error(common::ErrorCode::NvsReadFailed);
+    }
+
+    // Migrate if needed
+    if (loaded.version != kCurrentConfigVersion) {
+        ESP_LOGI(TAG, "Config version %lu, current %lu — migrating",
+                 (unsigned long)loaded.version,
+                 (unsigned long)kCurrentConfigVersion);
+        auto migrated = migrate_to_current(loaded);
+        if (migrated.is_error()) {
+            ESP_LOGE(TAG, "Config migration failed");
+            return common::Result<void>::error(migrated.error());
+        }
+        loaded = migrated.value();
+
+        // Persist the migrated config
+        auto persist_result = persist_to_nvs(loaded);
+        if (persist_result.is_error()) {
+            ESP_LOGW(TAG, "Failed to persist migrated config");
+        }
+    }
+
+    // Validate loaded config
+    auto validation = validate_config(loaded);
+    if (!validation.valid) {
+        ESP_LOGE(TAG, "Stored config is invalid (%zu issues)",
+                 validation.issues.size());
+        return common::Result<void>::error(common::ErrorCode::ConfigInvalid);
+    }
+
+    config_ = loaded;
+    return common::Result<void>::ok();
+#endif
 }
 
-bool ConfigStore::has_valid_config() const {
-    return has_valid_config_;
+common::Result<void> ConfigStore::persist_to_nvs(const AppConfig& cfg) {
+#ifdef HOST_TEST_BUILD
+    (void)cfg;
+    return common::Result<void>::ok();
+#else
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(kNvsNamespace, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS open for write failed: %d", err);
+        return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
+    }
+
+    err = nvs_set_blob(handle, kNvsKey, &cfg, sizeof(AppConfig));
+    if (err != ESP_OK) {
+        nvs_close(handle);
+        ESP_LOGE(TAG, "NVS blob write failed: %d", err);
+        return common::Result<void>::error(common::ErrorCode::NvsWriteFailed);
+    }
+
+    err = nvs_commit(handle);
+    nvs_close(handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS commit failed: %d", err);
+        return common::Result<void>::error(common::ErrorCode::NvsWriteFailed);
+    }
+
+    ESP_LOGI(TAG, "Config persisted to NVS (version %lu)",
+             (unsigned long)cfg.version);
+    return common::Result<void>::ok();
+#endif
 }
 
-}  // namespace config_store
+} // namespace config_store

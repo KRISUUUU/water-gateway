@@ -1,5 +1,5 @@
-﻿idf_component_register(
+idf_component_register(
     SRCS "src/auth_service.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES common
+    REQUIRES common config_store
 )

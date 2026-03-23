@@ -1,21 +1,31 @@
-﻿#include "mqtt_service/mqtt_topics.hpp"
+#include "mqtt_service/mqtt_topics.hpp"
 
 namespace mqtt_service {
 
-std::string topic_status(const std::string& prefix, const std::string& node) {
-    return prefix + "/" + node + "/status";
+static std::string build_topic(const std::string& prefix,
+                                const std::string& device_id,
+                                const char* suffix) {
+    return prefix + "/" + device_id + "/" + suffix;
 }
 
-std::string topic_telemetry(const std::string& prefix, const std::string& node) {
-    return prefix + "/" + node + "/telemetry";
+std::string topic_status(const std::string& prefix,
+                          const std::string& device_id) {
+    return build_topic(prefix, device_id, "status");
 }
 
-std::string topic_events(const std::string& prefix, const std::string& node) {
-    return prefix + "/" + node + "/events";
+std::string topic_telemetry(const std::string& prefix,
+                             const std::string& device_id) {
+    return build_topic(prefix, device_id, "telemetry");
 }
 
-std::string topic_raw_frames(const std::string& prefix, const std::string& node) {
-    return prefix + "/" + node + "/rf/raw";
+std::string topic_events(const std::string& prefix,
+                          const std::string& device_id) {
+    return build_topic(prefix, device_id, "events");
 }
 
-}  // namespace mqtt_service
+std::string topic_raw_frame(const std::string& prefix,
+                             const std::string& device_id) {
+    return build_topic(prefix, device_id, "rf/raw");
+}
+
+} // namespace mqtt_service

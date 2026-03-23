@@ -1,41 +1,66 @@
-﻿#pragma once
+#pragma once
 
-#include <string>
-
+#include "common/error.hpp"
 #include "common/result.hpp"
+#include <cstdint>
 
 namespace wifi_manager {
 
-enum class WifiState {
+enum class WifiState : uint8_t {
     Uninitialized = 0,
-    Disabled,
     Disconnected,
     Connecting,
     Connected,
-    Error
+    ApMode, // SoftAP for provisioning
 };
 
 struct WifiStatus {
-    WifiState state{WifiState::Uninitialized};
-    std::string ssid{};
-    std::string ip_address{};
-    int rssi{0};
+    WifiState state;
+    char ip_address[16];
+    int8_t rssi_dbm;
+    uint32_t reconnect_count;
+    char ssid[33];
 };
 
 class WifiManager {
 public:
     static WifiManager& instance();
 
+    // Initialize WiFi subsystem (must be called once)
     common::Result<void> initialize();
-    common::Result<void> start();
+
+    // Connect to configured STA network
+    common::Result<void> start_sta(const char* ssid, const char* password);
+
+    // Start SoftAP for provisioning
+    common::Result<void> start_ap(const char* ap_ssid);
+
+    // Stop WiFi (STA or AP)
     common::Result<void> stop();
-    [[nodiscard]] WifiStatus status() const;
+
+    WifiStatus status() const;
+    WifiState state() const { return state_; }
 
 private:
     WifiManager() = default;
 
-    bool initialized_{false};
-    WifiStatus status_{};
+#ifndef HOST_TEST_BUILD
+    static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                                   int32_t event_id, void* event_data);
+    static void ip_event_handler(void* arg, esp_event_base_t event_base,
+                                 int32_t event_id, void* event_data);
+    void handle_wifi_event(int32_t event_id, void* event_data);
+    void handle_ip_event(int32_t event_id, void* event_data);
+#endif
+
+    bool initialized_ = false;
+    WifiState state_ = WifiState::Uninitialized;
+    char ip_address_[16] = {};
+    int8_t rssi_dbm_ = 0;
+    uint32_t reconnect_count_ = 0;
+    char current_ssid_[33] = {};
+    uint8_t retry_count_ = 0;
+    uint8_t max_retries_ = 10;
 };
 
-}  // namespace wifi_manager
+} // namespace wifi_manager

@@ -1,40 +1,83 @@
-﻿#pragma once
+#pragma once
 
 #include <cstdint>
-#include <string>
-#include <vector>
+#include <cstring>
 
 namespace common {
 
-using TimestampMs = std::uint64_t;
-using Milliseconds = std::uint32_t;
-using ByteBuffer = std::vector<std::uint8_t>;
+using TimestampMs = int64_t;
 
-enum class LogSeverity : std::uint8_t {
-    Debug = 0,
-    Info,
-    Warn,
-    Error
+enum class LogSeverity : uint8_t {
+    Error = 0,
+    Warning = 1,
+    Info = 2,
+    Debug = 3,
 };
 
-enum class SystemMode : std::uint8_t {
-    Unconfigured = 0,
-    Provisioning,
-    Normal,
-    Maintenance
+enum class SystemMode : uint8_t {
+    Provisioning = 0,
+    Normal = 1,
 };
 
-struct BuildInfo {
-    std::string version;
-    std::string git_revision;
-    std::string build_time_utc;
+struct FirmwareVersion {
+    uint8_t major;
+    uint8_t minor;
+    uint8_t patch;
+
+    static constexpr FirmwareVersion current() { return {0, 1, 0}; }
 };
 
 struct DeviceIdentity {
-    std::string device_name;
-    std::string hostname;
-    std::string hardware_model;
-    std::string firmware_name;
+    char hostname[32];
+    char mac_address[18]; // "AA:BB:CC:DD:EE:FF\0"
+    FirmwareVersion firmware;
+
+    static DeviceIdentity make_default() {
+        DeviceIdentity id{};
+        std::strncpy(id.hostname, "wmbus-gw", sizeof(id.hostname) - 1);
+        std::memset(id.mac_address, 0, sizeof(id.mac_address));
+        id.firmware = FirmwareVersion::current();
+        return id;
+    }
 };
 
-}  // namespace common
+// Fixed-capacity string buffer for contexts where std::string is undesirable
+// (ISR-adjacent code, small embedded buffers in structs).
+template <size_t N>
+struct FixedString {
+    char data[N];
+
+    FixedString() { data[0] = '\0'; }
+
+    explicit FixedString(const char* src) {
+        if (src) {
+            std::strncpy(data, src, N - 1);
+            data[N - 1] = '\0';
+        } else {
+            data[0] = '\0';
+        }
+    }
+
+    const char* c_str() const { return data; }
+    bool empty() const { return data[0] == '\0'; }
+    size_t length() const { return std::strlen(data); }
+
+    void set(const char* src) {
+        if (src) {
+            std::strncpy(data, src, N - 1);
+            data[N - 1] = '\0';
+        } else {
+            data[0] = '\0';
+        }
+    }
+
+    void clear() { data[0] = '\0'; }
+
+    bool operator==(const FixedString& other) const {
+        return std::strcmp(data, other.data) == 0;
+    }
+
+    bool operator!=(const FixedString& other) const { return !(*this == other); }
+};
+
+} // namespace common

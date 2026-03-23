@@ -1,17 +1,128 @@
-﻿<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Water Gateway</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WMBus Gateway</title>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main>
-    <h1>Water Gateway</h1>
-    <p>Web UI scaffold.</p>
-    <div id="app"></div>
-  </main>
-  <script src="app.js"></script>
+<header>
+    <h1>WMBus Gateway</h1>
+    <nav id="nav">
+        <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+        <button class="nav-btn" data-page="telegrams">Telegrams</button>
+        <button class="nav-btn" data-page="rf">RF</button>
+        <button class="nav-btn" data-page="mqtt">MQTT</button>
+        <button class="nav-btn" data-page="config">Config</button>
+        <button class="nav-btn" data-page="ota">OTA</button>
+        <button class="nav-btn" data-page="system">System</button>
+        <button class="nav-btn" data-page="logs">Logs</button>
+        <button class="nav-btn" id="btn-logout" style="margin-left:auto">Logout</button>
+    </nav>
+</header>
+
+<main id="app">
+    <!-- Login form (shown when not authenticated) -->
+    <section id="login-page" class="page">
+        <div class="card" style="max-width:340px;margin:60px auto">
+            <h2>Login</h2>
+            <form id="login-form">
+                <label>Password<input type="password" id="login-pwd" required></label>
+                <button type="submit">Login</button>
+                <p id="login-error" class="error" hidden></p>
+            </form>
+        </div>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="dashboard-page" class="page" hidden>
+        <h2>Dashboard</h2>
+        <div class="grid">
+            <div class="card"><h3>Health</h3><span id="d-health">--</span></div>
+            <div class="card"><h3>Uptime</h3><span id="d-uptime">--</span></div>
+            <div class="card"><h3>Firmware</h3><span id="d-fw">--</span></div>
+            <div class="card"><h3>IP</h3><span id="d-ip">--</span></div>
+            <div class="card"><h3>Frames RX</h3><span id="d-frames">--</span></div>
+            <div class="card"><h3>MQTT Pub</h3><span id="d-mqttpub">--</span></div>
+            <div class="card"><h3>WiFi RSSI</h3><span id="d-rssi">--</span></div>
+            <div class="card"><h3>Free Heap</h3><span id="d-heap">--</span></div>
+        </div>
+    </section>
+
+    <!-- Live Telegrams -->
+    <section id="telegrams-page" class="page" hidden>
+        <h2>Live Telegrams</h2>
+        <table id="tg-table">
+            <thead><tr><th>Time</th><th>Hex</th><th>RSSI</th><th>LQI</th><th>CRC</th><th>Len</th></tr></thead>
+            <tbody id="tg-body"></tbody>
+        </table>
+        <p id="tg-empty">No telegrams received yet.</p>
+    </section>
+
+    <!-- RF Diagnostics -->
+    <section id="rf-page" class="page" hidden>
+        <h2>RF Diagnostics</h2>
+        <div class="grid" id="rf-stats"></div>
+    </section>
+
+    <!-- MQTT Status -->
+    <section id="mqtt-page" class="page" hidden>
+        <h2>MQTT Status</h2>
+        <div class="grid" id="mqtt-stats"></div>
+    </section>
+
+    <!-- Configuration -->
+    <section id="config-page" class="page" hidden>
+        <h2>Configuration</h2>
+        <div id="config-form-container"></div>
+        <div class="btn-row">
+            <button id="cfg-save">Save</button>
+            <button id="cfg-export">Export</button>
+        </div>
+        <p id="cfg-msg" hidden></p>
+    </section>
+
+    <!-- OTA -->
+    <section id="ota-page" class="page" hidden>
+        <h2>OTA Update</h2>
+        <div class="card">
+            <h3>Upload Firmware</h3>
+            <input type="file" id="ota-file" accept=".bin">
+            <button id="ota-upload-btn">Upload</button>
+            <div class="progress" hidden><div id="ota-bar" class="bar"></div></div>
+        </div>
+        <div class="card">
+            <h3>URL OTA</h3>
+            <input type="text" id="ota-url" placeholder="https://...">
+            <button id="ota-url-btn">Start</button>
+        </div>
+        <p id="ota-status">Status: idle</p>
+    </section>
+
+    <!-- System -->
+    <section id="system-page" class="page" hidden>
+        <h2>System</h2>
+        <div class="card">
+            <button id="sys-reboot" class="danger">Reboot</button>
+            <button id="sys-reset" class="danger">Factory Reset</button>
+            <button id="sys-bundle">Download Support Bundle</button>
+        </div>
+    </section>
+
+    <!-- Logs -->
+    <section id="logs-page" class="page" hidden>
+        <h2>Logs</h2>
+        <select id="log-filter">
+            <option value="">All</option>
+            <option value="error">Error</option>
+            <option value="warning">Warning</option>
+            <option value="info">Info</option>
+        </select>
+        <pre id="log-output"></pre>
+    </section>
+</main>
+
+<script src="app.js"></script>
 </body>
 </html>

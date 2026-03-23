@@ -1,5 +1,29 @@
-﻿idf_component_register(
+idf_component_register(
     SRCS "src/app_core.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES common event_bus config_store
+    REQUIRES
+        common
+        event_bus
+        config_store
+        storage_service
+        wifi_manager
+        ntp_service
+        mdns_service
+        provisioning_manager
+        radio_cc1101
+        radio_state_machine
+        wmbus_minimal_pipeline
+        dedup_service
+        telegram_router
+        mqtt_service
+        auth_service
+        http_server
+        api_handlers
+        ota_manager
+        diagnostics_service
+        metrics_service
+        health_monitor
+        watchdog_service
+        persistent_log_buffer
+        support_bundle_service
 )

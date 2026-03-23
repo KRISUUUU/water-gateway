@@ -1,5 +1,6 @@
-﻿#pragma once
+#pragma once
 
+#include "common/result.hpp"
 #include <string>
 
 namespace support_bundle_service {
@@ -8,10 +9,11 @@ class SupportBundleService {
 public:
     static SupportBundleService& instance();
 
-    [[nodiscard]] std::string generate_bundle_json() const;
+    /// JSON bundle: diagnostics snapshot, metrics, health, redacted config, log lines.
+    [[nodiscard]] common::Result<std::string> generate_bundle_json() const;
 
 private:
     SupportBundleService() = default;
 };
 
-}  // namespace support_bundle_service
+} // namespace support_bundle_service

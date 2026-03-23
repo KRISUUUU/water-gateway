@@ -1,18 +1,67 @@
-﻿name: CI
+name: CI
 
 on:
   push:
+    branches: [main, develop]
   pull_request:
+    branches: [main]
 
 jobs:
-  basic-checks:
+  host-tests:
+    name: Host Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: List repository
-        run: find . -maxdepth 3 | sort
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake g++
 
-      - name: Placeholder
-        run: echo "CI scaffold created. Build/test steps to be added as implementation progresses."
+      - name: Build host tests
+        run: |
+          cd tests/host
+          mkdir -p build
+          cd build
+          cmake ..
+          cmake --build .
+
+      - name: Run host tests
+        run: |
+          cd tests/host/build
+          ctest --output-on-failure
+
+  format-check:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      - name: Check formatting
+        run: |
+          find components main -name '*.cpp' -o -name '*.hpp' | \
+            xargs clang-format --dry-run --Werror --style=file 2>&1
+
+  esp-idf-build:
+    name: ESP-IDF Build
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: firmware
+          path: |
+            build/*.bin
+            build/bootloader/*.bin
+            build/partition_table/*.bin

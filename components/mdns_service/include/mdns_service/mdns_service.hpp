@@ -1,6 +1,4 @@
-﻿#pragma once
-
-#include <string>
+#pragma once
 
 #include "common/result.hpp"
 
@@ -11,11 +9,16 @@ public:
     static MdnsService& instance();
 
     common::Result<void> initialize();
-    common::Result<void> start(const std::string& hostname);
+    common::Result<void> start(const char* hostname);
+    common::Result<void> stop();
+
+    bool is_started() const { return started_; }
 
 private:
     MdnsService() = default;
-    bool initialized_{false};
+
+    bool initialized_ = false;
+    bool started_ = false;
 };
 
-}  // namespace mdns_service
+} // namespace mdns_service

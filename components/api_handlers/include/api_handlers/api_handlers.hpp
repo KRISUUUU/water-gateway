@@ -1,17 +1,9 @@
-﻿#pragma once
-
-#include <string>
+#pragma once
 
 namespace api_handlers {
 
-struct JsonResponse {
-    int status_code{200};
-    std::string body{};
-    std::string content_type{"application/json"};
-};
+// Registers REST handlers on the ESP-IDF HTTP daemon. On device, `server` is
+// `httpd_handle_t`; host tests pass an opaque pointer and omit implementation.
+void register_all_handlers(void* server);
 
-JsonResponse health_response();
-JsonResponse not_found_response();
-JsonResponse unauthorized_response();
-
-}  // namespace api_handlers
+} // namespace api_handlers

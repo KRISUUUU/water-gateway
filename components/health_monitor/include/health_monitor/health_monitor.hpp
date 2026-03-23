@@ -1,40 +1,45 @@
-﻿#pragma once
+#pragma once
 
+#include "common/result.hpp"
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 namespace health_monitor {
 
-enum class HealthState {
-    Unknown = 0,
-    Starting,
+enum class HealthState : std::uint8_t {
+    Starting = 0,
     Healthy,
-    Degraded,
-    Error
+    Warning,
+    Error,
 };
 
 struct HealthSnapshot {
-    HealthState state{HealthState::Unknown};
+    HealthState state{HealthState::Starting};
     std::uint32_t warning_count{0};
     std::uint32_t error_count{0};
-    std::string summary{};
+    std::string last_warning_msg{};
+    std::string last_error_msg{};
+    std::uint64_t uptime_s{0};
 };
 
 class HealthMonitor {
 public:
     static HealthMonitor& instance();
 
-    void mark_starting();
-    void mark_healthy(const std::string& summary);
-    void mark_warning(const std::string& summary);
-    void mark_error(const std::string& summary);
+    common::Result<void> report_healthy();
+    common::Result<void> report_warning(const char* msg);
+    common::Result<void> report_error(const char* msg);
 
-    [[nodiscard]] HealthSnapshot snapshot() const;
+    [[nodiscard]] common::Result<HealthSnapshot> snapshot() const;
+
+    [[nodiscard]] static const char* state_to_string(HealthState state);
 
 private:
     HealthMonitor() = default;
 
+    mutable std::mutex mutex_{};
     HealthSnapshot snapshot_{};
 };
 
-}  // namespace health_monitor
+} // namespace health_monitor

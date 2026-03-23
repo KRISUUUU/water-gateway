@@ -1,28 +1,43 @@
-﻿#include "telegram_router/telegram_router.hpp"
+#include "telegram_router/telegram_router.hpp"
+#include "dedup_service/dedup_service.hpp"
 
 namespace telegram_router {
 
-TelegramRouter::TelegramRouter(common::Milliseconds dedup_window_ms)
-    : dedup_(dedup_window_ms) {
+TelegramRouter& TelegramRouter::instance() {
+    static TelegramRouter router;
+    return router;
 }
 
-RouteDecision TelegramRouter::route(const wmbus_minimal_pipeline::WmbusFrame& frame) {
-    RouteDecision decision{};
+RouteResult TelegramRouter::route(
+    const wmbus_minimal_pipeline::WmbusFrame& frame) {
 
-    const auto& key = frame.raw_hex;
-    const auto now = frame.metadata.timestamp_ms;
+    counters_.frames_routed++;
 
-    if (dedup_.seen_recently(key, now)) {
-        decision.is_duplicate = true;
-        decision.should_publish_raw = false;
-        return decision;
+    auto& dedup = dedup_service::DedupService::instance();
+    int64_t now = frame.metadata.timestamp_ms;
+
+    // Dedup check based on raw hex content
+    if (dedup.seen_recently(frame.raw_hex, now)) {
+        counters_.frames_duplicate++;
+        return RouteResult::suppress();
     }
 
-    dedup_.remember(key, now);
-    decision.should_publish_raw = true;
-    decision.should_publish_event = !frame.metadata.crc_ok;
+    dedup.remember(frame.raw_hex, now);
 
-    return decision;
+    // CRC-failed frames are still published (external decoder may handle them)
+    // but we also publish an event for diagnostics
+    if (!frame.metadata.crc_ok) {
+        counters_.frames_crc_fail_published++;
+        counters_.frames_published++;
+        return RouteResult::event("Received frame with CRC failure");
+    }
+
+    counters_.frames_published++;
+    return RouteResult::publish();
 }
 
-}  // namespace telegram_router
+void TelegramRouter::set_dedup_window_ms(int64_t window_ms) {
+    dedup_service::DedupService::instance().set_window_ms(window_ms);
+}
+
+} // namespace telegram_router

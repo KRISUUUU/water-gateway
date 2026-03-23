@@ -1,12 +1,15 @@
-﻿#pragma once
+#pragma once
 
 #include <string>
 
 namespace mqtt_service {
 
-std::string topic_status(const std::string& prefix, const std::string& node);
-std::string topic_telemetry(const std::string& prefix, const std::string& node);
-std::string topic_events(const std::string& prefix, const std::string& node);
-std::string topic_raw_frames(const std::string& prefix, const std::string& node);
+// Builds MQTT topic strings from prefix and device ID.
+// All topic builders are pure functions for host-testability.
 
-}  // namespace mqtt_service
+std::string topic_status(const std::string& prefix, const std::string& device_id);
+std::string topic_telemetry(const std::string& prefix, const std::string& device_id);
+std::string topic_events(const std::string& prefix, const std::string& device_id);
+std::string topic_raw_frame(const std::string& prefix, const std::string& device_id);
+
+} // namespace mqtt_service
