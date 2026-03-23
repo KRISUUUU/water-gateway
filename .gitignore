@@ -1,0 +1,33 @@
+﻿# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# CMake / IDE
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Python / virtual env
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Test / coverage artifacts
+coverage/
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs / temp
+*.log
+tmp/

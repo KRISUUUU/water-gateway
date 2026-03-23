@@ -1,0 +1,18 @@
+﻿name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  basic-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List repository
+        run: find . -maxdepth 3 | sort
+
+      - name: Placeholder
+        run: echo "CI scaffold created. Build/test steps to be added as implementation progresses."

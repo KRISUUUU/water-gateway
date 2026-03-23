@@ -1,0 +1,24 @@
+﻿# Project defaults for ESP-IDF
+# These values are intentionally conservative starter defaults.
+# They may be refined later as architecture and feature set solidify.
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# Logging
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# OTA support expectations
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# HTTP server/Web UI expectations
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512
+
+# MQTT and networking baseline
+CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES=y
+
+# Enable mDNS component compatibility where applicable
+CONFIG_MDNS_MAX_INTERFACES=3
