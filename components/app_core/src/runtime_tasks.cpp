@@ -183,21 +183,55 @@ static void health_task(void* /*param*/) {
 
 namespace app_core {
 
-void AppCore::create_runtime_tasks() {
+common::Result<void> AppCore::create_runtime_tasks() {
     frame_queue = xQueueCreate(16, sizeof(radio_cc1101::RawRadioFrame));
     mqtt_outbox = xQueueCreate(32, sizeof(MqttOutboxItem));
+    if (!frame_queue || !mqtt_outbox) {
+        ESP_LOGE(TAG, "Runtime queue allocation failed (frame_queue=%p mqtt_outbox=%p)",
+                 frame_queue, mqtt_outbox);
+        return common::Result<void>::error(common::ErrorCode::BufferFull);
+    }
 
     auto& rsm = radio_state_machine::RadioStateMachine::instance();
     const auto pins = board_config::default_cc1101_pins();
-    rsm.initialize(pins);
-    rsm.start_receiving();
+    ESP_LOGI(TAG, "Board CC1101 pins: MOSI=%d MISO=%d SCK=%d CS=%d GDO0=%d GDO2=%d",
+             pins.mosi, pins.miso, pins.sck, pins.cs, pins.gdo0, pins.gdo2);
 
-    xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, nullptr, 1);
-    xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, nullptr, 0);
-    xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 6144, nullptr, 5, nullptr, 0);
-    xTaskCreatePinnedToCore(health_task, "health", 4096, nullptr, 3, nullptr, 0);
+    auto rsm_init = rsm.initialize(pins);
+    if (rsm_init.is_error()) {
+        ESP_LOGE(TAG, "Radio state machine initialize failed (%s/%d)",
+                 common::error_code_to_string(rsm_init.error()),
+                 static_cast<int>(rsm_init.error()));
+        return rsm_init;
+    }
+
+    auto rx_start = rsm.start_receiving();
+    if (rx_start.is_error()) {
+        ESP_LOGE(TAG, "Radio RX start failed (%s/%d)",
+                 common::error_code_to_string(rx_start.error()),
+                 static_cast<int>(rx_start.error()));
+        return rx_start;
+    }
+
+    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, nullptr, 1) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task: radio_rx");
+        return common::Result<void>::error(common::ErrorCode::Unknown);
+    }
+    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, nullptr, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task: pipeline");
+        return common::Result<void>::error(common::ErrorCode::Unknown);
+    }
+    if (xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 6144, nullptr, 5, nullptr, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task: mqtt_pub");
+        return common::Result<void>::error(common::ErrorCode::Unknown);
+    }
+    if (xTaskCreatePinnedToCore(health_task, "health", 4096, nullptr, 3, nullptr, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task: health");
+        return common::Result<void>::error(common::ErrorCode::Unknown);
+    }
 
     ESP_LOGI(TAG, "Runtime tasks created (radio_rx@Core1, pipeline@Core0, mqtt_pub@Core0, health@Core0)");
+    return common::Result<void>::ok();
 }
 
 } // namespace app_core
@@ -206,7 +240,9 @@ void AppCore::create_runtime_tasks() {
 
 namespace app_core {
 
-void AppCore::create_runtime_tasks() {}
+common::Result<void> AppCore::create_runtime_tasks() {
+    return common::Result<void>::ok();
+}
 
 } // namespace app_core
 

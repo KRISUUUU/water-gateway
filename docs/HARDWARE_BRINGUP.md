@@ -53,6 +53,39 @@ before flashing.
    - Health state is coherent with WiFi/MQTT conditions.
    - Watchdog feed path remains active.
 
+## Expected First Boot Log Sequence
+
+Normal mode (WiFi configured):
+
+1. `=== WMBus Gateway Starting ===`
+2. `[BOOT] Foundations: event bus`
+3. `[BOOT] Foundations: storage`
+4. `[BOOT] Foundations: config`
+5. `Foundations initialized`
+6. `Startup mode selected: normal`
+7. `[BOOT] Normal mode: WiFi init + STA start`
+8. `[BOOT] Normal mode: NTP init`
+9. `[BOOT] Normal mode: mDNS init` (currently expected to run in no-op mode)
+10. `[BOOT] Normal mode: MQTT init`
+11. `[BOOT] Normal mode: auth init`
+12. `[BOOT] Normal mode: HTTP init + handler registration`
+13. `[BOOT] Normal mode: OTA init + boot-valid`
+14. `[BOOT] Normal mode: watchdog init`
+15. `Board CC1101 pins: MOSI=... MISO=... SCK=... CS=... GDO0=... GDO2=...`
+16. `CC1101 PARTNUM=... VERSION=...`
+17. `Runtime tasks created (...)`
+18. `Normal runtime started`
+
+Provisioning mode (WiFi not configured):
+
+1. `=== WMBus Gateway Starting ===`
+2. Foundations logs as above
+3. `Startup mode selected: provisioning`
+4. `[BOOT] Provisioning: starting AP + provisioning manager`
+5. `WiFi AP started, SSID: WMBus-GW-Setup`
+6. `HTTP server listening on port 80`
+7. `Provisioning mode active. Connect to WMBus-GW-Setup AP.`
+
 ## First Failure Triage
 
 - **No boot / reset loop:** check power integrity, flash size config, and partition table.
@@ -60,6 +93,14 @@ before flashing.
 - **WiFi unstable:** verify antenna/PSU and AP RSSI.
 - **MQTT unstable:** verify broker reachability, credentials, and ACLs.
 - **No frames:** verify frequency/antenna/nearby transmitter and check CRC/fifo counters.
+- **No HTTP/API:** verify `HTTP server listening on port 80` exists in logs, then check auth login endpoint first.
+
+## Fastest Triage Paths
+
+- **No-radio:** look for `Board CC1101 pins...` and `CC1101 PARTNUM...`; if missing/failing, fix wiring/pins before protocol debugging.
+- **No-wifi:** check if mode is `provisioning` vs `normal`; in normal mode validate STA credentials and AP reachability.
+- **No-mqtt:** verify WiFi got IP first, then broker URI/port/TLS settings and broker-side ACL/auth.
+- **No-http:** if boot reached HTTP stage but no server log, treat as startup failure; if server log exists, test `/api/auth/login` before other endpoints.
 
 ## Exit Criteria For First Bring-Up
 

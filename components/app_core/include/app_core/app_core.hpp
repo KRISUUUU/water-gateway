@@ -25,7 +25,7 @@ private:
     common::Result<void> start_normal_runtime();
 
     // Create FreeRTOS tasks for normal operation
-    void create_runtime_tasks();
+    common::Result<void> create_runtime_tasks();
 };
 
 } // namespace app_core
