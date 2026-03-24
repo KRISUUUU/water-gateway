@@ -2,6 +2,7 @@
 
 #include "common/result.hpp"
 #include <cstdint>
+#include <string>
 
 namespace auth_service {
 

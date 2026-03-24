@@ -183,20 +183,14 @@ const char* ota_state_name(ota_manager::OtaState s) {
     switch (s) {
         case OtaState::Idle:
             return "idle";
+        case OtaState::InProgress:
+            return "in_progress";
         case OtaState::Validating:
             return "validating";
-        case OtaState::Downloading:
-            return "downloading";
-        case OtaState::Writing:
-            return "writing";
-        case OtaState::PendingReboot:
-            return "pending_reboot";
-        case OtaState::Success:
-            return "success";
+        case OtaState::Rebooting:
+            return "rebooting";
         case OtaState::Failed:
             return "failed";
-        case OtaState::RollbackPending:
-            return "rollback_pending";
         default:
             return "unknown";
     }
@@ -252,10 +246,7 @@ bool copy_json_string(char* dest, size_t dest_sz, cJSON* item) {
 }
 
 void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
-    const cJSON* ver = cJSON_GetObjectItemCaseSensitive(root, "version");
-    if (ver && cJSON_IsNumber(ver)) {
-        cfg.version = static_cast<uint32_t>(ver->valuedouble);
-    }
+    // cfg.version is managed by the config system, not by API clients.
 
     const cJSON* device = cJSON_GetObjectItemCaseSensitive(root, "device");
     if (device && cJSON_IsObject(device)) {
@@ -270,7 +261,8 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
         const cJSON* ssid = cJSON_GetObjectItemCaseSensitive(wifi, "ssid");
         copy_json_string(cfg.wifi.ssid, sizeof(cfg.wifi.ssid), ssid);
         const cJSON* pw = cJSON_GetObjectItemCaseSensitive(wifi, "password");
-        if (pw && cJSON_IsString(pw) && pw->valuestring) {
+        if (pw && cJSON_IsString(pw) && pw->valuestring &&
+            std::strcmp(pw->valuestring, config_store::kRedactedValue) != 0) {
             copy_json_string(cfg.wifi.password, sizeof(cfg.wifi.password), pw);
         }
         const cJSON* mr = cJSON_GetObjectItemCaseSensitive(wifi, "max_retries");
@@ -298,11 +290,13 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
             }
         }
         const cJSON* user = cJSON_GetObjectItemCaseSensitive(mqtt, "username");
-        if (user && cJSON_IsString(user) && user->valuestring) {
+        if (user && cJSON_IsString(user) && user->valuestring &&
+            std::strcmp(user->valuestring, config_store::kRedactedValue) != 0) {
             copy_json_string(cfg.mqtt.username, sizeof(cfg.mqtt.username), user);
         }
         const cJSON* mpw = cJSON_GetObjectItemCaseSensitive(mqtt, "password");
-        if (mpw && cJSON_IsString(mpw) && mpw->valuestring) {
+        if (mpw && cJSON_IsString(mpw) && mpw->valuestring &&
+            std::strcmp(mpw->valuestring, config_store::kRedactedValue) != 0) {
             copy_json_string(cfg.mqtt.password, sizeof(cfg.mqtt.password), mpw);
         }
         const cJSON* pref = cJSON_GetObjectItemCaseSensitive(mqtt, "prefix");
@@ -551,7 +545,7 @@ esp_err_t handle_ota_status(httpd_req_t* req) {
     std::ostringstream o;
     o << "{\"state\":\"" << ota_state_name(st.state) << "\","
       << "\"message\":\"" << json_escape(st.message) << "\","
-      << "\"progress_percent\":" << st.progress_percent
+      << "\"progress_pct\":" << static_cast<int>(st.progress_pct)
       << "}";
     const std::string json = o.str();
     return send_json(req, 200, json.c_str());
@@ -562,9 +556,11 @@ esp_err_t handle_ota_upload(httpd_req_t* req) {
     if (g != ESP_OK) {
         return g;
     }
-    (void)ota_manager::OtaManager::instance().begin_from_upload();
-    return send_json(req, 200,
-                     "{\"status\":\"pending\","
+    // Streamed OTA upload is not yet implemented.
+    // The real flow would read multipart chunks and call
+    // OtaManager::begin_upload(size) / write_chunk() / finalize_upload().
+    return send_json(req, 501,
+                     "{\"error\":\"not_implemented\","
                      "\"detail\":\"multipart firmware upload not yet implemented\"}");
 }
 
@@ -586,7 +582,10 @@ esp_err_t handle_ota_url(httpd_req_t* req) {
     std::string url_copy = surl ? surl : "";
     cJSON_Delete(root);
 
-    auto r = ota_manager::OtaManager::instance().begin_from_url(url_copy);
+    if (url_copy.empty()) {
+        return send_json(req, 400, "{\"error\":\"missing_url\"}");
+    }
+    auto r = ota_manager::OtaManager::instance().begin_url_ota(url_copy.c_str());
     if (r.is_error()) {
         return send_json(req, 400, "{\"error\":\"ota_begin_failed\"}");
     }

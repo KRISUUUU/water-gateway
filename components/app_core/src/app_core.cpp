@@ -32,6 +32,8 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include <cstring>
+#include <ctime>
+#include <string>
 
 static const char* TAG = "app_core";
 
@@ -39,13 +41,14 @@ static const char* TAG = "app_core";
 static QueueHandle_t frame_queue = nullptr;
 static QueueHandle_t mqtt_outbox = nullptr;
 
-// MQTT outbox item
 struct MqttOutboxItem {
     char topic[128];
     char payload[640];
 };
 
-// SPI pin assignments for CC1101 (typical wiring)
+// Board-specific SPI pin assignments for CC1101.
+// These must match the physical wiring of the target board.
+// TODO: Move to a board_config header or Kconfig before supporting multiple HW revisions.
 static constexpr radio_cc1101::SpiPins kDefaultSpiPins = {
     .mosi = 23,
     .miso = 19,
@@ -54,6 +57,14 @@ static constexpr radio_cc1101::SpiPins kDefaultSpiPins = {
     .gdo0 = 4,
     .gdo2 = 2,
 };
+
+static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
+    if (!mqtt_outbox) return false;
+    MqttOutboxItem item{};
+    std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
+    std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
+    return xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10)) == pdTRUE;
+}
 
 // -- Task functions --
 
@@ -77,8 +88,6 @@ static void radio_rx_task(void* /*param*/) {
 }
 
 static void pipeline_task(void* /*param*/) {
-    auto& pipeline_ns = wmbus_minimal_pipeline::WmbusPipeline();
-    (void)pipeline_ns;
     auto& router = telegram_router::TelegramRouter::instance();
     uint32_t rx_count = 0;
 
@@ -96,10 +105,9 @@ static void pipeline_task(void* /*param*/) {
             auto& frame = frame_result.value();
             auto route = router.route(frame);
 
-            if (route.publish_raw && mqtt_outbox) {
-                auto cfg = config_store::ConfigStore::instance().config();
-                std::string topic = mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname);
+            auto cfg = config_store::ConfigStore::instance().config();
 
+            if (route.publish_raw) {
                 char ts_str[32] = "1970-01-01T00:00:00Z";
                 if (ts > 0) {
                     time_t sec = static_cast<time_t>(ts / 1000);
@@ -108,31 +116,23 @@ static void pipeline_task(void* /*param*/) {
                     strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
                 }
 
-                std::string payload = mqtt_service::payload_raw_frame(
-                    frame.raw_hex.c_str(),
-                    frame.metadata.frame_length,
-                    frame.metadata.rssi_dbm,
-                    frame.metadata.lqi,
-                    frame.metadata.crc_ok,
-                    ts_str,
-                    rx_count);
-
-                MqttOutboxItem item{};
-                std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
-                std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
-                xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10));
+                enqueue_mqtt(
+                    mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
+                    mqtt_service::payload_raw_frame(
+                        frame.raw_hex.c_str(),
+                        frame.metadata.frame_length,
+                        frame.metadata.rssi_dbm,
+                        frame.metadata.lqi,
+                        frame.metadata.crc_ok,
+                        ts_str,
+                        rx_count));
             }
 
-            if (route.publish_event && mqtt_outbox && route.event_message) {
-                auto cfg = config_store::ConfigStore::instance().config();
-                std::string topic = mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname);
-                std::string payload = mqtt_service::payload_event(
-                    "radio_event", "warning", route.event_message, "");
-
-                MqttOutboxItem item{};
-                std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
-                std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
-                xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10));
+            if (route.publish_event && route.event_message) {
+                enqueue_mqtt(
+                    mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
+                    mqtt_service::payload_event(
+                        "radio_event", "warning", route.event_message, ""));
             }
         }
     }
@@ -170,35 +170,30 @@ static void health_task(void* /*param*/) {
             health.report_warning("MQTT disconnected");
         }
 
-        // Periodic telemetry publish
-        if (mqtt.is_connected() && mqtt_outbox) {
+        if (mqtt.is_connected()) {
             auto cfg = config_store::ConfigStore::instance().config();
-            auto metrics = metrics_service::MetricsService::instance().snapshot();
-            auto health_snap = health.snapshot();
-            auto radio_counters = radio_cc1101::RadioCc1101::instance().counters();
-            auto mqtt_status = mqtt.status();
+            auto metrics_res = metrics_service::MetricsService::instance().snapshot();
+            if (metrics_res.is_ok()) {
+                const auto& m = metrics_res.value();
+                const auto& rc = radio_cc1101::RadioCc1101::instance().counters();
+                const auto& tc = telegram_router::TelegramRouter::instance().counters();
+                auto ms = mqtt.status();
+                bool rx_active = radio_state_machine::RadioStateMachine::instance().state()
+                                     == radio_state_machine::RsmState::Receiving;
 
-            std::string topic = mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname);
-            std::string payload = mqtt_service::payload_telemetry(
-                static_cast<uint32_t>(metrics.value().uptime_s),
-                metrics.value().free_heap_bytes,
-                metrics.value().min_free_heap_bytes,
-                wifi.status().rssi_dbm,
-                mqtt.is_connected() ? "connected" : "disconnected",
-                radio_state_machine::RadioStateMachine::instance().state() ==
-                    radio_state_machine::RsmState::Receiving ? "rx_active" : "idle",
-                radio_counters.frames_received,
-                telegram_router::TelegramRouter::instance().counters().frames_published,
-                telegram_router::TelegramRouter::instance().counters().frames_duplicate,
-                radio_counters.frames_crc_fail,
-                mqtt_status.publish_count,
-                mqtt_status.publish_failures,
-                "");
-
-            MqttOutboxItem item{};
-            std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
-            std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
-            xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10));
+                enqueue_mqtt(
+                    mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname),
+                    mqtt_service::payload_telemetry(
+                        static_cast<uint32_t>(m.uptime_s),
+                        m.free_heap_bytes, m.min_free_heap_bytes,
+                        wifi.status().rssi_dbm,
+                        mqtt.is_connected() ? "connected" : "disconnected",
+                        rx_active ? "rx_active" : "idle",
+                        rc.frames_received, tc.frames_published,
+                        tc.frames_duplicate, rc.frames_crc_fail,
+                        ms.publish_count, ms.publish_failures,
+                        ""));
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(30000));

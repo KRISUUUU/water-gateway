@@ -29,7 +29,7 @@ for ESP-IDF APIs that the logic code references. The test CMakeLists.txt:
 
 1. Defines include paths pointing to component headers
 2. Compiles the subset of `.cpp` files that contain pure logic
-3. Provides a `host_stubs.h` with minimal type/macro definitions (e.g., `ESP_LOG*` as no-ops)
+3. Provides `host_test_stubs.hpp` with minimal type/macro definitions (e.g., `ESP_LOG*` as no-ops)
 4. Creates one executable per test file
 5. Registers each with CTest
 
@@ -53,39 +53,25 @@ ctest --output-on-failure
 | `test_config_migration.cpp` | `config_store/config_migration` | Migration from v0 (unversioned) to current; migration of unknown future version returns error; field defaults are applied correctly |
 | `test_dedup.cpp` | `dedup_service` | `seen_recently` returns false for new key; returns true after `remember`; returns false after window expires; `prune` removes expired entries |
 | `test_mqtt_payloads.cpp` | `mqtt_service/mqtt_payloads` | Status payload contains `"online"` field; raw frame payload contains `"hex"`, `"rssi"`, `"timestamp"` fields; topic builder produces correct path structure |
-| `test_auth_helpers.cpp` | `auth_service` (pure logic subset) | Password hash generation and verification; token format validation; session expiry logic |
+| `test_auth_helpers.cpp` | `auth_service` (static helpers only) | `hash_password` produces correct `salt:hash` format; `verify_password` accepts correct password and rejects wrong password; null/empty input handling |
 | `test_health_logic.cpp` | `health_monitor` | State transitions: starting→healthy, healthy→warning, warning→error; counter increments on warnings/errors; recovery back to healthy |
 | `test_wmbus_pipeline.cpp` | `wmbus_minimal_pipeline` | `from_radio_frame` produces correct hex encoding; metadata fields (RSSI, LQI, CRC, length) are preserved; `bytes_to_hex` handles empty and max-length inputs |
 
-### Fixture-Based Replay Tests
+### Fixture Data
 
 The `tests/fixtures/sample_frames.json` file contains captured or synthetic
-WMBus frame data. The `test_wmbus_pipeline.cpp` test loads these fixtures and
-verifies that the pipeline produces expected outputs.
+WMBus frame data for reference and future fixture-based testing. The current
+`test_wmbus_pipeline.cpp` uses inline byte arrays rather than loading from this file.
 
-Fixture format:
-```json
-[
-  {
-    "name": "basic_t_mode_frame",
-    "raw_bytes_hex": "2C44...",
-    "expected_length": 44,
-    "expected_crc_ok": true,
-    "rssi_dbm": -65,
-    "lqi": 45
-  }
-]
-```
+### Integration-Like Tests (not yet implemented)
 
-### Integration-Like Tests (Host)
+The following cross-module tests are planned but not yet written:
 
-These test multi-module interactions without hardware:
-
-| Scenario | Modules Involved | What Is Tested |
-|----------|-----------------|----------------|
-| Frame → route → payload | `wmbus_pipeline`, `telegram_router`, `dedup_service`, `mqtt_payloads` | A raw frame is converted, routed (not duplicate), and produces a valid MQTT JSON payload |
-| Config import round-trip | `config_store`, `config_validation` | A config is serialized, imported, validated, and the result matches the original (except redacted fields) |
-| Dedup window boundary | `dedup_service`, `telegram_router` | Same frame sent twice within window is suppressed; sent after window expires is published |
+| Scenario | Modules Involved | What Would Be Tested |
+|----------|-----------------|----------------------|
+| Frame → route → payload | `wmbus_pipeline`, `telegram_router`, `dedup_service`, `mqtt_payloads` | A raw frame is converted, routed, and produces a valid MQTT JSON payload |
+| Config import round-trip | `config_store`, `config_validation` | A config is serialized, imported, validated, and the result matches the original |
+| Dedup window boundary | `dedup_service`, `telegram_router` | Same frame sent twice within window is suppressed; after window expires is published |
 
 ## What Cannot Be Host-Tested
 

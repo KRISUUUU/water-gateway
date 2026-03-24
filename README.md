@@ -9,7 +9,7 @@ for water meter telegram reception.
 - Captures raw frames with RF metadata (RSSI, LQI, CRC status)
 - Publishes raw telegrams and telemetry via MQTT
 - Provides a built-in web panel for diagnostics, configuration, and service
-- Supports OTA firmware updates (local upload + HTTPS URL) with rollback
+- Supports OTA firmware updates (HTTPS URL with rollback; local upload endpoint exists but is not yet implemented)
 - Stores config in NVS with validation, migration, and import/export
 - Integrates with Home Assistant and external decoders (e.g., wmbusmeters)
 
@@ -75,17 +75,19 @@ ctest --output-on-failure
 
 ## Project Status
 
-All core components are implemented:
+Core components are implemented but **not yet validated on real hardware**:
 - Foundation types, event bus, config store with NVS persistence
 - WiFi STA/AP, NTP, mDNS, MQTT with reconnect
-- CC1101 SPI driver with T-mode register config
+- CC1101 SPI driver with T-mode register config (untested on hardware)
 - WMBus pipeline with dedup and routing
 - Auth service with SHA-256 password hashing
 - HTTP server with auth middleware and REST API
-- OTA manager with upload and URL modes
-- Web panel with dashboard, telegrams, diagnostics, config, OTA, system, logs
+- OTA manager (URL-based OTA works; multipart upload endpoint is a stub)
+- Web panel (static HTML/JS/CSS served from SPIFFS)
 - Diagnostics, metrics, health monitoring, watchdog, support bundle
 - 7 host test suites, CI pipeline
+
+**Status:** Pre-hardware-validation. The code compiles and host tests pass, but RF reception, real NVS persistence, and WiFi/MQTT connectivity have not been tested on a physical board.
 
 **Next:** Hardware validation with real CC1101 + water meters.
 

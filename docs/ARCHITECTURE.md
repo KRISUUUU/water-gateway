@@ -186,14 +186,14 @@ Layer 7 (Entry):           main/app_main.cpp
 | `mqtt_service` | `common`, `event_bus`, `config_store` |
 | `auth_service` | `common`, `config_store` |
 | `http_server` | `common`, `auth_service` |
-| `api_handlers` | `common`, `http_server`, `auth_service`, `config_store`, `mqtt_service`, `diagnostics_service`, `metrics_service`, `health_monitor`, `ota_manager`, `radio_state_machine`, `persistent_log_buffer` |
+| `api_handlers` | `common`, `http_server`, `auth_service`, `config_store`, `mqtt_service`, `diagnostics_service`, `metrics_service`, `health_monitor`, `ota_manager`, `radio_state_machine`, `persistent_log_buffer`, `support_bundle_service`, `json` |
 | `ota_manager` | `common`, `event_bus` |
 | `diagnostics_service` | `common`, `radio_cc1101`, `mqtt_service`, `wifi_manager`, `metrics_service`, `health_monitor` |
 | `metrics_service` | `common` |
-| `health_monitor` | `common`, `event_bus` |
+| `health_monitor` | `common`, `esp_timer` |
 | `watchdog_service` | `common` |
 | `persistent_log_buffer` | `common` |
-| `support_bundle_service` | `common`, `diagnostics_service`, `metrics_service`, `health_monitor`, `config_store` |
+| `support_bundle_service` | `common`, `diagnostics_service`, `metrics_service`, `health_monitor`, `config_store`, `persistent_log_buffer` |
 | `app_core` | All components (orchestrator) |
 
 ## 5. FreeRTOS Task Model
@@ -206,7 +206,7 @@ Layer 7 (Entry):           main/app_main.cpp
 | `radio_rx_task` | 1 | 10 (high) | 4096B | CC1101 SPI poll, FIFO read, enqueue raw frames |
 | `pipeline_task` | 0 | 7 (medium-high) | 4096B | Frame processing, dedup, routing, enqueue MQTT messages |
 | `mqtt_task` | 0 | 5 (medium) | 6144B | MQTT connection management and publishing |
-| `health_task` | 0 | 3 (low) | 2048B | Periodic health checks, watchdog feeding, metrics |
+| `health_task` | 0 | 3 (low) | 4096B | Periodic health checks, watchdog feeding, telemetry publish |
 | `httpd` (internal) | 0 | 5 | 4096B | ESP-IDF HTTP server (created by httpd_start) |
 
 ### Design Decisions
@@ -230,7 +230,7 @@ Radio RX is highest because FIFO overflow means lost frames. Pipeline is next be
 | `mqtt_outbox` | `MqttOutboxItem` | 32 | `pipeline_task`, `health_task` | `mqtt_task` |
 
 `RawRadioFrame`: ~280 bytes max (raw bytes array + length + RSSI + LQI + CRC status).
-`MqttOutboxItem`: topic enum + payload string pointer (heap-allocated, freed after publish).
+`MqttOutboxItem`: Fixed-size struct with `char topic[128]` + `char payload[640]` (passed by value through the queue, no heap allocation).
 
 ### Event Bus (Notifications)
 
@@ -335,8 +335,8 @@ Browser → HTTP GET/POST → httpd task
             ├─ GET /api/diagnostics → DiagnosticsService snapshot
             ├─ GET /api/config → ConfigStore::config() (redacted)
             ├─ POST /api/config → validate + save
-            ├─ POST /api/ota/upload → OtaManager::begin_upload
-            ├─ POST /api/ota/url → OtaManager::begin_url
+            ├─ POST /api/ota/upload → (stub — not yet implemented)
+            ├─ POST /api/ota/url → OtaManager::begin_url_ota
             ├─ GET /api/logs → PersistentLogBuffer::lines()
             ├─ GET /api/support-bundle → SupportBundleService::generate
             └─ POST /api/auth/login → AuthService::login
@@ -384,7 +384,7 @@ struct AppConfig {
     } logging;
 
     struct Auth {
-        char admin_password_hash[65]; // bcrypt/SHA256 hash (SECRET)
+        char admin_password_hash[97]; // "salt_hex:hash_hex" SHA-256 (SECRET)
         uint32_t session_timeout_s;   // Session expiry, default 3600
     } auth;
 };
@@ -435,10 +435,9 @@ On successful connect, immediately publish: `{"online": true, "firmware": "x.y.z
 
 ### Reconnect Strategy
 
-1. On disconnect, wait 1 second then retry
-2. Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
-3. Reset backoff on successful connect
-4. Emit `MQTT_DISCONNECTED` / `MQTT_CONNECTED` events
+Reconnect is handled by the ESP-IDF MQTT client library with a fixed reconnect timeout of 1000 ms. Custom exponential backoff is not implemented; the library handles retries internally.
+
+On connect/disconnect, the MQTT event handler emits `MQTT_CONNECTED` / `MQTT_DISCONNECTED` events via the event bus.
 
 ### Payload Schemas
 
@@ -494,11 +493,11 @@ The existing `partitions.csv` provides:
 6. **Health Check:** After boot, new firmware has N seconds to call `esp_ota_mark_app_valid_cancel_rollback()`
 7. **Rollback:** If health check fails (watchdog timeout, crash loop), ESP-IDF automatically rolls back
 
-### Upload OTA
+### Upload OTA (not yet implemented)
 
 - HTTP POST multipart upload to `/api/ota/upload`
-- Streamed write (not buffered in RAM)
-- Progress reported via OTA state polling
+- **Status:** Endpoint exists but returns 501 (Not Implemented). The `OtaManager` supports `begin_upload()` / `write_chunk()` / `finalize_upload()` but the HTTP multipart streaming handler is not wired up yet.
+- Future: Streamed write (not buffered in RAM), progress reported via OTA state polling.
 
 ### URL OTA
 
@@ -544,23 +543,25 @@ STARTING → HEALTHY → WARNING → ERROR
     └────────────────────┴─────────┘  (recovery)
 ```
 
-Transitions:
-- `STARTING → HEALTHY`: WiFi connected + MQTT connected + radio RX active
-- `HEALTHY → WARNING`: MQTT disconnected > 60s, or radio error rate > threshold
-- `HEALTHY/WARNING → ERROR`: WiFi down > 5min, or radio failed to recover
-- `WARNING/ERROR → HEALTHY`: All subsystems recovered
+Transitions are caller-driven (not automatic):
+- `STARTING → HEALTHY`: `report_healthy()` called by `health_task` when WiFi + MQTT OK
+- `→ WARNING`: `report_warning(msg)` called when a subsystem reports a problem
+- `→ ERROR`: `report_error(msg)` called on critical failure
+- `WARNING → HEALTHY`: `report_healthy()` clears warning state
+- `ERROR` persists until `report_healthy()` is explicitly called
+
+*Note: The current `health_task` in `app_core` drives these transitions based on WiFi/MQTT state. Automatic threshold-based transitions (e.g., "MQTT disconnected > 60s") are not yet implemented.*
 
 ### Support Bundle
 
 JSON document containing:
-- Device identity (hostname, MAC, firmware version)
+- Diagnostics snapshot (radio, MQTT, WiFi counters and state)
+- Metrics snapshot (uptime, heap)
 - Health snapshot
-- Metrics snapshot
-- Diagnostics snapshot (all counters)
 - Config (with secrets redacted)
-- Recent log lines
-- Last 10 events
-- Reset reason history
+- Recent log lines from persistent buffer
+
+*Not yet implemented: device identity block, last N events, reset reason history.*
 
 ## 13. Security Strategy
 
