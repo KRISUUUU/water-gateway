@@ -1,7 +1,10 @@
 idf_component_register(
-    SRCS "src/app_core.cpp"
+    SRCS
+        "src/app_core.cpp"
+        "src/runtime_tasks.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
+        board_config
         common
         event_bus
         config_store

@@ -29,8 +29,7 @@ Device online/offline status. Used for Home Assistant availability.
   "ip_address": "192.168.1.100",
   "hostname": "wmbus-gw",
   "uptime_s": 86400,
-  "health": "healthy",
-  "timestamp": "2025-01-15T12:00:00Z"
+  "health": "healthy"
 }
 ```
 

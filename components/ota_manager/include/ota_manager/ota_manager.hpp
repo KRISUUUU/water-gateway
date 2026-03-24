@@ -2,6 +2,7 @@
 
 #include "common/result.hpp"
 #include "ota_manager/ota_state.hpp"
+#include <cstddef>
 #include <cstdint>
 
 namespace ota_manager {

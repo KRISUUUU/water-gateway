@@ -1,4 +1,3 @@
-#define HOST_TEST_BUILD
 #include "host_test_stubs.hpp"
 #include "dedup_service/dedup_service.hpp"
 #include <cassert>

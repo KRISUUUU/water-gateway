@@ -1,4 +1,3 @@
-#define HOST_TEST_BUILD
 #include "host_test_stubs.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
 #include "mqtt_service/mqtt_payloads.hpp"

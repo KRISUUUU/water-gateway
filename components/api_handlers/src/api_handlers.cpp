@@ -66,6 +66,11 @@ std::string json_escape(const std::string& s) {
     return o;
 }
 
+bool has_https_scheme(const std::string& url) {
+    static constexpr const char* kHttps = "https://";
+    return url.size() >= 8 && url.compare(0, 8, kHttps) == 0;
+}
+
 esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
     httpd_resp_set_type(req, "application/json");
     const char* status = "200 OK";
@@ -236,7 +241,7 @@ std::string config_to_json_redacted(const config_store::AppConfig& c) {
     return j.str();
 }
 
-bool copy_json_string(char* dest, size_t dest_sz, cJSON* item) {
+bool copy_json_string(char* dest, size_t dest_sz, const cJSON* item) {
     if (!dest || dest_sz == 0 || !item || !cJSON_IsString(item) || !item->valuestring) {
         return false;
     }
@@ -584,6 +589,9 @@ esp_err_t handle_ota_url(httpd_req_t* req) {
 
     if (url_copy.empty()) {
         return send_json(req, 400, "{\"error\":\"missing_url\"}");
+    }
+    if (!has_https_scheme(url_copy)) {
+        return send_json(req, 400, "{\"error\":\"invalid_url_scheme\",\"detail\":\"https_required\"}");
     }
     auto r = ota_manager::OtaManager::instance().begin_url_ota(url_copy.c_str());
     if (r.is_error()) {

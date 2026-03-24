@@ -1,4 +1,3 @@
-#define HOST_TEST_BUILD
 #include "host_test_stubs.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wmbus_minimal_pipeline/wmbus_frame.hpp"

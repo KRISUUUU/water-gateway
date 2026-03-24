@@ -1,6 +1,7 @@
 #include "config_store/config_store.hpp"
 #include "config_store/config_migration.hpp"
 #include "config_store/config_validation.hpp"
+#include "event_bus/event_bus.hpp"
 
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
@@ -121,6 +122,7 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
 #endif
 
     loaded_ = true;
+    event_bus::EventBus::instance().publish(event_bus::EventType::ConfigChanged);
     return common::Result<ValidationResult>::ok(validation);
 }
 
@@ -146,6 +148,7 @@ common::Result<void> ConfigStore::reset_to_defaults() {
 #endif
 
     loaded_ = true;
+    event_bus::EventBus::instance().publish(event_bus::EventType::ConfigChanged);
     return common::Result<void>::ok();
 }
 

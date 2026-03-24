@@ -53,13 +53,13 @@ ctest --output-on-failure
 
 - ESP32 (4MB flash, any devkit)
 - CC1101 868 MHz transceiver module
-- SPI wiring: MOSI=23, MISO=19, SCK=18, CS=5, GDO0=4, GDO2=2
+- Default SPI wiring (current board profile): MOSI=23, MISO=19, SCK=18, CS=5, GDO0=4, GDO2=2
 - 868 MHz antenna (quarter-wave ~86mm wire or proper PCB antenna)
 
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
+| ---------- | ----------- |
 | [Architecture](docs/ARCHITECTURE.md) | System design, task model, data flow |
 | [Repository Layout](docs/REPO_LAYOUT.md) | File structure and dependency rules |
 | [Configuration](docs/CONFIGURATION.md) | Config model, NVS, import/export |
@@ -69,6 +69,7 @@ ctest --output-on-failure
 | [Security](docs/SECURITY.md) | Threat model and security design |
 | [Provisioning](docs/PROVISIONING.md) | First-boot setup |
 | [Testing](docs/TESTING.md) | Test strategy and guide |
+| [Hardware Bring-Up](docs/HARDWARE_BRINGUP.md) | First real board validation checklist |
 | [Operations](docs/OPERATIONS.md) | Operational guidance |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [Limitations](docs/LIMITATIONS.md) | Known constraints |
@@ -76,6 +77,7 @@ ctest --output-on-failure
 ## Project Status
 
 Core components are implemented but **not yet validated on real hardware**:
+
 - Foundation types, event bus, config store with NVS persistence
 - WiFi STA/AP, NTP, mDNS, MQTT with reconnect
 - CC1101 SPI driver with T-mode register config (untested on hardware)
@@ -87,7 +89,7 @@ Core components are implemented but **not yet validated on real hardware**:
 - Diagnostics, metrics, health monitoring, watchdog, support bundle
 - 7 host test suites, CI pipeline
 
-**Status:** Pre-hardware-validation. The code compiles and host tests pass, but RF reception, real NVS persistence, and WiFi/MQTT connectivity have not been tested on a physical board.
+**Status:** Pre-hardware-validation. Host tests pass with a prepared host toolchain. Real RF reception, NVS persistence, WiFi/MQTT connectivity, and full ESP-IDF build validation still require local ESP-IDF environment verification and board testing.
 
 **Next:** Hardware validation with real CC1101 + water meters.
 

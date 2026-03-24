@@ -1,4 +1,3 @@
-#define HOST_TEST_BUILD
 #include "host_test_stubs.hpp"
 #include "health_monitor/health_monitor.hpp"
 #include <cassert>

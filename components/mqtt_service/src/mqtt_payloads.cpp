@@ -1,4 +1,5 @@
 #include "mqtt_service/mqtt_payloads.hpp"
+#include <cstring>
 #include <cstdio>
 
 namespace mqtt_service {

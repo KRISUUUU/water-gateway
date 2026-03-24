@@ -4,5 +4,5 @@ idf_component_register(
         "src/config_validation.cpp"
         "src/config_migration.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES common storage_service
+    REQUIRES common storage_service event_bus nvs_flash
 )

@@ -40,7 +40,7 @@
 
 ## OTA
 
-16. **1.5 MB firmware size limit.** Constrained by OTA partition size.
+16. **1.5 MB OTA firmware size limit.** Constrained by current 4 MB partition layout.
 17. **No firmware signing.** Secure Boot v2 is available in ESP-IDF but not
     enabled by default due to key management requirements.
 18. **No delta/incremental OTA.** Full firmware image is required for each update.

@@ -4,6 +4,10 @@
 #include "common/result.hpp"
 #include <cstdint>
 
+#ifndef HOST_TEST_BUILD
+#include "esp_event_base.h"
+#endif
+
 namespace wifi_manager {
 
 enum class WifiState : uint8_t {

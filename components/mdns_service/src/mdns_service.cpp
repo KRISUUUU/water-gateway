@@ -1,7 +1,6 @@
 #include "mdns_service/mdns_service.hpp"
 
 #ifndef HOST_TEST_BUILD
-#include "mdns.h"
 #include "esp_log.h"
 static const char* TAG = "mdns_svc";
 #endif
@@ -30,18 +29,8 @@ common::Result<void> MdnsService::start(const char* hostname) {
     }
 
 #ifndef HOST_TEST_BUILD
-    esp_err_t err = mdns_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "mDNS init failed: %d", err);
-        return common::Result<void>::error(common::ErrorCode::Unknown);
-    }
-
-    mdns_hostname_set(hostname);
-    mdns_instance_name_set("WMBus Gateway");
-
-    mdns_service_add(nullptr, "_http", "_tcp", 80, nullptr, 0);
-
-    ESP_LOGI(TAG, "mDNS started: %s.local", hostname);
+    ESP_LOGW(TAG, "mDNS service is currently running in no-op mode for this build");
+    ESP_LOGI(TAG, "mDNS requested hostname: %s.local", hostname);
 #endif
 
     started_ = true;
@@ -54,8 +43,7 @@ common::Result<void> MdnsService::stop() {
     }
 
 #ifndef HOST_TEST_BUILD
-    mdns_free();
-    ESP_LOGI(TAG, "mDNS stopped");
+    ESP_LOGI(TAG, "mDNS no-op stop");
 #endif
 
     started_ = false;

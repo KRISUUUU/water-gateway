@@ -69,6 +69,7 @@ add_host_test(test_mqtt_payloads
 # ---- test_auth_helpers ----
 add_host_test(test_auth_helpers
     test_auth_helpers.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/auth_service/src/auth_service.cpp"
     "${COMP_DIR}/config_store/src/config_store.cpp"
     "${COMP_DIR}/config_store/src/config_validation.cpp"

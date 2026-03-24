@@ -1,4 +1,3 @@
-#define HOST_TEST_BUILD
 #include "host_test_stubs.hpp"
 #include "config_store/config_models.hpp"
 #include "config_store/config_store.hpp"

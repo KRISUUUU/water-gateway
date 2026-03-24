@@ -3,6 +3,10 @@
 #include "common/result.hpp"
 #include <cstdint>
 
+#ifndef HOST_TEST_BUILD
+#include <sys/time.h>
+#endif
+
 namespace ntp_service {
 
 struct NtpStatus {
@@ -31,7 +35,7 @@ private:
     NtpService() = default;
 
 #ifndef HOST_TEST_BUILD
-    static void time_sync_notification_cb(struct timeval* tv);
+    static void time_sync_notification_cb(struct ::timeval* tv);
 #endif
 
     bool initialized_ = false;

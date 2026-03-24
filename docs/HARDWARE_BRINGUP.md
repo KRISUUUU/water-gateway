@@ -1,0 +1,70 @@
+# Hardware Bring-Up
+
+## Scope
+
+This checklist is for the first real ESP32 + CC1101 validation run.
+It focuses on proving build/boot/radio transport basics, not feature expansion.
+
+## Board Assumptions
+
+- ESP32 dev board with 4 MB flash
+- CC1101 module at 868 MHz
+- Current default pin profile (`board_config`):
+  - MOSI=23
+  - MISO=19
+  - SCK=18
+  - CS=5
+  - GDO0=4
+  - GDO2=2
+- 3.3V power only, common GND between ESP32 and CC1101
+- Connected 868 MHz antenna
+
+If your board uses different pins, update `components/board_config/src/board_config.cpp`
+before flashing.
+
+## Bring-Up Sequence
+
+1. **Environment**
+   - Activate ESP-IDF v5.2 environment.
+   - Build firmware: `idf.py build`.
+2. **Flash + Monitor**
+   - Flash: `idf.py -p <PORT> flash`.
+   - Open logs: `idf.py -p <PORT> monitor`.
+3. **Foundation Checks**
+   - Confirm startup reaches "Foundations initialized".
+   - Confirm config is loaded or defaults are persisted.
+4. **Mode Check**
+   - If WiFi is empty, confirm provisioning mode starts and HTTP server responds.
+   - If WiFi is configured, confirm normal runtime starts.
+5. **Network Checks (Normal Runtime)**
+   - Verify WiFi connection and DHCP IP in logs.
+   - Verify MQTT connect/disconnect state transitions in logs.
+6. **Radio Checks**
+   - Verify CC1101 init log with chip ID.
+   - Verify RX task is running (no immediate radio error loop).
+   - Verify frame counters change when known WMBus traffic is present.
+7. **API Checks**
+   - Login: `POST /api/auth/login`.
+   - Query health/config/diagnostics endpoints with bearer token.
+   - Confirm `/api/ota/upload` returns 501 (known not implemented).
+   - Confirm `/api/ota/url` rejects non-HTTPS URLs.
+8. **Stability Checks (15-30 min)**
+   - No crash/reboot loop.
+   - Health state is coherent with WiFi/MQTT conditions.
+   - Watchdog feed path remains active.
+
+## First Failure Triage
+
+- **No boot / reset loop:** check power integrity, flash size config, and partition table.
+- **No CC1101 ID:** verify SPI wiring and CS polarity, then inspect logic analyzer traces.
+- **WiFi unstable:** verify antenna/PSU and AP RSSI.
+- **MQTT unstable:** verify broker reachability, credentials, and ACLs.
+- **No frames:** verify frequency/antenna/nearby transmitter and check CRC/fifo counters.
+
+## Exit Criteria For First Bring-Up
+
+- Firmware boots and stays stable for at least 15 minutes.
+- WiFi and MQTT lifecycle events behave as expected.
+- CC1101 initializes and receives at least one frame in live RF conditions.
+- API auth + diagnostics endpoints work.
+- Known limitations are confirmed (OTA upload endpoint still 501).

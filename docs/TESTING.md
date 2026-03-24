@@ -7,6 +7,7 @@ The testing strategy separates **host-testable pure logic** from
 
 Host tests run on the development machine using CMake + CTest, without any
 ESP-IDF toolchain dependency. This enables fast iteration and CI integration.
+They still require a working native C++ compiler toolchain (GCC/Clang/MSVC).
 
 ## Host Test Architecture
 
@@ -29,9 +30,10 @@ for ESP-IDF APIs that the logic code references. The test CMakeLists.txt:
 
 1. Defines include paths pointing to component headers
 2. Compiles the subset of `.cpp` files that contain pure logic
-3. Provides `host_test_stubs.hpp` with minimal type/macro definitions (e.g., `ESP_LOG*` as no-ops)
-4. Creates one executable per test file
-5. Registers each with CTest
+3. Defines `HOST_TEST_BUILD` globally for test targets
+4. Provides `host_test_stubs.hpp` with minimal type/macro definitions (e.g., `ESP_LOG*` as no-ops)
+5. Creates one executable per test file
+6. Registers each with CTest
 
 ### Running Host Tests
 

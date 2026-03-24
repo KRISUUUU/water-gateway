@@ -75,6 +75,12 @@ to external systems.
 | `mdns_service` | mDNS hostname advertisement |
 | `provisioning_manager` | First-boot setup mode (AP + captive portal or serial provisioning) |
 
+### Board Profile Layer
+
+| Module | Responsibility |
+|--------|---------------|
+| `board_config` | Board-specific wiring defaults (e.g., CC1101 SPI/GDO pins), isolated from orchestration |
+
 ### Radio Layer
 
 | Module | Responsibility |
@@ -129,7 +135,7 @@ to external systems.
 
 | Module | Responsibility |
 |--------|---------------|
-| `app_core` | Boot sequencing, mode selection, task creation, shutdown coordination |
+| `app_core` | Boot sequencing, mode selection, service initialization, runtime task orchestration |
 
 ## 4. Dependency Rules
 
@@ -478,10 +484,10 @@ Defined in detail in `docs/MQTT_TOPICS.md`.
 ### Partition Layout
 
 The existing `partitions.csv` provides:
-- `factory` (1.5MB) — initial firmware flashed via serial
-- `ota_0` (1.5MB) — first OTA slot
-- `ota_1` (1.5MB) — second OTA slot
+- `ota_0` (1.5MB) — active app slot (initial flash target)
+- `ota_1` (1.5MB) — OTA update slot
 - `otadata` (8KB) — tracks which OTA partition is active
+- `storage` (896KB) — SPIFFS storage for web assets/support data
 
 ### OTA Flow
 

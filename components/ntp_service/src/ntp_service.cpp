@@ -89,7 +89,7 @@ int64_t NtpService::now_epoch_ms() const {
 }
 
 #ifndef HOST_TEST_BUILD
-void NtpService::time_sync_notification_cb(struct timeval* tv) {
+void NtpService::time_sync_notification_cb(struct ::timeval* tv) {
     ESP_LOGI(TAG, "NTP time synchronized");
     auto& svc = NtpService::instance();
     svc.synchronized_ = true;
