@@ -7,47 +7,20 @@
 #include "ota_manager/ota_manager.hpp"
 #include "persistent_log_buffer/persistent_log_buffer.hpp"
 
-#include <cstdio>
+#include <memory>
 #include <string>
-#include <string_view>
+
+#include "cJSON.h"
 
 namespace support_bundle_service {
 
 namespace {
 
-std::string json_escape(std::string_view s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-        case '\\':
-            out += "\\\\";
-            break;
-        case '"':
-            out += "\\\"";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default:
-            if (static_cast<unsigned char>(c) < 0x20U) {
-                char buf[8];
-                std::snprintf(buf, sizeof(buf), "\\u%04x",
-                              static_cast<unsigned int>(static_cast<unsigned char>(c)));
-                out += buf;
-            } else {
-                out += c;
-            }
-            break;
-        }
-    }
-    return out;
+using JsonPtr = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
+using JsonStringPtr = std::unique_ptr<char, decltype(&cJSON_free)>;
+
+JsonPtr make_object() {
+    return JsonPtr(cJSON_CreateObject(), cJSON_Delete);
 }
 
 const char* log_severity_str(persistent_log_buffer::LogSeverity s) {
@@ -69,124 +42,152 @@ const char* ota_state_str(ota_manager::OtaState s) {
     return ota_manager::ota_state_to_string(s);
 }
 
-std::string redacted_config_json(const config_store::AppConfig& c) {
-    char buf[128];
-    std::string out;
-    out.reserve(1024);
-    out += '{';
-
-    std::snprintf(buf, sizeof(buf), "\"version\":%lu,", static_cast<unsigned long>(c.version));
-    out += buf;
-
-    out += "\"device\":{";
-    out += "\"name\":\"";
-    out += json_escape(c.device.name);
-    out += "\",\"hostname\":\"";
-    out += json_escape(c.device.hostname);
-    out += "\"},";
-
-    out += "\"wifi\":{";
-    out += "\"ssid\":\"";
-    out += json_escape(c.wifi.ssid);
-    out += "\",\"password\":\"";
-    out += config_store::kRedactedValue;
-    std::snprintf(buf, sizeof(buf), "\",\"max_retries\":%u},",
-                  static_cast<unsigned int>(c.wifi.max_retries));
-    out += buf;
-
-    out += "\"mqtt\":{";
-    std::snprintf(buf, sizeof(buf), "\"enabled\":%s,\"port\":%u,\"qos\":%u,\"use_tls\":%s,",
-                  c.mqtt.enabled ? "true" : "false", static_cast<unsigned int>(c.mqtt.port),
-                  static_cast<unsigned int>(c.mqtt.qos), c.mqtt.use_tls ? "true" : "false");
-    out += buf;
-    out += "\"host\":\"";
-    out += json_escape(c.mqtt.host);
-    out += "\",\"username\":\"";
-    out += config_store::kRedactedValue;
-    out += "\",\"password\":\"";
-    out += config_store::kRedactedValue;
-    out += "\",\"prefix\":\"";
-    out += json_escape(c.mqtt.prefix);
-    out += "\",\"client_id\":\"";
-    out += json_escape(c.mqtt.client_id);
-    out += "\"},";
-
-    out += "\"radio\":{";
-    std::snprintf(buf, sizeof(buf), "\"frequency_khz\":%lu,\"data_rate\":%u,\"auto_recovery\":%s},",
-                  static_cast<unsigned long>(c.radio.frequency_khz),
-                  static_cast<unsigned int>(c.radio.data_rate),
-                  c.radio.auto_recovery ? "true" : "false");
-    out += buf;
-
-    std::snprintf(buf, sizeof(buf), "\"logging\":{\"level\":%u},",
-                  static_cast<unsigned int>(c.logging.level));
-    out += buf;
-
-    out += "\"auth\":{";
-    out += "\"admin_password_hash\":\"";
-    out += config_store::kRedactedValue;
-    std::snprintf(buf, sizeof(buf), "\",\"session_timeout_s\":%lu}",
-                  static_cast<unsigned long>(c.auth.session_timeout_s));
-    out += buf;
-
-    out += '}';
-    return out;
-}
-
-std::string metrics_json(const metrics_service::RuntimeMetrics& m) {
-    char buf[192];
-    std::snprintf(buf, sizeof(buf),
-                  "{\"uptime_s\":%lu,\"free_heap_bytes\":%lu,"
-                  "\"min_free_heap_bytes\":%lu,\"largest_free_block\":%lu}",
-                  static_cast<unsigned long>(m.uptime_s),
-                  static_cast<unsigned long>(m.free_heap_bytes),
-                  static_cast<unsigned long>(m.min_free_heap_bytes),
-                  static_cast<unsigned long>(m.largest_free_block));
-    return std::string(buf);
-}
-
-std::string health_json(const health_monitor::HealthSnapshot& h) {
-    char buf[128];
-    std::string out;
-    out += '{';
-    out += "\"state\":\"";
-    out += health_monitor::HealthMonitor::state_to_string(h.state);
-    out += '"';
-    std::snprintf(buf, sizeof(buf),
-                  ",\"warning_count\":%lu,\"error_count\":%lu,"
-                  "\"uptime_s\":%llu,",
-                  static_cast<unsigned long>(h.warning_count),
-                  static_cast<unsigned long>(h.error_count),
-                  static_cast<unsigned long long>(h.uptime_s));
-    out += buf;
-    out += "\"last_warning_msg\":\"";
-    out += json_escape(h.last_warning_msg);
-    out += "\",\"last_error_msg\":\"";
-    out += json_escape(h.last_error_msg);
-    out += "\"}";
-    return out;
-}
-
-std::string logs_json() {
-    const auto lines = persistent_log_buffer::PersistentLogBuffer::instance().lines();
-    std::string out;
-    out.reserve(lines.size() * 64 + 8);
-    out += '[';
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        if (i > 0) {
-            out += ',';
-        }
-        const auto& e = lines[i];
-        char buf[48];
-        std::snprintf(buf, sizeof(buf), "{\"timestamp_us\":%lld,\"severity\":\"%s\",",
-                      static_cast<long long>(e.timestamp_us), log_severity_str(e.severity));
-        out += buf;
-        out += "\"message\":\"";
-        out += json_escape(e.message);
-        out += "\"}";
+cJSON* build_redacted_config_json(const config_store::AppConfig& c) {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
     }
-    out += ']';
-    return out;
+
+    cJSON_AddNumberToObject(root, "version", static_cast<double>(c.version));
+
+    cJSON* device = cJSON_AddObjectToObject(root, "device");
+    cJSON_AddStringToObject(device, "name", c.device.name);
+    cJSON_AddStringToObject(device, "hostname", c.device.hostname);
+
+    cJSON* wifi = cJSON_AddObjectToObject(root, "wifi");
+    cJSON_AddStringToObject(wifi, "ssid", c.wifi.ssid);
+    cJSON_AddStringToObject(wifi, "password", config_store::kRedactedValue);
+    cJSON_AddNumberToObject(wifi, "max_retries", static_cast<double>(c.wifi.max_retries));
+
+    cJSON* mqtt = cJSON_AddObjectToObject(root, "mqtt");
+    cJSON_AddBoolToObject(mqtt, "enabled", c.mqtt.enabled);
+    cJSON_AddStringToObject(mqtt, "host", c.mqtt.host);
+    cJSON_AddNumberToObject(mqtt, "port", static_cast<double>(c.mqtt.port));
+    cJSON_AddStringToObject(mqtt, "username", config_store::kRedactedValue);
+    cJSON_AddStringToObject(mqtt, "password", config_store::kRedactedValue);
+    cJSON_AddStringToObject(mqtt, "prefix", c.mqtt.prefix);
+    cJSON_AddStringToObject(mqtt, "client_id", c.mqtt.client_id);
+    cJSON_AddNumberToObject(mqtt, "qos", static_cast<double>(c.mqtt.qos));
+    cJSON_AddBoolToObject(mqtt, "use_tls", c.mqtt.use_tls);
+
+    cJSON* radio = cJSON_AddObjectToObject(root, "radio");
+    cJSON_AddNumberToObject(radio, "frequency_khz", static_cast<double>(c.radio.frequency_khz));
+    cJSON_AddNumberToObject(radio, "data_rate", static_cast<double>(c.radio.data_rate));
+    cJSON_AddBoolToObject(radio, "auto_recovery", c.radio.auto_recovery);
+
+    cJSON* logging = cJSON_AddObjectToObject(root, "logging");
+    cJSON_AddNumberToObject(logging, "level", static_cast<double>(c.logging.level));
+
+    cJSON* auth = cJSON_AddObjectToObject(root, "auth");
+    cJSON_AddStringToObject(auth, "admin_password_hash", config_store::kRedactedValue);
+    cJSON_AddNumberToObject(auth, "session_timeout_s",
+                            static_cast<double>(c.auth.session_timeout_s));
+
+    return root;
+}
+
+cJSON* build_metrics_json(const metrics_service::RuntimeMetrics& m) {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
+    }
+    cJSON_AddNumberToObject(root, "uptime_s", static_cast<double>(m.uptime_s));
+    cJSON_AddNumberToObject(root, "free_heap_bytes", static_cast<double>(m.free_heap_bytes));
+    cJSON_AddNumberToObject(root, "min_free_heap_bytes",
+                            static_cast<double>(m.min_free_heap_bytes));
+    cJSON_AddNumberToObject(root, "largest_free_block", static_cast<double>(m.largest_free_block));
+    return root;
+}
+
+cJSON* build_health_json(const health_monitor::HealthSnapshot& h) {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
+    }
+    cJSON_AddStringToObject(root, "state", health_monitor::HealthMonitor::state_to_string(h.state));
+    cJSON_AddNumberToObject(root, "warning_count", static_cast<double>(h.warning_count));
+    cJSON_AddNumberToObject(root, "error_count", static_cast<double>(h.error_count));
+    cJSON_AddNumberToObject(root, "uptime_s", static_cast<double>(h.uptime_s));
+    cJSON_AddStringToObject(root, "last_warning_msg", h.last_warning_msg.c_str());
+    cJSON_AddStringToObject(root, "last_error_msg", h.last_error_msg.c_str());
+    return root;
+}
+
+cJSON* build_logs_json() {
+    const auto lines = persistent_log_buffer::PersistentLogBuffer::instance().lines();
+    cJSON* arr = cJSON_CreateArray();
+    if (!arr) {
+        return nullptr;
+    }
+    for (const auto& e : lines) {
+        cJSON* item = cJSON_CreateObject();
+        if (!item) {
+            continue;
+        }
+        cJSON_AddNumberToObject(item, "timestamp_us", static_cast<double>(e.timestamp_us));
+        cJSON_AddStringToObject(item, "severity", log_severity_str(e.severity));
+        cJSON_AddStringToObject(item, "message", e.message.c_str());
+        cJSON_AddItemToArray(arr, item);
+    }
+    return arr;
+}
+
+cJSON* build_meters_json() {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
+    }
+    const auto detected = meter_registry::MeterRegistry::instance().detected_meters();
+    const auto watchlist = meter_registry::MeterRegistry::instance().watchlist();
+    cJSON_AddNumberToObject(root, "detected_count", static_cast<double>(detected.size()));
+    cJSON_AddNumberToObject(root, "watchlist_count", static_cast<double>(watchlist.size()));
+    return root;
+}
+
+cJSON* build_ota_json() {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
+    }
+    const auto ota = ota_manager::OtaManager::instance().status();
+    cJSON_AddStringToObject(root, "state", ota_state_str(ota.state));
+    cJSON_AddNumberToObject(root, "progress_pct", static_cast<double>(ota.progress_pct));
+    cJSON_AddStringToObject(root, "message", ota.message);
+    cJSON_AddStringToObject(root, "current_version", ota.current_version);
+    return root;
+}
+
+cJSON* build_diagnostics_json(const diagnostics_service::DiagnosticsSnapshot& snap) {
+    const std::string diagnostics_json = diagnostics_service::DiagnosticsService::to_json(snap);
+    cJSON* parsed = cJSON_Parse(diagnostics_json.c_str());
+    if (parsed) {
+        return parsed;
+    }
+    cJSON* fallback = cJSON_CreateObject();
+    if (fallback) {
+        cJSON_AddStringToObject(fallback, "error", "diagnostics_parse_failed");
+    }
+    return fallback;
+}
+
+cJSON* build_config_or_error_json() {
+    if (!config_store::ConfigStore::instance().is_initialized() ||
+        !config_store::ConfigStore::instance().is_loaded()) {
+        cJSON* err = cJSON_CreateObject();
+        if (err) {
+            cJSON_AddStringToObject(err, "error", "config_not_loaded");
+        }
+        return err;
+    }
+    return build_redacted_config_json(config_store::ConfigStore::instance().config());
+}
+
+bool add_owned_item(cJSON* parent, const char* key, cJSON* item) {
+    if (!parent || !key || !item) {
+        return false;
+    }
+    cJSON_AddItemToObject(parent, key, item);
+    return true;
 }
 
 } // namespace
@@ -201,8 +202,6 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
     if (diag_res.is_error()) {
         return common::Result<std::string>::error(diag_res.error());
     }
-    const diagnostics_service::DiagnosticsSnapshot& diag_snap = diag_res.value();
-    std::string diagnostics_json = diagnostics_service::DiagnosticsService::to_json(diag_snap);
 
     auto metrics_res = metrics_service::MetricsService::instance().snapshot();
     if (metrics_res.is_error()) {
@@ -214,47 +213,27 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
         return common::Result<std::string>::error(health_res.error());
     }
 
-    std::string config_section;
-    if (!config_store::ConfigStore::instance().is_initialized() ||
-        !config_store::ConfigStore::instance().is_loaded()) {
-        config_section = "{\"error\":\"config_not_loaded\"}";
-    } else {
-        config_section = redacted_config_json(config_store::ConfigStore::instance().config());
+    JsonPtr root = make_object();
+    if (!root) {
+        return common::Result<std::string>::error(common::ErrorCode::Unknown);
     }
 
-    std::string out;
-    out.reserve(diagnostics_json.size() + config_section.size() + 512);
-    out += '{';
-    out += "\"format\":\"water-gateway-support-bundle\",\"format_version\":1,";
-    out += "\"diagnostics\":";
-    out += diagnostics_json;
-    out += ",\"metrics\":";
-    out += metrics_json(metrics_res.value());
-    out += ",\"health\":";
-    out += health_json(health_res.value());
-    out += ",\"config\":";
-    out += config_section;
-    out += ",\"logs\":";
-    out += logs_json();
-    const auto detected = meter_registry::MeterRegistry::instance().detected_meters();
-    const auto watchlist = meter_registry::MeterRegistry::instance().watchlist();
-    char meter_buf[96];
-    std::snprintf(meter_buf, sizeof(meter_buf),
-                  ",\"meters\":{\"detected_count\":%lu,\"watchlist_count\":%lu}",
-                  static_cast<unsigned long>(detected.size()),
-                  static_cast<unsigned long>(watchlist.size()));
-    out += meter_buf;
-    const auto ota = ota_manager::OtaManager::instance().status();
-    char ota_buf[320];
-    std::snprintf(ota_buf, sizeof(ota_buf),
-                  ",\"ota\":{\"state\":\"%s\",\"progress_pct\":%u,\"message\":\"%s\","
-                  "\"current_version\":\"%s\"}",
-                  ota_state_str(ota.state), static_cast<unsigned int>(ota.progress_pct),
-                  json_escape(ota.message).c_str(), json_escape(ota.current_version).c_str());
-    out += ota_buf;
-    out += '}';
+    cJSON_AddStringToObject(root.get(), "format", "water-gateway-support-bundle");
+    cJSON_AddNumberToObject(root.get(), "format_version", 1);
 
-    return common::Result<std::string>::ok(std::move(out));
+    add_owned_item(root.get(), "diagnostics", build_diagnostics_json(diag_res.value()));
+    add_owned_item(root.get(), "metrics", build_metrics_json(metrics_res.value()));
+    add_owned_item(root.get(), "health", build_health_json(health_res.value()));
+    add_owned_item(root.get(), "config", build_config_or_error_json());
+    add_owned_item(root.get(), "logs", build_logs_json());
+    add_owned_item(root.get(), "meters", build_meters_json());
+    add_owned_item(root.get(), "ota", build_ota_json());
+
+    JsonStringPtr printed(cJSON_PrintUnformatted(root.get()), cJSON_free);
+    if (!printed) {
+        return common::Result<std::string>::error(common::ErrorCode::Unknown);
+    }
+    return common::Result<std::string>::ok(std::string(printed.get()));
 }
 
 } // namespace support_bundle_service

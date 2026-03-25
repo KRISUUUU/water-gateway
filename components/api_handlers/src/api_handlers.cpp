@@ -22,7 +22,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
-#include <sstream>
+#include <memory>
 #include <string>
 
 #ifndef HOST_TEST_BUILD
@@ -38,37 +38,39 @@ static const char* TAG = "api_handlers";
 
 namespace {
 
-std::string json_escape(const std::string& s) {
-    std::string o;
-    o.reserve(s.size() + 8);
-    for (unsigned char c : s) {
-        switch (c) {
-        case '"':
-            o += "\\\"";
-            break;
-        case '\\':
-            o += "\\\\";
-            break;
-        case '\n':
-            o += "\\n";
-            break;
-        case '\r':
-            o += "\\r";
-            break;
-        case '\t':
-            o += "\\t";
-            break;
-        default:
-            if (c < 0x20) {
-                char buf[8];
-                std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                o += buf;
-            } else {
-                o += static_cast<char>(c);
-            }
-        }
+esp_err_t send_json(httpd_req_t* req, int status_code, const char* body);
+
+using JsonPtr = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
+using JsonStringPtr = std::unique_ptr<char, decltype(&cJSON_free)>;
+
+JsonPtr make_json_object() {
+    return JsonPtr(cJSON_CreateObject(), cJSON_Delete);
+}
+
+std::string to_unformatted_json(cJSON* root) {
+    if (!root) {
+        return "{}";
     }
-    return o;
+    JsonStringPtr printed(cJSON_PrintUnformatted(root), cJSON_free);
+    if (!printed) {
+        return "{}";
+    }
+    return std::string(printed.get());
+}
+
+esp_err_t send_json_root(httpd_req_t* req, int status_code, cJSON* root) {
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    JsonStringPtr printed(cJSON_PrintUnformatted(root), cJSON_free);
+    if (!printed) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    return send_json(req, status_code, printed.get());
+}
+
+esp_err_t send_json_root(httpd_req_t* req, int status_code, const JsonPtr& root) {
+    return send_json_root(req, status_code, root.get());
 }
 
 bool has_https_scheme(const std::string& url) {
@@ -294,39 +296,47 @@ const char* ota_state_name(ota_manager::OtaState s) {
 }
 
 std::string config_to_json_redacted(const config_store::AppConfig& c) {
-    std::ostringstream j;
-    j << "{"
-      << "\"version\":" << c.version << ","
-      << "\"device\":{"
-      << "\"name\":\"" << json_escape(c.device.name) << "\","
-      << "\"hostname\":\"" << json_escape(c.device.hostname) << "\""
-      << "},"
-      << "\"wifi\":{"
-      << "\"ssid\":\"" << json_escape(c.wifi.ssid) << "\","
-      << "\"password\":\"" << config_store::kRedactedValue << "\","
-      << "\"max_retries\":" << static_cast<int>(c.wifi.max_retries) << "},"
-      << "\"mqtt\":{"
-      << "\"enabled\":" << (c.mqtt.enabled ? "true" : "false") << ","
-      << "\"host\":\"" << json_escape(c.mqtt.host) << "\","
-      << "\"port\":" << c.mqtt.port << ","
-      << "\"username\":\"" << config_store::kRedactedValue << "\","
-      << "\"password\":\"" << config_store::kRedactedValue << "\","
-      << "\"prefix\":\"" << json_escape(c.mqtt.prefix) << "\","
-      << "\"client_id\":\"" << json_escape(c.mqtt.client_id) << "\","
-      << "\"qos\":" << static_cast<int>(c.mqtt.qos) << ","
-      << "\"use_tls\":" << (c.mqtt.use_tls ? "true" : "false") << "},"
-      << "\"radio\":{"
-      << "\"frequency_khz\":" << c.radio.frequency_khz << ","
-      << "\"data_rate\":" << static_cast<int>(c.radio.data_rate) << ","
-      << "\"auto_recovery\":" << (c.radio.auto_recovery ? "true" : "false") << "},"
-      << "\"logging\":{"
-      << "\"level\":" << static_cast<int>(c.logging.level) << "},"
-      << "\"auth\":{"
-      << "\"admin_password\":\"" << config_store::kRedactedValue << "\","
-      << "\"password_set\":" << (c.auth.has_password() ? "true" : "false") << ","
-      << "\"session_timeout_s\":" << c.auth.session_timeout_s << "}"
-      << "}";
-    return j.str();
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return "{}";
+    }
+
+    cJSON_AddNumberToObject(root.get(), "version", static_cast<double>(c.version));
+
+    cJSON* device = cJSON_AddObjectToObject(root.get(), "device");
+    cJSON_AddStringToObject(device, "name", c.device.name);
+    cJSON_AddStringToObject(device, "hostname", c.device.hostname);
+
+    cJSON* wifi = cJSON_AddObjectToObject(root.get(), "wifi");
+    cJSON_AddStringToObject(wifi, "ssid", c.wifi.ssid);
+    cJSON_AddStringToObject(wifi, "password", config_store::kRedactedValue);
+    cJSON_AddNumberToObject(wifi, "max_retries", static_cast<double>(c.wifi.max_retries));
+
+    cJSON* mqtt = cJSON_AddObjectToObject(root.get(), "mqtt");
+    cJSON_AddBoolToObject(mqtt, "enabled", c.mqtt.enabled);
+    cJSON_AddStringToObject(mqtt, "host", c.mqtt.host);
+    cJSON_AddNumberToObject(mqtt, "port", static_cast<double>(c.mqtt.port));
+    cJSON_AddStringToObject(mqtt, "username", config_store::kRedactedValue);
+    cJSON_AddStringToObject(mqtt, "password", config_store::kRedactedValue);
+    cJSON_AddStringToObject(mqtt, "prefix", c.mqtt.prefix);
+    cJSON_AddStringToObject(mqtt, "client_id", c.mqtt.client_id);
+    cJSON_AddNumberToObject(mqtt, "qos", static_cast<double>(c.mqtt.qos));
+    cJSON_AddBoolToObject(mqtt, "use_tls", c.mqtt.use_tls);
+
+    cJSON* radio = cJSON_AddObjectToObject(root.get(), "radio");
+    cJSON_AddNumberToObject(radio, "frequency_khz", static_cast<double>(c.radio.frequency_khz));
+    cJSON_AddNumberToObject(radio, "data_rate", static_cast<double>(c.radio.data_rate));
+    cJSON_AddBoolToObject(radio, "auto_recovery", c.radio.auto_recovery);
+
+    cJSON* logging = cJSON_AddObjectToObject(root.get(), "logging");
+    cJSON_AddNumberToObject(logging, "level", static_cast<double>(c.logging.level));
+
+    cJSON* auth = cJSON_AddObjectToObject(root.get(), "auth");
+    cJSON_AddStringToObject(auth, "admin_password", config_store::kRedactedValue);
+    cJSON_AddBoolToObject(auth, "password_set", c.auth.has_password());
+    cJSON_AddNumberToObject(auth, "session_timeout_s",
+                            static_cast<double>(c.auth.session_timeout_s));
+    return to_unformatted_json(root.get());
 }
 
 bool copy_json_string(char* dest, size_t dest_sz, const cJSON* item) {
@@ -477,21 +487,26 @@ esp_err_t handle_auth_login(httpd_req_t* req) {
     if (result.is_error()) {
         if (result.error() == common::ErrorCode::AuthRateLimited) {
             const int32_t retry_after = auth_service::AuthService::instance().retry_after_seconds();
-            std::ostringstream o;
-            o << "{\"error\":\"rate_limited\",\"retry_after_s\":"
-              << static_cast<long long>(retry_after) << "}";
-            const std::string json = o.str();
-            return send_json(req, 429, json.c_str());
+            JsonPtr rate = make_json_object();
+            if (!rate) {
+                return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+            }
+            cJSON_AddStringToObject(rate.get(), "error", "rate_limited");
+            cJSON_AddNumberToObject(rate.get(), "retry_after_s", static_cast<double>(retry_after));
+            return send_json_root(req, 429, rate);
         }
         return send_json(req, 401, "{\"error\":\"login_failed\"}");
     }
     const auth_service::SessionInfo& s = result.value();
-    std::ostringstream o;
-    o << "{\"token\":\"" << json_escape(std::string(s.token))
-      << "\",\"created_epoch_s\":" << static_cast<long long>(s.created_epoch_s)
-      << ",\"expires_epoch_s\":" << static_cast<long long>(s.expires_epoch_s) << ",\"valid\":true}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    JsonPtr ok = make_json_object();
+    if (!ok) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON_AddStringToObject(ok.get(), "token", s.token);
+    cJSON_AddNumberToObject(ok.get(), "created_epoch_s", static_cast<double>(s.created_epoch_s));
+    cJSON_AddNumberToObject(ok.get(), "expires_epoch_s", static_cast<double>(s.expires_epoch_s));
+    cJSON_AddBoolToObject(ok.get(), "valid", true);
+    return send_json_root(req, 200, ok);
 }
 
 esp_err_t handle_auth_logout(httpd_req_t* req) {
@@ -584,45 +599,56 @@ esp_err_t handle_status(httpd_req_t* req) {
     const auto& rc = radio.counters();
     const auto ota = ota_manager::OtaManager::instance().status();
     const char* mode = cfg.wifi.is_configured() ? "normal" : "provisioning";
-    std::ostringstream o;
-    o << "{\"health\":{"
-      << "\"state\":\"" << health_monitor::HealthMonitor::state_to_string(health.state) << "\","
-      << "\"warning_count\":" << health.warning_count << ","
-      << "\"error_count\":" << health.error_count << ","
-      << "\"uptime_s\":" << static_cast<unsigned long long>(health.uptime_s) << ","
-      << "\"last_warning_msg\":\"" << json_escape(health.last_warning_msg) << "\","
-      << "\"last_error_msg\":\"" << json_escape(health.last_error_msg) << "\""
-      << "},"
-      << "\"metrics\":{"
-      << "\"uptime_s\":" << metrics.uptime_s << ","
-      << "\"free_heap_bytes\":" << metrics.free_heap_bytes << ","
-      << "\"min_free_heap_bytes\":" << metrics.min_free_heap_bytes << ","
-      << "\"largest_free_block\":" << metrics.largest_free_block << "},"
-      << "\"mode\":\"" << mode << "\","
-      << "\"firmware_version\":\"" << json_escape(ota.current_version) << "\","
-      << "\"wifi\":{"
-      << "\"state\":\"" << wifi_state_name(wifi.state) << "\","
-      << "\"ip_address\":\"" << json_escape(wifi.ip_address) << "\","
-      << "\"rssi_dbm\":" << static_cast<int>(wifi.rssi_dbm) << ","
-      << "\"ssid\":\"" << json_escape(wifi.ssid) << "\","
-      << "\"reconnect_count\":" << wifi.reconnect_count << "},"
-      << "\"mqtt\":{"
-      << "\"state\":\"" << mqtt_state_name(mqtt.state) << "\","
-      << "\"broker_uri\":\"" << json_escape(mqtt.broker_uri) << "\","
-      << "\"publish_count\":" << mqtt.publish_count << ","
-      << "\"publish_failures\":" << mqtt.publish_failures << ","
-      << "\"reconnect_count\":" << mqtt.reconnect_count << "},"
-      << "\"radio\":{"
-      << "\"state\":\"" << radio_state_name(radio.state()) << "\","
-      << "\"frames_received\":" << rc.frames_received << ","
-      << "\"frames_crc_ok\":" << rc.frames_crc_ok << ","
-      << "\"frames_crc_fail\":" << rc.frames_crc_fail << ","
-      << "\"frames_incomplete\":" << rc.frames_incomplete << ","
-      << "\"frames_dropped_too_long\":" << rc.frames_dropped_too_long << ","
-      << "\"fifo_overflows\":" << rc.fifo_overflows << "}"
-      << "}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON* health_o = cJSON_AddObjectToObject(root.get(), "health");
+    cJSON_AddStringToObject(health_o, "state",
+                            health_monitor::HealthMonitor::state_to_string(health.state));
+    cJSON_AddNumberToObject(health_o, "warning_count", static_cast<double>(health.warning_count));
+    cJSON_AddNumberToObject(health_o, "error_count", static_cast<double>(health.error_count));
+    cJSON_AddNumberToObject(health_o, "uptime_s", static_cast<double>(health.uptime_s));
+    cJSON_AddStringToObject(health_o, "last_warning_msg", health.last_warning_msg.c_str());
+    cJSON_AddStringToObject(health_o, "last_error_msg", health.last_error_msg.c_str());
+
+    cJSON* metrics_o = cJSON_AddObjectToObject(root.get(), "metrics");
+    cJSON_AddNumberToObject(metrics_o, "uptime_s", static_cast<double>(metrics.uptime_s));
+    cJSON_AddNumberToObject(metrics_o, "free_heap_bytes",
+                            static_cast<double>(metrics.free_heap_bytes));
+    cJSON_AddNumberToObject(metrics_o, "min_free_heap_bytes",
+                            static_cast<double>(metrics.min_free_heap_bytes));
+    cJSON_AddNumberToObject(metrics_o, "largest_free_block",
+                            static_cast<double>(metrics.largest_free_block));
+
+    cJSON_AddStringToObject(root.get(), "mode", mode);
+    cJSON_AddStringToObject(root.get(), "firmware_version", ota.current_version);
+
+    cJSON* wifi_o = cJSON_AddObjectToObject(root.get(), "wifi");
+    cJSON_AddStringToObject(wifi_o, "state", wifi_state_name(wifi.state));
+    cJSON_AddStringToObject(wifi_o, "ip_address", wifi.ip_address);
+    cJSON_AddNumberToObject(wifi_o, "rssi_dbm", static_cast<double>(wifi.rssi_dbm));
+    cJSON_AddStringToObject(wifi_o, "ssid", wifi.ssid);
+    cJSON_AddNumberToObject(wifi_o, "reconnect_count", static_cast<double>(wifi.reconnect_count));
+
+    cJSON* mqtt_o = cJSON_AddObjectToObject(root.get(), "mqtt");
+    cJSON_AddStringToObject(mqtt_o, "state", mqtt_state_name(mqtt.state));
+    cJSON_AddStringToObject(mqtt_o, "broker_uri", mqtt.broker_uri);
+    cJSON_AddNumberToObject(mqtt_o, "publish_count", static_cast<double>(mqtt.publish_count));
+    cJSON_AddNumberToObject(mqtt_o, "publish_failures", static_cast<double>(mqtt.publish_failures));
+    cJSON_AddNumberToObject(mqtt_o, "reconnect_count", static_cast<double>(mqtt.reconnect_count));
+
+    cJSON* radio_o = cJSON_AddObjectToObject(root.get(), "radio");
+    cJSON_AddStringToObject(radio_o, "state", radio_state_name(radio.state()));
+    cJSON_AddNumberToObject(radio_o, "frames_received", static_cast<double>(rc.frames_received));
+    cJSON_AddNumberToObject(radio_o, "frames_crc_ok", static_cast<double>(rc.frames_crc_ok));
+    cJSON_AddNumberToObject(radio_o, "frames_crc_fail", static_cast<double>(rc.frames_crc_fail));
+    cJSON_AddNumberToObject(radio_o, "frames_incomplete",
+                            static_cast<double>(rc.frames_incomplete));
+    cJSON_AddNumberToObject(radio_o, "frames_dropped_too_long",
+                            static_cast<double>(rc.frames_dropped_too_long));
+    cJSON_AddNumberToObject(radio_o, "fifo_overflows", static_cast<double>(rc.fifo_overflows));
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_telegrams(httpd_req_t* req) {
@@ -643,27 +669,31 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
     }
 
     const auto telegrams = meter_registry::MeterRegistry::instance().recent_telegrams(filter);
-    std::ostringstream o;
-    o << "{\"telegrams\":[";
-    for (size_t i = 0; i < telegrams.size(); ++i) {
-        if (i > 0) {
-            o << ',';
-        }
-        const auto& t = telegrams[i];
-        o << "{"
-          << "\"timestamp_ms\":" << static_cast<long long>(t.timestamp_ms) << ","
-          << "\"raw_hex\":\"" << json_escape(t.raw_hex) << "\","
-          << "\"frame_length\":" << static_cast<unsigned int>(t.frame_length) << ","
-          << "\"rssi_dbm\":" << static_cast<int>(t.rssi_dbm) << ","
-          << "\"lqi\":" << static_cast<unsigned int>(t.lqi) << ","
-          << "\"crc_ok\":" << (t.crc_ok ? "true" : "false") << ","
-          << "\"duplicate\":" << (t.duplicate ? "true" : "false") << ","
-          << "\"meter_key\":\"" << json_escape(t.meter_key) << "\","
-          << "\"watched\":" << (t.watched ? "true" : "false") << "}";
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
-    o << "]}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    cJSON* arr = cJSON_AddArrayToObject(root.get(), "telegrams");
+    if (!arr) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    for (const auto& t : telegrams) {
+        cJSON* item = cJSON_CreateObject();
+        if (!item) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
+        cJSON_AddNumberToObject(item, "timestamp_ms", static_cast<double>(t.timestamp_ms));
+        cJSON_AddStringToObject(item, "raw_hex", t.raw_hex.c_str());
+        cJSON_AddNumberToObject(item, "frame_length", static_cast<double>(t.frame_length));
+        cJSON_AddNumberToObject(item, "rssi_dbm", static_cast<double>(t.rssi_dbm));
+        cJSON_AddNumberToObject(item, "lqi", static_cast<double>(t.lqi));
+        cJSON_AddBoolToObject(item, "crc_ok", t.crc_ok);
+        cJSON_AddBoolToObject(item, "duplicate", t.duplicate);
+        cJSON_AddStringToObject(item, "meter_key", t.meter_key.c_str());
+        cJSON_AddBoolToObject(item, "watched", t.watched);
+        cJSON_AddItemToArray(arr, item);
+    }
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_meters_detected(httpd_req_t* req) {
@@ -673,42 +703,43 @@ esp_err_t handle_meters_detected(httpd_req_t* req) {
     }
     const auto meters = meter_registry::MeterRegistry::instance().detected_meters();
     const std::string filter = query_param(req->uri, "filter");
-    std::ostringstream o;
-    o << "{\"meters\":[";
-    size_t emitted = 0;
-    for (size_t i = 0; i < meters.size(); ++i) {
-        const auto& m = meters[i];
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON* arr = cJSON_AddArrayToObject(root.get(), "meters");
+    if (!arr) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    for (const auto& m : meters) {
         if (filter == "watched" && !m.watched) {
             continue;
         }
         if (filter == "unknown" && m.watched) {
             continue;
         }
-        if (emitted > 0) {
-            o << ',';
+        cJSON* item = cJSON_CreateObject();
+        if (!item) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
         }
-        emitted++;
-        o << "{"
-          << "\"key\":\"" << json_escape(m.key) << "\","
-          << "\"manufacturer_id\":" << static_cast<unsigned int>(m.manufacturer_id) << ","
-          << "\"device_id\":" << static_cast<unsigned long>(m.device_id) << ","
-          << "\"first_seen_ms\":" << static_cast<long long>(m.first_seen_ms) << ","
-          << "\"last_seen_ms\":" << static_cast<long long>(m.last_seen_ms) << ","
-          << "\"seen_count\":" << static_cast<unsigned long>(m.seen_count) << ","
-          << "\"last_rssi_dbm\":" << static_cast<int>(m.last_rssi_dbm) << ","
-          << "\"last_lqi\":" << static_cast<unsigned int>(m.last_lqi) << ","
-          << "\"last_crc_ok\":" << (m.last_crc_ok ? "true" : "false") << ","
-          << "\"duplicate_count\":" << static_cast<unsigned long>(m.duplicate_count) << ","
-          << "\"crc_fail_count\":" << static_cast<unsigned long>(m.crc_fail_count) << ","
-          << "\"watched\":" << (m.watched ? "true" : "false") << ","
-          << "\"watch_enabled\":" << (m.watch_enabled ? "true" : "false") << ","
-          << "\"alias\":\"" << json_escape(m.alias) << "\","
-          << "\"note\":\"" << json_escape(m.note) << "\""
-          << "}";
+        cJSON_AddStringToObject(item, "key", m.key.c_str());
+        cJSON_AddNumberToObject(item, "manufacturer_id", static_cast<double>(m.manufacturer_id));
+        cJSON_AddNumberToObject(item, "device_id", static_cast<double>(m.device_id));
+        cJSON_AddNumberToObject(item, "first_seen_ms", static_cast<double>(m.first_seen_ms));
+        cJSON_AddNumberToObject(item, "last_seen_ms", static_cast<double>(m.last_seen_ms));
+        cJSON_AddNumberToObject(item, "seen_count", static_cast<double>(m.seen_count));
+        cJSON_AddNumberToObject(item, "last_rssi_dbm", static_cast<double>(m.last_rssi_dbm));
+        cJSON_AddNumberToObject(item, "last_lqi", static_cast<double>(m.last_lqi));
+        cJSON_AddBoolToObject(item, "last_crc_ok", m.last_crc_ok);
+        cJSON_AddNumberToObject(item, "duplicate_count", static_cast<double>(m.duplicate_count));
+        cJSON_AddNumberToObject(item, "crc_fail_count", static_cast<double>(m.crc_fail_count));
+        cJSON_AddBoolToObject(item, "watched", m.watched);
+        cJSON_AddBoolToObject(item, "watch_enabled", m.watch_enabled);
+        cJSON_AddStringToObject(item, "alias", m.alias.c_str());
+        cJSON_AddStringToObject(item, "note", m.note.c_str());
+        cJSON_AddItemToArray(arr, item);
     }
-    o << "]}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_watchlist_get(httpd_req_t* req) {
@@ -717,23 +748,26 @@ esp_err_t handle_watchlist_get(httpd_req_t* req) {
         return g;
     }
     const auto entries = meter_registry::MeterRegistry::instance().watchlist();
-    std::ostringstream o;
-    o << "{\"watchlist\":[";
-    for (size_t i = 0; i < entries.size(); ++i) {
-        if (i > 0) {
-            o << ',';
-        }
-        const auto& e = entries[i];
-        o << "{"
-          << "\"key\":\"" << json_escape(e.key) << "\","
-          << "\"enabled\":" << (e.enabled ? "true" : "false") << ","
-          << "\"alias\":\"" << json_escape(e.alias) << "\","
-          << "\"note\":\"" << json_escape(e.note) << "\""
-          << "}";
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
-    o << "]}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    cJSON* arr = cJSON_AddArrayToObject(root.get(), "watchlist");
+    if (!arr) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    for (const auto& e : entries) {
+        cJSON* item = cJSON_CreateObject();
+        if (!item) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
+        cJSON_AddStringToObject(item, "key", e.key.c_str());
+        cJSON_AddBoolToObject(item, "enabled", e.enabled);
+        cJSON_AddStringToObject(item, "alias", e.alias.c_str());
+        cJSON_AddStringToObject(item, "note", e.note.c_str());
+        cJSON_AddItemToArray(arr, item);
+    }
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_watchlist_post(httpd_req_t* req) {
@@ -817,14 +851,21 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
         return send_json(req, 500, "{\"error\":\"diagnostics_snapshot_failed\"}");
     }
     const auto& snap = snap_res.value();
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON* rsm_obj = cJSON_AddObjectToObject(root.get(), "rsm");
+    cJSON_AddStringToObject(rsm_obj, "state", rsm_state_name(rsm.state()));
+    cJSON_AddNumberToObject(rsm_obj, "consecutive_errors",
+                            static_cast<double>(rsm.consecutive_errors()));
     const std::string diag_json = diagnostics_service::DiagnosticsService::to_json(snap);
-    std::ostringstream o;
-    o << "{\"rsm\":{"
-      << "\"state\":\"" << rsm_state_name(rsm.state()) << "\","
-      << "\"consecutive_errors\":" << rsm.consecutive_errors() << "},"
-      << "\"diagnostics\":" << diag_json << "}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    cJSON* diag_obj = cJSON_Parse(diag_json.c_str());
+    if (!diag_obj) {
+        return send_json(req, 500, "{\"error\":\"diagnostics_json_invalid\"}");
+    }
+    cJSON_AddItemToObject(root.get(), "diagnostics", diag_obj);
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_diagnostics_mqtt(httpd_req_t* req) {
@@ -833,16 +874,19 @@ esp_err_t handle_diagnostics_mqtt(httpd_req_t* req) {
         return g;
     }
     const mqtt_service::MqttStatus st = mqtt_service::MqttService::instance().status();
-    std::ostringstream o;
-    o << "{\"state\":\"" << mqtt_state_name(st.state) << "\","
-      << "\"publish_count\":" << st.publish_count << ","
-      << "\"publish_failures\":" << st.publish_failures << ","
-      << "\"reconnect_count\":" << st.reconnect_count << ","
-      << "\"last_publish_epoch_ms\":" << st.last_publish_epoch_ms << ","
-      << "\"broker_uri\":\"" << json_escape(st.broker_uri) << "\""
-      << "}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON_AddStringToObject(root.get(), "state", mqtt_state_name(st.state));
+    cJSON_AddNumberToObject(root.get(), "publish_count", static_cast<double>(st.publish_count));
+    cJSON_AddNumberToObject(root.get(), "publish_failures",
+                            static_cast<double>(st.publish_failures));
+    cJSON_AddNumberToObject(root.get(), "reconnect_count", static_cast<double>(st.reconnect_count));
+    cJSON_AddNumberToObject(root.get(), "last_publish_epoch_ms",
+                            static_cast<double>(st.last_publish_epoch_ms));
+    cJSON_AddStringToObject(root.get(), "broker_uri", st.broker_uri);
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_config_get(httpd_req_t* req) {
@@ -879,11 +923,20 @@ esp_err_t handle_config_post(httpd_req_t* req) {
     }
     const config_store::ValidationResult& vr = save_result.value();
     if (!vr.valid) {
-        cJSON* err_root = cJSON_CreateObject();
-        cJSON_AddBoolToObject(err_root, "ok", false);
-        cJSON* issues = cJSON_CreateArray();
+        JsonPtr err_root = make_json_object();
+        if (!err_root) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
+        cJSON_AddBoolToObject(err_root.get(), "ok", false);
+        cJSON* issues = cJSON_AddArrayToObject(err_root.get(), "issues");
+        if (!issues) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
         for (const auto& issue : vr.issues) {
             cJSON* it = cJSON_CreateObject();
+            if (!it) {
+                return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+            }
             cJSON_AddStringToObject(it, "field", issue.field.c_str());
             cJSON_AddStringToObject(it, "message", issue.message.c_str());
             cJSON_AddStringToObject(
@@ -891,15 +944,7 @@ esp_err_t handle_config_post(httpd_req_t* req) {
                 issue.severity == config_store::ValidationSeverity::Error ? "error" : "warning");
             cJSON_AddItemToArray(issues, it);
         }
-        cJSON_AddItemToObject(err_root, "issues", issues);
-        char* printed = cJSON_PrintUnformatted(err_root);
-        cJSON_Delete(err_root);
-        if (!printed) {
-            return send_json(req, 500, "{\"error\":\"internal\"}");
-        }
-        const esp_err_t e = send_json(req, 400, printed);
-        cJSON_free(printed);
-        return e;
+        return send_json_root(req, 400, err_root);
     }
 
     bool provisioning_completed = false;
@@ -915,13 +960,15 @@ esp_err_t handle_config_post(httpd_req_t* req) {
         (void)auth_service::AuthService::instance().logout();
     }
 
-    std::ostringstream ok;
-    ok << "{\"ok\":true,"
-       << "\"reboot_required\":true,"
-       << "\"relogin_required\":" << (auth_changed ? "true" : "false") << ","
-       << "\"provisioning_completed\":" << (provisioning_completed ? "true" : "false") << "}";
-    const std::string ok_body = ok.str();
-    return send_json(req, 200, ok_body.c_str());
+    JsonPtr ok = make_json_object();
+    if (!ok) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON_AddBoolToObject(ok.get(), "ok", true);
+    cJSON_AddBoolToObject(ok.get(), "reboot_required", true);
+    cJSON_AddBoolToObject(ok.get(), "relogin_required", auth_changed);
+    cJSON_AddBoolToObject(ok.get(), "provisioning_completed", provisioning_completed);
+    return send_json_root(req, 200, ok);
 }
 
 esp_err_t handle_ota_status(httpd_req_t* req) {
@@ -930,14 +977,15 @@ esp_err_t handle_ota_status(httpd_req_t* req) {
         return g;
     }
     const ota_manager::OtaStatus st = ota_manager::OtaManager::instance().status();
-    std::ostringstream o;
-    o << "{\"state\":\"" << ota_state_name(st.state) << "\","
-      << "\"message\":\"" << json_escape(st.message) << "\","
-      << "\"progress_pct\":" << static_cast<int>(st.progress_pct) << ","
-      << "\"current_version\":\"" << json_escape(st.current_version) << "\""
-      << "}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON_AddStringToObject(root.get(), "state", ota_state_name(st.state));
+    cJSON_AddStringToObject(root.get(), "message", st.message);
+    cJSON_AddNumberToObject(root.get(), "progress_pct", static_cast<double>(st.progress_pct));
+    cJSON_AddStringToObject(root.get(), "current_version", st.current_version);
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_ota_upload(httpd_req_t* req) {
@@ -1035,19 +1083,25 @@ esp_err_t handle_logs(httpd_req_t* req) {
         return g;
     }
     const auto entries = persistent_log_buffer::PersistentLogBuffer::instance().lines();
-    std::ostringstream o;
-    o << "{\"entries\":[";
-    for (size_t i = 0; i < entries.size(); ++i) {
-        if (i > 0) {
-            o << ',';
-        }
-        o << "{\"timestamp_us\":" << entries[i].timestamp_us << ",\"severity\":\""
-          << log_severity_name(entries[i].severity) << "\",\"message\":\""
-          << json_escape(entries[i].message) << "\"}";
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
-    o << "]}";
-    const std::string json = o.str();
-    return send_json(req, 200, json.c_str());
+    cJSON* arr = cJSON_AddArrayToObject(root.get(), "entries");
+    if (!arr) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    for (const auto& e : entries) {
+        cJSON* item = cJSON_CreateObject();
+        if (!item) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
+        cJSON_AddNumberToObject(item, "timestamp_us", static_cast<double>(e.timestamp_us));
+        cJSON_AddStringToObject(item, "severity", log_severity_name(e.severity));
+        cJSON_AddStringToObject(item, "message", e.message.c_str());
+        cJSON_AddItemToArray(arr, item);
+    }
+    return send_json_root(req, 200, root);
 }
 
 esp_err_t handle_support_bundle(httpd_req_t* req) {

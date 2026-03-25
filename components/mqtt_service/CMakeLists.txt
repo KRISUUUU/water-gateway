@@ -4,5 +4,5 @@ idf_component_register(
         "src/mqtt_topics.cpp"
         "src/mqtt_payloads.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES common config_store event_bus mqtt
+    REQUIRES common config_store event_bus mqtt json
 )

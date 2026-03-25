@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(water_gateway_host_tests CXX)
+project(water_gateway_host_tests C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,23 @@ set(COMMON_INCLUDES
 # Compile definitions for host test builds
 add_compile_definitions(HOST_TEST_BUILD)
 
+set(CJSON_DIR "")
+if(DEFINED ENV{IDF_PATH})
+    set(CJSON_DIR "$ENV{IDF_PATH}/components/json/cJSON")
+endif()
+if(CJSON_DIR STREQUAL "" OR NOT EXISTS "${CJSON_DIR}/cJSON.c")
+    if(EXISTS "${PROJECT_ROOT}/../Espressif/v5.2/esp-idf/components/json/cJSON/cJSON.c")
+        set(CJSON_DIR "${PROJECT_ROOT}/../Espressif/v5.2/esp-idf/components/json/cJSON")
+    elseif(EXISTS "E:/Espressif/v5.2/esp-idf/components/json/cJSON/cJSON.c")
+        set(CJSON_DIR "E:/Espressif/v5.2/esp-idf/components/json/cJSON")
+    endif()
+endif()
+set(CJSON_SRC "")
+if(EXISTS "${CJSON_DIR}/cJSON.c")
+    list(APPEND COMMON_INCLUDES "${CJSON_DIR}")
+    set(CJSON_SRC "${CJSON_DIR}/cJSON.c")
+endif()
+
 # ---- Helper function to add a host test ----
 function(add_host_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE} ${ARGN})
@@ -66,6 +83,7 @@ add_host_test(test_mqtt_payloads
     test_mqtt_payloads.cpp
     "${COMP_DIR}/mqtt_service/src/mqtt_topics.cpp"
     "${COMP_DIR}/mqtt_service/src/mqtt_payloads.cpp"
+    ${CJSON_SRC}
 )
 
 # ---- test_auth_helpers ----

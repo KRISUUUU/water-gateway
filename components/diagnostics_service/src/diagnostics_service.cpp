@@ -4,47 +4,21 @@
 #include "mqtt_service/mqtt_service.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wifi_manager/wifi_manager.hpp"
-#include <cstdio>
+
+#include <memory>
 #include <string>
-#include <string_view>
+
+#include "cJSON.h"
 
 namespace diagnostics_service {
 
 namespace {
 
-std::string json_escape(std::string_view s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-        case '\\':
-            out += "\\\\";
-            break;
-        case '"':
-            out += "\\\"";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default:
-            if (static_cast<unsigned char>(c) < 0x20U) {
-                char buf[8];
-                std::snprintf(buf, sizeof(buf), "\\u%04x",
-                              static_cast<unsigned int>(static_cast<unsigned char>(c)));
-                out += buf;
-            } else {
-                out += c;
-            }
-            break;
-        }
-    }
-    return out;
+using JsonPtr = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
+using JsonStringPtr = std::unique_ptr<char, decltype(&cJSON_free)>;
+
+JsonPtr make_object() {
+    return JsonPtr(cJSON_CreateObject(), cJSON_Delete);
 }
 
 const char* radio_state_str(radio_cc1101::RadioState s) {
@@ -96,6 +70,99 @@ const char* wifi_state_str(wifi_manager::WifiState s) {
     return "Unknown";
 }
 
+std::string to_unformatted_json(cJSON* root) {
+    if (!root) {
+        return "{}";
+    }
+    JsonStringPtr printed(cJSON_PrintUnformatted(root), cJSON_free);
+    if (!printed) {
+        return "{}";
+    }
+    return std::string(printed.get());
+}
+
+void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON_AddStringToObject(root, "radio_state", radio_state_str(snap.radio_state));
+    cJSON* counters = cJSON_AddObjectToObject(root, "radio_counters");
+    if (!counters) {
+        return;
+    }
+    cJSON_AddNumberToObject(counters, "frames_received",
+                            static_cast<double>(snap.radio.frames_received));
+    cJSON_AddNumberToObject(counters, "frames_crc_ok",
+                            static_cast<double>(snap.radio.frames_crc_ok));
+    cJSON_AddNumberToObject(counters, "frames_crc_fail",
+                            static_cast<double>(snap.radio.frames_crc_fail));
+    cJSON_AddNumberToObject(counters, "frames_incomplete",
+                            static_cast<double>(snap.radio.frames_incomplete));
+    cJSON_AddNumberToObject(counters, "frames_dropped_too_long",
+                            static_cast<double>(snap.radio.frames_dropped_too_long));
+    cJSON_AddNumberToObject(counters, "fifo_overflows",
+                            static_cast<double>(snap.radio.fifo_overflows));
+    cJSON_AddNumberToObject(counters, "radio_resets", static_cast<double>(snap.radio.radio_resets));
+    cJSON_AddNumberToObject(counters, "radio_recoveries",
+                            static_cast<double>(snap.radio.radio_recoveries));
+    cJSON_AddNumberToObject(counters, "spi_errors", static_cast<double>(snap.radio.spi_errors));
+}
+
+void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON* mqtt = cJSON_AddObjectToObject(root, "mqtt");
+    if (!mqtt) {
+        return;
+    }
+    cJSON_AddStringToObject(mqtt, "state", mqtt_state_str(snap.mqtt.state));
+    cJSON_AddNumberToObject(mqtt, "publish_count", static_cast<double>(snap.mqtt.publish_count));
+    cJSON_AddNumberToObject(mqtt, "publish_failures",
+                            static_cast<double>(snap.mqtt.publish_failures));
+    cJSON_AddNumberToObject(mqtt, "reconnect_count",
+                            static_cast<double>(snap.mqtt.reconnect_count));
+    cJSON_AddNumberToObject(mqtt, "last_publish_epoch_ms",
+                            static_cast<double>(snap.mqtt.last_publish_epoch_ms));
+    cJSON_AddStringToObject(mqtt, "broker_uri", snap.mqtt.broker_uri);
+}
+
+void fill_wifi(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON* wifi = cJSON_AddObjectToObject(root, "wifi");
+    if (!wifi) {
+        return;
+    }
+    cJSON_AddStringToObject(wifi, "state", wifi_state_str(snap.wifi.state));
+    cJSON_AddNumberToObject(wifi, "rssi_dbm", static_cast<double>(snap.wifi.rssi_dbm));
+    cJSON_AddNumberToObject(wifi, "reconnect_count",
+                            static_cast<double>(snap.wifi.reconnect_count));
+    cJSON_AddStringToObject(wifi, "ip_address", snap.wifi.ip_address);
+    cJSON_AddStringToObject(wifi, "ssid", snap.wifi.ssid);
+}
+
+void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON* metrics = cJSON_AddObjectToObject(root, "metrics");
+    if (!metrics) {
+        return;
+    }
+    cJSON_AddNumberToObject(metrics, "uptime_s", static_cast<double>(snap.metrics.uptime_s));
+    cJSON_AddNumberToObject(metrics, "free_heap_bytes",
+                            static_cast<double>(snap.metrics.free_heap_bytes));
+    cJSON_AddNumberToObject(metrics, "min_free_heap_bytes",
+                            static_cast<double>(snap.metrics.min_free_heap_bytes));
+    cJSON_AddNumberToObject(metrics, "largest_free_block",
+                            static_cast<double>(snap.metrics.largest_free_block));
+}
+
+void fill_health(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON* health = cJSON_AddObjectToObject(root, "health");
+    if (!health) {
+        return;
+    }
+    cJSON_AddStringToObject(health, "state",
+                            health_monitor::HealthMonitor::state_to_string(snap.health.state));
+    cJSON_AddNumberToObject(health, "warning_count",
+                            static_cast<double>(snap.health.warning_count));
+    cJSON_AddNumberToObject(health, "error_count", static_cast<double>(snap.health.error_count));
+    cJSON_AddNumberToObject(health, "uptime_s", static_cast<double>(snap.health.uptime_s));
+    cJSON_AddStringToObject(health, "last_warning_msg", snap.health.last_warning_msg.c_str());
+    cJSON_AddStringToObject(health, "last_error_msg", snap.health.last_error_msg.c_str());
+}
+
 } // namespace
 
 DiagnosticsService& DiagnosticsService::instance() {
@@ -126,87 +193,17 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
 }
 
 std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
-    char buf[256];
-    std::string out;
-    out.reserve(2048);
-    out += '{';
-    out += "\"radio_state\":\"";
-    out += radio_state_str(snap.radio_state);
-    out += "\",\"radio_counters\":{";
-    std::snprintf(buf, sizeof(buf),
-                  "\"frames_received\":%lu,\"frames_crc_ok\":%lu,"
-                  "\"frames_crc_fail\":%lu,\"frames_incomplete\":%lu,"
-                  "\"frames_dropped_too_long\":%lu,\"fifo_overflows\":%lu,"
-                  "\"radio_resets\":%lu,\"radio_recoveries\":%lu,"
-                  "\"spi_errors\":%lu}",
-                  static_cast<unsigned long>(snap.radio.frames_received),
-                  static_cast<unsigned long>(snap.radio.frames_crc_ok),
-                  static_cast<unsigned long>(snap.radio.frames_crc_fail),
-                  static_cast<unsigned long>(snap.radio.frames_incomplete),
-                  static_cast<unsigned long>(snap.radio.frames_dropped_too_long),
-                  static_cast<unsigned long>(snap.radio.fifo_overflows),
-                  static_cast<unsigned long>(snap.radio.radio_resets),
-                  static_cast<unsigned long>(snap.radio.radio_recoveries),
-                  static_cast<unsigned long>(snap.radio.spi_errors));
-    out += buf;
+    JsonPtr root = make_object();
+    if (!root) {
+        return "{}";
+    }
 
-    out += ",\"mqtt\":{";
-    std::snprintf(buf, sizeof(buf),
-                  "\"state\":\"%s\",\"publish_count\":%lu,"
-                  "\"publish_failures\":%lu,\"reconnect_count\":%lu,"
-                  "\"last_publish_epoch_ms\":%lld,",
-                  mqtt_state_str(snap.mqtt.state),
-                  static_cast<unsigned long>(snap.mqtt.publish_count),
-                  static_cast<unsigned long>(snap.mqtt.publish_failures),
-                  static_cast<unsigned long>(snap.mqtt.reconnect_count),
-                  static_cast<long long>(snap.mqtt.last_publish_epoch_ms));
-    out += buf;
-    out += "\"broker_uri\":\"";
-    out += json_escape(snap.mqtt.broker_uri);
-    out += "\"}";
-
-    out += ",\"wifi\":{";
-    std::snprintf(buf, sizeof(buf),
-                  "\"state\":\"%s\",\"rssi_dbm\":%d,"
-                  "\"reconnect_count\":%lu,",
-                  wifi_state_str(snap.wifi.state), static_cast<int>(snap.wifi.rssi_dbm),
-                  static_cast<unsigned long>(snap.wifi.reconnect_count));
-    out += buf;
-    out += "\"ip_address\":\"";
-    out += json_escape(snap.wifi.ip_address);
-    out += "\",\"ssid\":\"";
-    out += json_escape(snap.wifi.ssid);
-    out += "\"}";
-
-    out += ",\"metrics\":{";
-    std::snprintf(buf, sizeof(buf),
-                  "\"uptime_s\":%lu,\"free_heap_bytes\":%lu,"
-                  "\"min_free_heap_bytes\":%lu,\"largest_free_block\":%lu}",
-                  static_cast<unsigned long>(snap.metrics.uptime_s),
-                  static_cast<unsigned long>(snap.metrics.free_heap_bytes),
-                  static_cast<unsigned long>(snap.metrics.min_free_heap_bytes),
-                  static_cast<unsigned long>(snap.metrics.largest_free_block));
-    out += buf;
-
-    out += ",\"health\":{";
-    out += "\"state\":\"";
-    out += health_monitor::HealthMonitor::state_to_string(snap.health.state);
-    out += '"';
-    std::snprintf(buf, sizeof(buf),
-                  ",\"warning_count\":%lu,\"error_count\":%lu,"
-                  "\"uptime_s\":%llu,",
-                  static_cast<unsigned long>(snap.health.warning_count),
-                  static_cast<unsigned long>(snap.health.error_count),
-                  static_cast<unsigned long long>(snap.health.uptime_s));
-    out += buf;
-    out += "\"last_warning_msg\":\"";
-    out += json_escape(snap.health.last_warning_msg);
-    out += "\",\"last_error_msg\":\"";
-    out += json_escape(snap.health.last_error_msg);
-    out += "\"}";
-
-    out += '}';
-    return out;
+    fill_radio(root.get(), snap);
+    fill_mqtt(root.get(), snap);
+    fill_wifi(root.get(), snap);
+    fill_metrics(root.get(), snap);
+    fill_health(root.get(), snap);
+    return to_unformatted_json(root.get());
 }
 
 } // namespace diagnostics_service
