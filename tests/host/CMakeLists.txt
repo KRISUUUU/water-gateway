@@ -46,10 +46,23 @@ if(CJSON_DIR STREQUAL "" OR NOT EXISTS "${CJSON_DIR}/cJSON.c")
         set(CJSON_DIR "E:/Espressif/v5.2/esp-idf/components/json/cJSON")
     endif()
 endif()
+
+include(FetchContent)
+
 set(CJSON_SRC "")
 if(EXISTS "${CJSON_DIR}/cJSON.c")
     list(APPEND COMMON_INCLUDES "${CJSON_DIR}")
     set(CJSON_SRC "${CJSON_DIR}/cJSON.c")
+else()
+    message(STATUS "ESP-IDF cJSON not found. Fetching from GitHub for Host Tests...")
+    FetchContent_Declare(
+        cJSON_ext
+        GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
+        GIT_TAG v1.7.17
+    )
+    FetchContent_Populate(cJSON_ext)
+    list(APPEND COMMON_INCLUDES "${cjson_ext_SOURCE_DIR}")
+    set(CJSON_SRC "${cjson_ext_SOURCE_DIR}/cJSON.c")
 endif()
 
 # ---- Helper function to add a host test ----

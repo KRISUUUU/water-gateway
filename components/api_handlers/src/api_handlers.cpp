@@ -153,6 +153,20 @@ esp_err_t require_auth(httpd_req_t* req) {
     return ESP_OK;
 }
 
+esp_err_t handle_bootstrap(httpd_req_t* req) {
+    const auto cfg = config_store::ConfigStore::instance().config();
+    const bool provisioning = !cfg.wifi.is_configured();
+    const bool password_set = cfg.auth.has_password();
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON_AddStringToObject(root.get(), "mode", provisioning ? "provisioning" : "normal");
+    cJSON_AddBoolToObject(root.get(), "provisioning", provisioning);
+    cJSON_AddBoolToObject(root.get(), "password_set", password_set);
+    return send_json_root(req, 200, root);
+}
+
 bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len) {
     const size_t len = req->content_len;
     if (len > max_len) {
@@ -1177,6 +1191,7 @@ void register_all_handlers(void* server) {
     if (register_uri(srv, path, m, fn) != ESP_OK)                                                  \
     return
 
+    REG(HTTP_GET, "/api/bootstrap", handle_bootstrap);
     REG(HTTP_POST, "/api/auth/login", handle_auth_login);
     REG(HTTP_POST, "/api/auth/logout", handle_auth_logout);
     REG(HTTP_POST, "/api/auth/password", handle_auth_password);

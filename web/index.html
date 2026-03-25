@@ -17,6 +17,36 @@
             <button type="submit" class="btn btn-primary btn-full">Sign In</button>
             <p id="login-error" class="msg msg-error" hidden></p>
         </form>
+        <form id="setup-form" class="setup-form" hidden>
+            <h3>Initial Setup</h3>
+            <p class="hint">First boot detected. Configure Wi-Fi and set admin password to finish onboarding.</p>
+            <label for="setup-device-name">Device Name</label>
+            <input type="text" id="setup-device-name" autocomplete="organization" placeholder="WMBus Gateway">
+            <label for="setup-hostname">Hostname</label>
+            <input type="text" id="setup-hostname" autocomplete="off" placeholder="water-gateway">
+            <label for="setup-ssid">Wi-Fi SSID</label>
+            <input type="text" id="setup-ssid" required autocomplete="username" placeholder="Your Wi-Fi SSID">
+            <label for="setup-wifi-password">Wi-Fi Password</label>
+            <input type="password" id="setup-wifi-password" autocomplete="new-password"
+                   placeholder="Your Wi-Fi password">
+            <label for="setup-admin-password">Admin Password</label>
+            <input type="password" id="setup-admin-password" required autocomplete="new-password"
+                   placeholder="Set admin password">
+            <label class="checkbox-row">
+                <input type="checkbox" id="setup-mqtt-enabled">
+                Configure MQTT now (optional)
+            </label>
+            <label for="setup-mqtt-host">MQTT Host</label>
+            <input type="text" id="setup-mqtt-host" placeholder="broker.local" disabled>
+            <label for="setup-mqtt-port">MQTT Port</label>
+            <input type="number" id="setup-mqtt-port" placeholder="1883" disabled>
+            <label for="setup-mqtt-user">MQTT Username</label>
+            <input type="text" id="setup-mqtt-user" placeholder="optional" disabled>
+            <label for="setup-mqtt-password">MQTT Password</label>
+            <input type="password" id="setup-mqtt-password" placeholder="optional" disabled>
+            <button type="submit" class="btn btn-primary btn-full">Save Initial Setup</button>
+            <p id="setup-msg" class="msg" hidden></p>
+        </form>
     </div>
 </section>
 

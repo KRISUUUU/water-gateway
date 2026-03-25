@@ -6,6 +6,7 @@
     let cacheStatus = null;
     let cacheWatchlist = [];
     let refreshTimer = null;
+    let bootstrapInfo = null;
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -59,6 +60,10 @@
         }
         el.textContent = message;
         el.hidden = false;
+    }
+
+    function toBool(value) {
+        return !!value;
     }
 
     function badgeClassByState(value) {
@@ -144,6 +149,29 @@
         localStorage.removeItem("wg_token");
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
+        if (bootstrapInfo && bootstrapInfo.provisioning && !bootstrapInfo.password_set) {
+            showSetupScreen();
+        } else {
+            showSignInScreen();
+        }
+    }
+
+    function showSignInScreen() {
+        $("#login-form").hidden = false;
+        $("#setup-form").hidden = true;
+        if (bootstrapInfo && bootstrapInfo.provisioning) {
+            $("#login-subtitle").textContent =
+                "Provisioning mode detected. Sign in with the configured admin password.";
+        } else {
+            $("#login-subtitle").textContent = "Sign in to manage your device.";
+        }
+    }
+
+    function showSetupScreen() {
+        $("#login-form").hidden = true;
+        $("#setup-form").hidden = false;
+        $("#login-subtitle").textContent =
+            "Initial setup required. Configure Wi-Fi and admin password.";
     }
 
     function showApp() {
@@ -206,6 +234,123 @@
         } else {
             subtitle.textContent = "Sign in to manage your device.";
         }
+    }
+
+    function applySetupMqttEnabled(enabled) {
+        ["#setup-mqtt-host", "#setup-mqtt-port", "#setup-mqtt-user", "#setup-mqtt-password"].forEach(
+            (sel) => {
+                const el = $(sel);
+                el.disabled = !enabled;
+            }
+        );
+    }
+
+    function bootstrap() {
+        return fetch("/api/bootstrap")
+            .then((r) => {
+                if (!r.ok) {
+                    throw new Error("bootstrap_failed");
+                }
+                return r.json();
+            })
+            .then((data) => {
+                bootstrapInfo = {
+                    mode: data.mode || "unknown",
+                    provisioning: toBool(data.provisioning),
+                    password_set: toBool(data.password_set),
+                };
+                return bootstrapInfo;
+            })
+            .catch(() => {
+                bootstrapInfo = { mode: "unknown", provisioning: false, password_set: true };
+                return bootstrapInfo;
+            });
+    }
+
+    function runInitialSetup() {
+        const msg = $("#setup-msg");
+        msg.hidden = true;
+
+        const ssid = $("#setup-ssid").value.trim();
+        const wifiPassword = $("#setup-wifi-password").value;
+        const adminPassword = $("#setup-admin-password").value;
+        const mqttEnabled = $("#setup-mqtt-enabled").checked;
+        const mqttHost = $("#setup-mqtt-host").value.trim();
+
+        if (!ssid) {
+            setMsg(msg, "error", "Wi-Fi SSID is required.");
+            return Promise.resolve();
+        }
+        if (!adminPassword) {
+            setMsg(msg, "error", "Admin password is required.");
+            return Promise.resolve();
+        }
+        if (mqttEnabled && !mqttHost) {
+            setMsg(msg, "error", "MQTT host is required when MQTT is enabled.");
+            return Promise.resolve();
+        }
+
+        setMsg(msg, "warning", "Saving initial setup...");
+
+        return fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: adminPassword }),
+        })
+            .then((r) =>
+                r.text().then((txt) => {
+                    let data = {};
+                    try {
+                        data = txt ? JSON.parse(txt) : {};
+                    } catch (_) {
+                        data = {};
+                    }
+                    if (!r.ok || !data.token) {
+                        throw new Error(data.error || "setup_login_failed");
+                    }
+                    return data;
+                })
+            )
+            .then((loginData) => {
+                token = loginData.token;
+                localStorage.setItem("wg_token", token);
+                return api("GET", "/api/config");
+            })
+            .then((cfg) => {
+                cfg.device = cfg.device || {};
+                cfg.wifi = cfg.wifi || {};
+                cfg.auth = cfg.auth || {};
+                cfg.mqtt = cfg.mqtt || {};
+
+                cfg.device.name = $("#setup-device-name").value.trim() || cfg.device.name || "";
+                cfg.device.hostname = $("#setup-hostname").value.trim() || cfg.device.hostname || "";
+                cfg.wifi.ssid = ssid;
+                cfg.wifi.password = wifiPassword;
+                cfg.auth.admin_password = adminPassword;
+
+                cfg.mqtt.enabled = mqttEnabled;
+                if (mqttEnabled) {
+                    cfg.mqtt.host = mqttHost;
+                    const portValue = Number($("#setup-mqtt-port").value);
+                    if (!Number.isNaN(portValue) && portValue > 0) {
+                        cfg.mqtt.port = portValue;
+                    }
+                    cfg.mqtt.username = $("#setup-mqtt-user").value.trim();
+                    cfg.mqtt.password = $("#setup-mqtt-password").value;
+                }
+
+                return api("POST", "/api/config", cfg);
+            })
+            .then(() => {
+                setMsg(
+                    msg,
+                    "success",
+                    "Initial setup saved. Reboot is required. After reboot, use normal admin login."
+                );
+            })
+            .catch((err) => {
+                setMsg(msg, "error", "Initial setup failed: " + (err.message || "unknown_error"));
+            });
     }
 
     function loadDashboard() {
@@ -701,6 +846,15 @@
                 });
         });
 
+        $("#setup-mqtt-enabled").addEventListener("change", (e) => {
+            applySetupMqttEnabled(e.target.checked);
+        });
+
+        $("#setup-form").addEventListener("submit", (e) => {
+            e.preventDefault();
+            runInitialSetup();
+        });
+
         $("#cfg-save").addEventListener("click", () => {
             const msg = $("#cfg-msg");
             msg.hidden = true;
@@ -898,16 +1052,23 @@
     }
 
     bindEvents();
+    applySetupMqttEnabled(false);
 
-    if (token) {
-        api("GET", "/api/status")
-            .then((status) => {
-                cacheStatus = status;
-                applyModeUi(status.mode);
-                showApp();
-            })
-            .catch(() => showLogin());
-    } else {
+    bootstrap().then((boot) => {
+        if (token) {
+            api("GET", "/api/status")
+                .then((status) => {
+                    cacheStatus = status;
+                    applyModeUi(status.mode);
+                    showApp();
+                })
+                .catch(() => showLogin());
+            return;
+        }
+        if (boot.provisioning && !boot.password_set) {
+            showLogin();
+            return;
+        }
         showLogin();
-    }
+    });
 })();
