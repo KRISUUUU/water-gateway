@@ -36,13 +36,15 @@ Subscribe to `wmbus-gw/{id}/events` for discrete alerts:
 
 ### Web Panel Dashboard
 
-Access `http://{hostname}.local/` for a visual overview.
+Access `http://{hostname}.local/` for a visual overview with status badges,
+key counters, and quick actions.
 
-### Live Telegrams / Detected Meters
+### Live Telegrams / Detected Meters / Watchlist
 
 - Use the **Live Telegrams** page to inspect recent frames with filters:
-  `all`, `watched`, `unknown`, `duplicates`, `crc_fail`.
+  `all`, `watched`, `unknown`, `duplicates`, `crc_fail`, `problematic` (best-effort).
 - Use **Detected Meters** to review observed transmitter identities and counters.
+- Use **Detected Meters** actions to add visible meters directly to watchlist flow.
 - Use **Watchlist** to assign alias/note and mark important meters as enabled.
 - Meter identity is best-effort and based on observed frame fields/signature.
 
@@ -58,7 +60,7 @@ Access `http://{hostname}.local/` for a visual overview.
 
 ### Changing Configuration
 
-1. Open web panel → Configuration page
+1. Open web panel → Settings page
 2. Modify fields, click Save
 3. Save response indicates reboot requirement
 4. If response indicates `relogin_required`, log in again before continuing
@@ -66,18 +68,18 @@ Access `http://{hostname}.local/` for a visual overview.
 
 ### Exporting Configuration
 
-1. Open web panel → Configuration page → Export
+1. Open web panel → Settings page → Export
 2. Save JSON file (secrets are redacted)
 
 ### Downloading Support Bundle
 
-1. Open web panel → System page → Download Support Bundle
+1. Open web panel → Support page → Download Support Bundle
 2. JSON file includes diagnostics, metrics, config (redacted), recent logs, and meter/watchlist counts
 3. Useful for remote troubleshooting
 
 ### Factory Reset
 
-1. Open web panel → System page → Factory Reset
+1. Open web panel → Factory Reset page
 2. Confirm the action
 3. Device reboots into provisioning mode
 

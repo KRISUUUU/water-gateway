@@ -1,8 +1,8 @@
 #include "storage_service/storage_service.hpp"
 
 #ifndef HOST_TEST_BUILD
-#include "esp_spiffs.h"
 #include "esp_log.h"
+#include "esp_spiffs.h"
 #include <cstdio>
 #include <cstring>
 #include <sys/stat.h>
@@ -47,12 +47,10 @@ common::Result<void> StorageService::initialize() {
 
 common::Result<std::string> StorageService::read_file(const char* path) {
     if (!mounted_) {
-        return common::Result<std::string>::error(
-            common::ErrorCode::StorageNotMounted);
+        return common::Result<std::string>::error(common::ErrorCode::StorageNotMounted);
     }
     if (!path || path[0] == '\0') {
-        return common::Result<std::string>::error(
-            common::ErrorCode::InvalidArgument);
+        return common::Result<std::string>::error(common::ErrorCode::InvalidArgument);
     }
 
 #ifndef HOST_TEST_BUILD
@@ -61,8 +59,7 @@ common::Result<std::string> StorageService::read_file(const char* path) {
 
     FILE* f = std::fopen(full_path, "r");
     if (!f) {
-        return common::Result<std::string>::error(
-            common::ErrorCode::StorageReadFailed);
+        return common::Result<std::string>::error(common::ErrorCode::StorageReadFailed);
     }
 
     std::fseek(f, 0, SEEK_END);
@@ -71,8 +68,7 @@ common::Result<std::string> StorageService::read_file(const char* path) {
 
     if (size <= 0 || size > 512 * 1024) {
         std::fclose(f);
-        return common::Result<std::string>::error(
-            common::ErrorCode::StorageReadFailed);
+        return common::Result<std::string>::error(common::ErrorCode::StorageReadFailed);
     }
 
     std::string content(static_cast<size_t>(size), '\0');
@@ -83,14 +79,12 @@ common::Result<std::string> StorageService::read_file(const char* path) {
     return common::Result<std::string>::ok(std::move(content));
 #else
     (void)path;
-    return common::Result<std::string>::error(
-        common::ErrorCode::StorageReadFailed);
+    return common::Result<std::string>::error(common::ErrorCode::StorageReadFailed);
 #endif
 }
 
-common::Result<void> StorageService::write_file(const char* path,
-                                                 const char* content,
-                                                 size_t length) {
+common::Result<void> StorageService::write_file(const char* path, const char* content,
+                                                size_t length) {
     if (!mounted_) {
         return common::Result<void>::error(common::ErrorCode::StorageNotMounted);
     }
@@ -104,16 +98,14 @@ common::Result<void> StorageService::write_file(const char* path,
 
     FILE* f = std::fopen(full_path, "w");
     if (!f) {
-        return common::Result<void>::error(
-            common::ErrorCode::StorageWriteFailed);
+        return common::Result<void>::error(common::ErrorCode::StorageWriteFailed);
     }
 
     size_t written = std::fwrite(content, 1, length, f);
     std::fclose(f);
 
     if (written != length) {
-        return common::Result<void>::error(
-            common::ErrorCode::StorageWriteFailed);
+        return common::Result<void>::error(common::ErrorCode::StorageWriteFailed);
     }
 
     return common::Result<void>::ok();
@@ -126,7 +118,8 @@ common::Result<void> StorageService::write_file(const char* path,
 }
 
 bool StorageService::file_exists(const char* path) {
-    if (!mounted_ || !path) return false;
+    if (!mounted_ || !path)
+        return false;
 
 #ifndef HOST_TEST_BUILD
     char full_path[128];

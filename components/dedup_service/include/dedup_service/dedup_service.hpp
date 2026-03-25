@@ -16,11 +16,13 @@ struct DedupEntry {
 // Thread safety: not thread-safe; caller must ensure single-threaded access
 // (pipeline_task is the only consumer).
 class DedupService {
-public:
+  public:
     static DedupService& instance();
 
     // Set dedup window in milliseconds. Default: 5000 (5 seconds).
-    void set_window_ms(int64_t window_ms) { window_ms_ = window_ms; }
+    void set_window_ms(int64_t window_ms) {
+        window_ms_ = window_ms;
+    }
 
     // Check if a key was seen within the dedup window.
     // Also prunes expired entries.
@@ -33,12 +35,14 @@ public:
     void prune(int64_t now_ms);
 
     // Number of entries currently tracked
-    size_t entry_count() const { return entries_.size(); }
+    size_t entry_count() const {
+        return entries_.size();
+    }
 
     // Clear all entries
     void clear();
 
-private:
+  private:
     DedupService() = default;
 
     int64_t window_ms_ = 5000;

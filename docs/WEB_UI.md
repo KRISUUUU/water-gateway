@@ -2,10 +2,11 @@
 
 ## Overview
 
-The web panel is a simple single-page app (`web/index.html`, `web/app.js`, `web/styles.css`)
-served from SPIFFS over HTTP.
+The web panel is a modern single-page control panel (`web/index.html`,
+`web/app.js`, `web/styles.css`) served from SPIFFS over HTTP.
 
-It is intended for serviceability and provisioning support, not premium UX.
+It is designed for day-to-day gateway operation, provisioning, and serviceability,
+while remaining lightweight and embedded-friendly (no heavy frontend framework).
 
 ## Access
 
@@ -13,18 +14,85 @@ It is intended for serviceability and provisioning support, not premium UX.
 - Port: `80`
 - Authentication: required for all `/api/*` endpoints except login
 
-## Available Pages
+## Navigation and Pages
 
-- Dashboard: health + runtime metrics + WiFi/MQTT/radio summary from `/api/status`
-- Live Telegrams: recent frame list with filters (`all`, `watched`, `unknown`, `duplicates`, `crc_fail`)
-- Detected Meters: observed meter/signature inventory with first/last seen and counters
-- Watchlist: add/edit/remove watch entries (`key`, `alias`, `note`, `enabled`)
-- RF Diagnostics: radio/RSM counters from `/api/diagnostics/radio`
-- MQTT Status: MQTT state/counters from `/api/diagnostics/mqtt`
-- Configuration: reads redacted config from `/api/config`, posts updates to `/api/config`
-- OTA: shows OTA status, supports URL OTA and direct binary upload trigger
-- System: reboot, factory reset, support bundle download
-- Logs: recent buffered logs from `/api/logs`
+The panel uses a persistent navigation shell:
+
+- Desktop: left sidebar
+- Mobile: top bar with collapsible menu
+
+Main sections:
+
+- Dashboard
+- Live Telegrams
+- Detected Meters
+- Watchlist
+- Diagnostics
+- Logs
+- OTA
+- Settings
+- Support
+- Factory Reset
+
+### Dashboard
+
+- Health + mode + firmware summary
+- WiFi/MQTT/radio status badges
+- Counters: frames, CRC fail, duplicates (best-effort), incomplete, dropped-too-long,
+  publish failures
+- Detected/watchlist counts
+- Quick actions (jump to meters/OTA/support, reboot shortcut)
+
+### Live Telegrams
+
+- Recent frame table with metadata (timestamp, key, alias, raw hex, RSSI/LQI, CRC,
+  duplicate/watched flags, length)
+- Filters: `all`, `watched`, `unknown`, `duplicates`, `crc_fail`,
+  `problematic` (best-effort, mapped to CRC-fail scope)
+- Row actions: copy raw frame, jump to watchlist editor
+
+### Detected Meters
+
+- Inventory view with identity and signal/traffic counters
+- Filters + search (`alias`/`key`)
+- Action to add/edit watchlist entry
+
+### Watchlist
+
+- Form-based edit (`key`, `alias`, `note`, `enabled`) + list table
+- Click row to prefill form for edits
+
+### Diagnostics
+
+- Grouped cards for radio, MQTT, system health/memory, OTA state
+- Structured key/value display (not raw JSON dump)
+
+### Logs
+
+- Severity filter + refresh
+- Readable log stream rendering
+
+### OTA
+
+- Current OTA state/progress/message/version
+- Binary upload trigger
+- URL OTA trigger (HTTPS only)
+
+### Settings
+
+- Sectioned config editor (Device/WiFi/MQTT/Radio/Auth/Logging)
+- Validation/success/relogin/reboot messaging
+- Provisioning checklist card shown when mode is provisioning
+
+### Support
+
+- Support bundle download
+- Compact runtime summary
+
+### Factory Reset
+
+- Dedicated danger zone with clear warning
+- Separate reboot-only and full factory-reset actions
 
 ## API Endpoints Used by UI
 
@@ -55,8 +123,9 @@ It is intended for serviceability and provisioning support, not premium UX.
 
 - First boot with empty WiFi config runs AP mode and serves the same UI stack.
 - If no admin password hash is configured, login accepts any non-empty password.
-- Set `auth.admin_password` in Configuration and save to establish a real admin password hash.
+- Set `auth.admin_password` in Settings and save to establish a real admin password hash.
 - After save, reboot is required to apply runtime configuration changes predictably.
+- In provisioning mode, the UI presents setup guidance in the Settings page.
 
 ## Static Asset Delivery
 

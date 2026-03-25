@@ -45,8 +45,7 @@ common::Result<HealthSnapshot> HealthMonitor::snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     HealthSnapshot s = snapshot_;
 #ifndef HOST_TEST_BUILD
-    s.uptime_s =
-        static_cast<std::uint64_t>(esp_timer_get_time() / 1000000ULL);
+    s.uptime_s = static_cast<std::uint64_t>(esp_timer_get_time() / 1000000ULL);
 #else
     s.uptime_s = 0;
 #endif

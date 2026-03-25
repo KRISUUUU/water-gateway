@@ -5,10 +5,10 @@
 
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
-#include "nvs_flash.h"
-#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 static const char* TAG = "config_store";
 #endif
 
@@ -33,8 +33,7 @@ common::Result<void> ConfigStore::initialize() {
 
     // Initialize NVS flash if not already done
     esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
-        err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS partition corrupted or version mismatch, erasing");
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
@@ -69,9 +68,7 @@ common::Result<void> ConfigStore::initialize() {
 AppConfig ConfigStore::config() const {
 #ifndef HOST_TEST_BUILD
     if (mutex_) {
-        xSemaphoreTake(static_cast<SemaphoreHandle_t>(
-                           const_cast<void*>(mutex_)),
-                       portMAX_DELAY);
+        xSemaphoreTake(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)), portMAX_DELAY);
     }
 #endif
 
@@ -79,8 +76,7 @@ AppConfig ConfigStore::config() const {
 
 #ifndef HOST_TEST_BUILD
     if (mutex_) {
-        xSemaphoreGive(static_cast<SemaphoreHandle_t>(
-                           const_cast<void*>(mutex_)));
+        xSemaphoreGive(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)));
     }
 #endif
 
@@ -89,8 +85,7 @@ AppConfig ConfigStore::config() const {
 
 common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) {
     if (!initialized_) {
-        return common::Result<ValidationResult>::error(
-            common::ErrorCode::NotInitialized);
+        return common::Result<ValidationResult>::error(common::ErrorCode::NotInitialized);
     }
 
     // Validate first
@@ -176,8 +171,7 @@ common::Result<void> ConfigStore::load_from_nvs() {
 
     // Migrate if needed
     if (loaded.version != kCurrentConfigVersion) {
-        ESP_LOGI(TAG, "Config version %lu, current %lu — migrating",
-                 (unsigned long)loaded.version,
+        ESP_LOGI(TAG, "Config version %lu, current %lu — migrating", (unsigned long)loaded.version,
                  (unsigned long)kCurrentConfigVersion);
         auto migrated = migrate_to_current(loaded);
         if (migrated.is_error()) {
@@ -196,8 +190,7 @@ common::Result<void> ConfigStore::load_from_nvs() {
     // Validate loaded config
     auto validation = validate_config(loaded);
     if (!validation.valid) {
-        ESP_LOGE(TAG, "Stored config is invalid (%zu issues)",
-                 validation.issues.size());
+        ESP_LOGE(TAG, "Stored config is invalid (%zu issues)", validation.issues.size());
         return common::Result<void>::error(common::ErrorCode::ConfigInvalid);
     }
 
@@ -233,8 +226,7 @@ common::Result<void> ConfigStore::persist_to_nvs(const AppConfig& cfg) {
         return common::Result<void>::error(common::ErrorCode::NvsWriteFailed);
     }
 
-    ESP_LOGI(TAG, "Config persisted to NVS (version %lu)",
-             (unsigned long)cfg.version);
+    ESP_LOGI(TAG, "Config persisted to NVS (version %lu)", (unsigned long)cfg.version);
     return common::Result<void>::ok();
 #endif
 }

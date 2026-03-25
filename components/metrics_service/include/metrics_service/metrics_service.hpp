@@ -14,12 +14,12 @@ struct RuntimeMetrics {
 };
 
 class MetricsService {
-public:
+  public:
     static MetricsService& instance();
 
     [[nodiscard]] common::Result<RuntimeMetrics> snapshot() const;
 
-private:
+  private:
     MetricsService() = default;
 };
 

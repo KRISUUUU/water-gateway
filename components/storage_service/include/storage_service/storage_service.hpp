@@ -7,7 +7,7 @@
 namespace storage_service {
 
 class StorageService {
-public:
+  public:
     static StorageService& instance();
 
     // Mount SPIFFS partition. Call once during boot.
@@ -17,8 +17,7 @@ public:
     common::Result<std::string> read_file(const char* path);
 
     // Write content to a file on SPIFFS.
-    common::Result<void> write_file(const char* path, const char* content,
-                                    size_t length);
+    common::Result<void> write_file(const char* path, const char* content, size_t length);
 
     // Check if a file exists on SPIFFS.
     bool file_exists(const char* path);
@@ -30,9 +29,11 @@ public:
     };
     SpaceInfo space_info() const;
 
-    bool is_mounted() const { return mounted_; }
+    bool is_mounted() const {
+        return mounted_;
+    }
 
-private:
+  private:
     StorageService() = default;
 
     bool mounted_ = false;

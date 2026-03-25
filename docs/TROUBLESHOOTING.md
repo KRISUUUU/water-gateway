@@ -31,7 +31,7 @@ hardware-validated interrupt-driven FIFO draining.
 
 **Possible Causes:**
 
-1. **Wrong filter selected** — Switch filter to `all` (`watched`/`unknown`/`duplicates`/`crc_fail` can be empty).
+1. **Wrong filter selected** — Switch filter to `all` (`watched`/`unknown`/`duplicates`/`crc_fail`/`problematic` can be empty).
 2. **Session expired** — Refresh page and log in again.
 3. **No recent traffic window** — List is a bounded recent cache and can be empty after reboot/start.
 
@@ -119,7 +119,7 @@ Use `retry_after_s` from API response before next attempt.
 
 ## Support Bundle
 
-For remote troubleshooting, download the support bundle from System page.
+For remote troubleshooting, download the support bundle from Support page.
 It contains:
 
 - Device identity and firmware version

@@ -67,7 +67,8 @@ NtpStatus NtpService::status() const {
 
 int64_t NtpService::now_epoch_s() const {
 #ifndef HOST_TEST_BUILD
-    if (!synchronized_) return 0;
+    if (!synchronized_)
+        return 0;
     struct timeval tv;
     gettimeofday(&tv, nullptr);
     return static_cast<int64_t>(tv.tv_sec);
@@ -78,11 +79,11 @@ int64_t NtpService::now_epoch_s() const {
 
 int64_t NtpService::now_epoch_ms() const {
 #ifndef HOST_TEST_BUILD
-    if (!synchronized_) return 0;
+    if (!synchronized_)
+        return 0;
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-    return static_cast<int64_t>(tv.tv_sec) * 1000 +
-           static_cast<int64_t>(tv.tv_usec) / 1000;
+    return static_cast<int64_t>(tv.tv_sec) * 1000 + static_cast<int64_t>(tv.tv_usec) / 1000;
 #else
     return 0;
 #endif

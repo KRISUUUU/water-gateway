@@ -1,9 +1,9 @@
 #include "event_bus/event_bus.hpp"
 
 #ifndef HOST_TEST_BUILD
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "esp_log.h"
 static const char* TAG = "event_bus";
 #endif
 
@@ -36,15 +36,12 @@ common::Result<void> EventBus::initialize() {
     return common::Result<void>::ok();
 }
 
-common::Result<SubscriptionId> EventBus::subscribe(EventType type,
-                                                    EventHandler handler) {
+common::Result<SubscriptionId> EventBus::subscribe(EventType type, EventHandler handler) {
     if (!initialized_) {
-        return common::Result<SubscriptionId>::error(
-            common::ErrorCode::NotInitialized);
+        return common::Result<SubscriptionId>::error(common::ErrorCode::NotInitialized);
     }
     if (!handler) {
-        return common::Result<SubscriptionId>::error(
-            common::ErrorCode::InvalidArgument);
+        return common::Result<SubscriptionId>::error(common::ErrorCode::InvalidArgument);
     }
 
 #ifndef HOST_TEST_BUILD
@@ -72,8 +69,7 @@ common::Result<SubscriptionId> EventBus::subscribe(EventType type,
 #endif
 
     if (!found_slot) {
-        return common::Result<SubscriptionId>::error(
-            common::ErrorCode::BufferFull);
+        return common::Result<SubscriptionId>::error(common::ErrorCode::BufferFull);
     }
     return common::Result<SubscriptionId>::ok(assigned_id);
 }
@@ -116,8 +112,7 @@ void EventBus::publish(const Event& event) {
 #endif
 
     for (size_t i = 0; i < kMaxSubscriptions; ++i) {
-        if (subscriptions_[i].active &&
-            subscriptions_[i].type == event.type &&
+        if (subscriptions_[i].active && subscriptions_[i].type == event.type &&
             subscriptions_[i].handler) {
             subscriptions_[i].handler(event);
         }

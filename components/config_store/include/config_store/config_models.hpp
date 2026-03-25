@@ -37,7 +37,9 @@ struct WifiConfig {
         return c;
     }
 
-    bool is_configured() const { return ssid[0] != '\0'; }
+    bool is_configured() const {
+        return ssid[0] != '\0';
+    }
 };
 
 struct MqttConfig {
@@ -101,7 +103,9 @@ struct AuthConfig {
         return c;
     }
 
-    bool has_password() const { return admin_password_hash[0] != '\0'; }
+    bool has_password() const {
+        return admin_password_hash[0] != '\0';
+    }
 };
 
 struct AppConfig {

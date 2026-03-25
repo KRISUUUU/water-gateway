@@ -21,14 +21,14 @@ struct DiagnosticsSnapshot {
 };
 
 class DiagnosticsService {
-public:
+  public:
     static DiagnosticsService& instance();
 
     [[nodiscard]] common::Result<DiagnosticsSnapshot> snapshot() const;
 
     [[nodiscard]] static std::string to_json(const DiagnosticsSnapshot& snap);
 
-private:
+  private:
     DiagnosticsService() = default;
 };
 

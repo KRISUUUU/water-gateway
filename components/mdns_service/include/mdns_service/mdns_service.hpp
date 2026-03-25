@@ -5,16 +5,18 @@
 namespace mdns_service {
 
 class MdnsService {
-public:
+  public:
     static MdnsService& instance();
 
     common::Result<void> initialize();
     common::Result<void> start(const char* hostname);
     common::Result<void> stop();
 
-    bool is_started() const { return started_; }
+    bool is_started() const {
+        return started_;
+    }
 
-private:
+  private:
     MdnsService() = default;
 
     bool initialized_ = false;

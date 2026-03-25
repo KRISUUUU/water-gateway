@@ -28,38 +28,39 @@ struct MqttStatus {
 };
 
 class MqttService {
-public:
+  public:
     static MqttService& instance();
 
     common::Result<void> initialize();
 
     // Connect to broker using current config.
     // Non-blocking: starts connection, actual connect happens asynchronously.
-    common::Result<void> connect(const char* host, uint16_t port,
-                                 const char* username, const char* password,
-                                 const char* client_id, bool use_tls);
+    common::Result<void> connect(const char* host, uint16_t port, const char* username,
+                                 const char* password, const char* client_id, bool use_tls);
 
     common::Result<void> disconnect();
 
     // Publish a message. Returns error if not connected.
     // QoS is applied from the service-level config.
-    common::Result<void> publish(const char* topic, const char* payload,
-                                 int qos = 0, bool retain = false);
+    common::Result<void> publish(const char* topic, const char* payload, int qos = 0,
+                                 bool retain = false);
 
     MqttStatus status() const;
-    MqttState state() const { return state_; }
-    bool is_connected() const { return state_ == MqttState::Connected; }
+    MqttState state() const {
+        return state_;
+    }
+    bool is_connected() const {
+        return state_ == MqttState::Connected;
+    }
 
     // Set the Last Will topic and payload (must be called before connect)
     void set_last_will(const char* topic, const char* payload);
 
-private:
+  private:
     MqttService() = default;
 
 #ifndef HOST_TEST_BUILD
-    static void mqtt_event_handler(void* handler_args,
-                                   esp_event_base_t base,
-                                   int32_t event_id,
+    static void mqtt_event_handler(void* handler_args, esp_event_base_t base, int32_t event_id,
                                    void* event_data);
     void handle_event(int32_t event_id, void* event_data);
 

@@ -21,12 +21,18 @@ struct OtaStatus {
 
 inline const char* ota_state_to_string(OtaState state) {
     switch (state) {
-    case OtaState::Idle: return "idle";
-    case OtaState::InProgress: return "in_progress";
-    case OtaState::Validating: return "validating";
-    case OtaState::Rebooting: return "rebooting";
-    case OtaState::Failed: return "failed";
-    default: return "unknown";
+    case OtaState::Idle:
+        return "idle";
+    case OtaState::InProgress:
+        return "in_progress";
+    case OtaState::Validating:
+        return "validating";
+    case OtaState::Rebooting:
+        return "rebooting";
+    case OtaState::Failed:
+        return "failed";
+    default:
+        return "unknown";
     }
 }
 

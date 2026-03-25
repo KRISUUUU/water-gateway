@@ -3,175 +3,319 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WMBus Gateway</title>
+<title>WMBus Gateway Control Panel</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header>
-    <h1>WMBus Gateway</h1>
-    <nav id="nav">
-        <button class="nav-btn active" data-page="dashboard">Dashboard</button>
-        <button class="nav-btn" data-page="telegrams">Telegrams</button>
-        <button class="nav-btn" data-page="meters">Detected Meters</button>
-        <button class="nav-btn" data-page="watchlist">Watchlist</button>
-        <button class="nav-btn" data-page="rf">RF</button>
-        <button class="nav-btn" data-page="mqtt">MQTT</button>
-        <button class="nav-btn" data-page="config">Config</button>
-        <button class="nav-btn" data-page="ota">OTA</button>
-        <button class="nav-btn" data-page="system">System</button>
-        <button class="nav-btn" data-page="logs">Logs</button>
-        <button class="nav-btn" id="btn-logout" style="margin-left:auto">Logout</button>
-    </nav>
-</header>
+<section id="login-page" class="auth-shell page">
+    <div class="auth-card">
+        <h1>WMBus Gateway</h1>
+        <p id="login-subtitle" class="muted">Sign in to manage your device.</p>
+        <form id="login-form">
+            <label for="login-pwd">Admin Password</label>
+            <input type="password" id="login-pwd" required autocomplete="current-password">
+            <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+            <p id="login-error" class="msg msg-error" hidden></p>
+        </form>
+    </div>
+</section>
 
-<main id="app">
-    <!-- Login form (shown when not authenticated) -->
-    <section id="login-page" class="page">
-        <div class="card" style="max-width:340px;margin:60px auto">
-            <h2>Login</h2>
-            <form id="login-form">
-                <label>Password<input type="password" id="login-pwd" required></label>
-                <button type="submit">Login</button>
-                <p id="login-error" class="error" hidden></p>
-            </form>
+<div id="app-shell" hidden>
+    <header class="topbar">
+        <button id="menu-toggle" class="icon-btn" aria-label="Open navigation">Menu</button>
+        <div class="topbar-title">
+            <span class="eyebrow">Gateway Control Panel</span>
+            <h1>WMBus Gateway</h1>
         </div>
-    </section>
-
-    <!-- Dashboard -->
-    <section id="dashboard-page" class="page" hidden>
-        <h2>Dashboard</h2>
-        <div class="grid">
-            <div class="card"><h3>Health</h3><span id="d-health">--</span></div>
-            <div class="card"><h3>Uptime</h3><span id="d-uptime">--</span></div>
-            <div class="card"><h3>Firmware</h3><span id="d-fw">--</span></div>
-            <div class="card"><h3>IP</h3><span id="d-ip">--</span></div>
-            <div class="card"><h3>Frames RX</h3><span id="d-frames">--</span></div>
-            <div class="card"><h3>MQTT Pub</h3><span id="d-mqttpub">--</span></div>
-            <div class="card"><h3>WiFi RSSI</h3><span id="d-rssi">--</span></div>
-            <div class="card"><h3>Free Heap</h3><span id="d-heap">--</span></div>
+        <div class="topbar-actions">
+            <span id="topbar-mode" class="badge badge-muted">mode: --</span>
+            <button id="btn-logout" class="btn btn-ghost">Logout</button>
         </div>
-    </section>
+    </header>
 
-    <!-- Live Telegrams -->
-    <section id="telegrams-page" class="page" hidden>
-        <h2>Live Telegrams</h2>
-        <div class="btn-row" style="margin-bottom:10px">
-            <label>Filter
-                <select id="tg-filter">
-                    <option value="all">All</option>
-                    <option value="watched">Watched only</option>
-                    <option value="unknown">Unknown only</option>
-                    <option value="duplicates">Duplicates</option>
-                    <option value="crc_fail">CRC fail</option>
-                </select>
-            </label>
-        </div>
-        <table id="tg-table">
-            <thead><tr><th>Time</th><th>Meter Key</th><th>Hex</th><th>RSSI</th><th>LQI</th><th>CRC</th><th>Dup</th><th>Watched</th><th>Len</th></tr></thead>
-            <tbody id="tg-body"></tbody>
-        </table>
-        <p id="tg-empty">No telegrams received yet.</p>
-    </section>
+    <div class="layout">
+        <aside id="sidebar" class="sidebar">
+            <nav id="nav" class="nav-list">
+                <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+                <button class="nav-btn" data-page="telegrams">Live Telegrams</button>
+                <button class="nav-btn" data-page="meters">Detected Meters</button>
+                <button class="nav-btn" data-page="watchlist">Watchlist</button>
+                <button class="nav-btn" data-page="diagnostics">Diagnostics</button>
+                <button class="nav-btn" data-page="logs">Logs</button>
+                <button class="nav-btn" data-page="ota">OTA</button>
+                <button class="nav-btn" data-page="settings">Settings</button>
+                <button class="nav-btn" data-page="support">Support</button>
+                <button class="nav-btn danger" data-page="factory-reset">Factory Reset</button>
+            </nav>
+        </aside>
 
-    <section id="meters-page" class="page" hidden>
-        <h2>Detected Meters</h2>
-        <div class="btn-row" style="margin-bottom:10px">
-            <label>Filter
-                <select id="meters-filter">
-                    <option value="all">All</option>
-                    <option value="watched">Watched</option>
-                    <option value="unknown">Unknown</option>
-                </select>
-            </label>
-        </div>
-        <table id="meters-table">
-            <thead><tr><th>Alias</th><th>Key</th><th>Seen</th><th>Last RSSI</th><th>CRC Fail</th><th>Duplicates</th><th>Watch</th></tr></thead>
-            <tbody id="meters-body"></tbody>
-        </table>
-        <p id="meters-empty">No meters detected yet.</p>
-    </section>
+        <main id="app" class="content-shell">
+            <section id="dashboard-page" class="page">
+                <div class="page-header">
+                    <h2>Dashboard</h2>
+                    <p>Operational overview of gateway state and traffic health.</p>
+                </div>
+                <div class="status-grid" id="dashboard-status-grid"></div>
+                <div class="metric-grid" id="dashboard-metrics-grid"></div>
+                <div class="card quick-actions">
+                    <h3>Quick Actions</h3>
+                    <div class="btn-row wrap">
+                        <button class="btn btn-secondary" data-jump="meters">Detected Meters</button>
+                        <button class="btn btn-secondary" data-jump="ota">OTA Status</button>
+                        <button class="btn btn-secondary" data-jump="support">Support Bundle</button>
+                        <button id="dash-reboot" class="btn btn-danger">Reboot Device</button>
+                    </div>
+                </div>
+            </section>
 
-    <section id="watchlist-page" class="page" hidden>
-        <h2>Watchlist</h2>
-        <div class="card" style="margin-bottom:12px">
-            <label>Meter key<input type="text" id="wl-key" placeholder="mfg:....-id:.... or sig:..."></label>
-            <label>Alias<input type="text" id="wl-alias" placeholder="Friendly name"></label>
-            <label>Note<input type="text" id="wl-note" placeholder="Optional note"></label>
-            <label><input type="checkbox" id="wl-enabled" checked> enabled</label>
-            <div class="btn-row">
-                <button id="wl-save">Save/Update</button>
-                <button id="wl-delete" class="danger">Delete</button>
-            </div>
-            <p id="wl-msg" hidden></p>
-        </div>
-        <table id="watchlist-table">
-            <thead><tr><th>Enabled</th><th>Alias</th><th>Key</th><th>Note</th></tr></thead>
-            <tbody id="watchlist-body"></tbody>
-        </table>
-    </section>
+            <section id="telegrams-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Live Telegrams</h2>
+                    <p>Recent RF telegrams with quality indicators and watchlist context.</p>
+                </div>
+                <div class="toolbar">
+                    <label for="tg-filter">Filter</label>
+                    <select id="tg-filter">
+                        <option value="all">All</option>
+                        <option value="watched">Watched</option>
+                        <option value="unknown">Unknown</option>
+                        <option value="duplicates">Duplicates</option>
+                        <option value="crc_fail">CRC Fail</option>
+                        <option value="problematic">Problematic (best effort)</option>
+                    </select>
+                    <button id="tg-refresh" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div class="card table-card">
+                    <table id="tg-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Meter</th>
+                                <th>Alias</th>
+                                <th>Raw Frame</th>
+                                <th>Len</th>
+                                <th>RSSI</th>
+                                <th>LQI</th>
+                                <th>CRC</th>
+                                <th>Dup</th>
+                                <th>Watched</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tg-body"></tbody>
+                    </table>
+                    <p id="tg-empty" class="empty-state">No telegrams available yet.</p>
+                </div>
+            </section>
 
-    <!-- RF Diagnostics -->
-    <section id="rf-page" class="page" hidden>
-        <h2>RF Diagnostics</h2>
-        <div class="grid" id="rf-stats"></div>
-    </section>
+            <section id="meters-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Detected Meters</h2>
+                    <p>Observed identities from RF traffic. Add selected meters to watchlist.</p>
+                </div>
+                <div class="toolbar">
+                    <label for="meters-filter">Filter</label>
+                    <select id="meters-filter">
+                        <option value="all">All</option>
+                        <option value="watched">Watched</option>
+                        <option value="unknown">Unknown</option>
+                    </select>
+                    <label for="meters-search">Search</label>
+                    <input id="meters-search" type="text" placeholder="Alias or key">
+                    <button id="meters-refresh" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div class="card table-card">
+                    <table id="meters-table">
+                        <thead>
+                            <tr>
+                                <th>Alias</th>
+                                <th>Meter Key</th>
+                                <th>Manufacturer</th>
+                                <th>Device ID</th>
+                                <th>First Seen</th>
+                                <th>Last Seen</th>
+                                <th>Seen</th>
+                                <th>RSSI/LQI</th>
+                                <th>Watch</th>
+                                <th>Note</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="meters-body"></tbody>
+                    </table>
+                    <p id="meters-empty" class="empty-state">No meters detected yet.</p>
+                </div>
+            </section>
 
-    <!-- MQTT Status -->
-    <section id="mqtt-page" class="page" hidden>
-        <h2>MQTT Status</h2>
-        <div class="grid" id="mqtt-stats"></div>
-    </section>
+            <section id="watchlist-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Watchlist</h2>
+                    <p>Manage selected meters, aliases, notes, and enabled state.</p>
+                </div>
+                <div class="split-grid">
+                    <div class="card">
+                        <h3>Watchlist Entry</h3>
+                        <label for="wl-key">Meter Key</label>
+                        <input type="text" id="wl-key" placeholder="mfg:....-id:.... or sig:...">
+                        <label for="wl-alias">Alias</label>
+                        <input type="text" id="wl-alias" placeholder="Friendly name">
+                        <label for="wl-note">Note</label>
+                        <input type="text" id="wl-note" placeholder="Optional note">
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="wl-enabled" checked>
+                            Enabled
+                        </label>
+                        <div class="btn-row">
+                            <button id="wl-save" class="btn btn-primary">Save / Update</button>
+                            <button id="wl-delete" class="btn btn-danger">Remove</button>
+                        </div>
+                        <p id="wl-msg" class="msg" hidden></p>
+                    </div>
+                    <div class="card table-card">
+                        <h3>Current Watchlist</h3>
+                        <table id="watchlist-table">
+                            <thead>
+                                <tr>
+                                    <th>Enabled</th>
+                                    <th>Alias</th>
+                                    <th>Key</th>
+                                    <th>Note</th>
+                                </tr>
+                            </thead>
+                            <tbody id="watchlist-body"></tbody>
+                        </table>
+                        <p id="watchlist-empty" class="empty-state">Watchlist is empty.</p>
+                    </div>
+                </div>
+            </section>
 
-    <!-- Configuration -->
-    <section id="config-page" class="page" hidden>
-        <h2>Configuration</h2>
-        <div id="config-form-container"></div>
-        <div class="btn-row">
-            <button id="cfg-save">Save</button>
-            <button id="cfg-export">Export</button>
-        </div>
-        <p id="cfg-msg" hidden></p>
-    </section>
+            <section id="diagnostics-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Diagnostics</h2>
+                    <p>Technical runtime diagnostics grouped by subsystem.</p>
+                </div>
+                <div class="btn-row">
+                    <button id="diag-refresh" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div class="diag-grid">
+                    <div class="card">
+                        <h3>Radio</h3>
+                        <div id="rf-stats" class="kv-list"></div>
+                    </div>
+                    <div class="card">
+                        <h3>MQTT</h3>
+                        <div id="mqtt-stats" class="kv-list"></div>
+                    </div>
+                    <div class="card">
+                        <h3>WiFi / Health / Memory</h3>
+                        <div id="sys-stats" class="kv-list"></div>
+                    </div>
+                    <div class="card">
+                        <h3>OTA</h3>
+                        <div id="diag-ota-stats" class="kv-list"></div>
+                    </div>
+                </div>
+            </section>
 
-    <!-- OTA -->
-    <section id="ota-page" class="page" hidden>
-        <h2>OTA Update</h2>
-        <div class="card">
-            <h3>Upload Firmware</h3>
-            <input type="file" id="ota-file" accept=".bin">
-            <button id="ota-upload-btn">Upload</button>
-            <div class="progress" hidden><div id="ota-bar" class="bar"></div></div>
-        </div>
-        <div class="card">
-            <h3>URL OTA</h3>
-            <input type="text" id="ota-url" placeholder="https://...">
-            <button id="ota-url-btn">Start</button>
-        </div>
-        <p id="ota-status">Status: idle</p>
-    </section>
+            <section id="logs-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Logs</h2>
+                    <p>Recent buffered logs for troubleshooting.</p>
+                </div>
+                <div class="toolbar">
+                    <label for="log-filter">Severity</label>
+                    <select id="log-filter">
+                        <option value="">All</option>
+                        <option value="error">Error</option>
+                        <option value="warning">Warning</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <button id="log-refresh" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div class="card">
+                    <pre id="log-output"></pre>
+                    <p id="logs-empty" class="empty-state" hidden>No logs available.</p>
+                </div>
+            </section>
 
-    <!-- System -->
-    <section id="system-page" class="page" hidden>
-        <h2>System</h2>
-        <div class="card">
-            <button id="sys-reboot" class="danger">Reboot</button>
-            <button id="sys-reset" class="danger">Factory Reset</button>
-            <button id="sys-bundle">Download Support Bundle</button>
-        </div>
-    </section>
+            <section id="ota-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>OTA Updates</h2>
+                    <p>Update firmware by binary upload or secure URL.</p>
+                </div>
+                <div class="split-grid">
+                    <div class="card">
+                        <h3>Current OTA State</h3>
+                        <div id="ota-state-grid" class="kv-list"></div>
+                        <p id="ota-status" class="msg">Status: idle</p>
+                    </div>
+                    <div class="card">
+                        <h3>Upload Firmware</h3>
+                        <input type="file" id="ota-file" accept=".bin">
+                        <button id="ota-upload-btn" class="btn btn-primary">Upload Binary</button>
+                        <div class="progress" hidden>
+                            <div id="ota-bar" class="bar"></div>
+                        </div>
+                        <p class="hint">Use a valid firmware binary. Activation requires reboot.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Update from URL</h3>
+                        <input type="text" id="ota-url" placeholder="https://example.com/firmware.bin">
+                        <button id="ota-url-btn" class="btn btn-secondary">Start URL OTA</button>
+                        <p class="hint">Only HTTPS URL is accepted.</p>
+                    </div>
+                </div>
+            </section>
 
-    <!-- Logs -->
-    <section id="logs-page" class="page" hidden>
-        <h2>Logs</h2>
-        <select id="log-filter">
-            <option value="">All</option>
-            <option value="error">Error</option>
-            <option value="warning">Warning</option>
-            <option value="info">Info</option>
-        </select>
-        <pre id="log-output"></pre>
-    </section>
-</main>
+            <section id="settings-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Settings</h2>
+                    <p>Configure device, Wi-Fi, MQTT, radio, auth and system behavior.</p>
+                </div>
+                <div id="config-form-container" class="settings-grid"></div>
+                <div class="btn-row">
+                    <button id="cfg-save" class="btn btn-primary">Save Settings</button>
+                    <button id="cfg-export" class="btn btn-secondary">Export Config</button>
+                </div>
+                <p id="cfg-msg" class="msg" hidden></p>
+            </section>
+
+            <section id="support-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Support</h2>
+                    <p>Export support data and gather quick service diagnostics.</p>
+                </div>
+                <div class="split-grid">
+                    <div class="card">
+                        <h3>Support Bundle</h3>
+                        <p class="hint">Download JSON bundle for troubleshooting and support.</p>
+                        <button id="sys-bundle" class="btn btn-primary">Download Support Bundle</button>
+                    </div>
+                    <div class="card">
+                        <h3>Quick Summary</h3>
+                        <div id="support-summary" class="kv-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="factory-reset-page" class="page" hidden>
+                <div class="page-header">
+                    <h2>Factory Reset</h2>
+                    <p>Danger zone. This operation clears configuration and reboots the device.</p>
+                </div>
+                <div class="card danger-card">
+                    <h3>Reset Device</h3>
+                    <p>This will erase current configuration (Wi-Fi, MQTT, auth and runtime settings).</p>
+                    <div class="btn-row">
+                        <button id="sys-reboot" class="btn btn-secondary">Reboot Only</button>
+                        <button id="sys-reset" class="btn btn-danger">Factory Reset</button>
+                    </div>
+                    <p id="factory-msg" class="msg" hidden></p>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
 
 <script src="app.js"></script>
 </body>

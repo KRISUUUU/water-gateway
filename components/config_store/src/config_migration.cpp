@@ -10,8 +10,7 @@ static common::Result<AppConfig> migrate_v0_to_v1(const AppConfig& old) {
     // Preserve any fields that were already set in v0
     // (v0 had device.name, device.hostname, wifi, mqtt basics)
     if (old.device.name[0] != '\0') {
-        std::memcpy(migrated.device.name, old.device.name,
-                    sizeof(migrated.device.name));
+        std::memcpy(migrated.device.name, old.device.name, sizeof(migrated.device.name));
     }
     if (old.device.hostname[0] != '\0') {
         std::memcpy(migrated.device.hostname, old.device.hostname,
@@ -34,8 +33,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     }
 
     if (old_config.version > kCurrentConfigVersion) {
-        return common::Result<AppConfig>::error(
-            common::ErrorCode::ConfigVersionMismatch);
+        return common::Result<AppConfig>::error(common::ErrorCode::ConfigVersionMismatch);
     }
 
     AppConfig current = old_config;
@@ -44,8 +42,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (current.version == 0) {
         auto result = migrate_v0_to_v1(current);
         if (result.is_error()) {
-            return common::Result<AppConfig>::error(
-                common::ErrorCode::ConfigMigrationFailed);
+            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
         }
         current = result.value();
     }
@@ -55,8 +52,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     // if (current.version == 2) { current = migrate_v2_to_v3(current); }
 
     if (current.version != kCurrentConfigVersion) {
-        return common::Result<AppConfig>::error(
-            common::ErrorCode::ConfigMigrationFailed);
+        return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
     }
 
     return common::Result<AppConfig>::ok(current);

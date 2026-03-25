@@ -2,529 +2,911 @@
     "use strict";
 
     let token = localStorage.getItem("wg_token") || "";
+    let currentPage = "dashboard";
+    let cacheStatus = null;
+    let cacheWatchlist = [];
+    let refreshTimer = null;
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
 
+    function clearChildren(node) {
+        while (node.firstChild) {
+            node.removeChild(node.firstChild);
+        }
+    }
+
+    function text(value, fallback) {
+        if (value === undefined || value === null || value === "") {
+            return fallback || "--";
+        }
+        return String(value);
+    }
+
+    function formatTimeMs(epochMs) {
+        if (!epochMs) {
+            return "--";
+        }
+        const d = new Date(Number(epochMs));
+        return d.toISOString().replace("T", " ").replace("Z", "");
+    }
+
+    function formatUptime(s) {
+        if (s === undefined || s === null) {
+            return "--";
+        }
+        const d = Math.floor(s / 86400);
+        const h = Math.floor((s % 86400) / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = Math.floor(s % 60);
+        if (d > 0) {
+            return d + "d " + h + "h";
+        }
+        if (h > 0) {
+            return h + "h " + m + "m";
+        }
+        return m + "m " + sec + "s";
+    }
+
+    function setMsg(el, kind, message) {
+        el.className = "msg";
+        if (kind === "error") {
+            el.classList.add("msg-error");
+        } else if (kind === "success") {
+            el.classList.add("msg-success");
+        } else if (kind === "warning") {
+            el.classList.add("msg-warning");
+        }
+        el.textContent = message;
+        el.hidden = false;
+    }
+
+    function badgeClassByState(value) {
+        const v = String(value || "").toLowerCase();
+        if (v.includes("ok") || v.includes("connected") || v.includes("healthy") || v === "up") {
+            return "badge badge-ok";
+        }
+        if (v.includes("warn") || v.includes("provisioning") || v.includes("idle")) {
+            return "badge badge-warning";
+        }
+        if (v.includes("error") || v.includes("fail") || v.includes("down") || v.includes("disconnected")) {
+            return "badge badge-error";
+        }
+        return "badge badge-muted";
+    }
+
+    function kvRow(key, value) {
+        const row = document.createElement("div");
+        row.className = "kv-item";
+        const k = document.createElement("span");
+        k.textContent = key;
+        const v = document.createElement("span");
+        v.textContent = text(value);
+        row.appendChild(k);
+        row.appendChild(v);
+        return row;
+    }
+
+    function statCard(title, value, badgeKind) {
+        const div = document.createElement("div");
+        div.className = "card stat-card";
+        const h3 = document.createElement("h3");
+        h3.textContent = title;
+        const val = document.createElement("div");
+        val.className = "stat-value";
+        val.textContent = text(value);
+        if (badgeKind) {
+            val.className = badgeKind;
+        }
+        div.appendChild(h3);
+        div.appendChild(val);
+        return div;
+    }
+
     function api(method, path, body) {
-        const opts = { method, headers: {} };
-        if (token) opts.headers["Authorization"] = "Bearer " + token;
+        const opts = { method: method, headers: {} };
+        if (token) {
+            opts.headers.Authorization = "Bearer " + token;
+        }
         if (body) {
             opts.headers["Content-Type"] = "application/json";
             opts.body = JSON.stringify(body);
         }
         return fetch(path, opts).then((r) => {
-            if (r.status === 401) { showLogin(); throw new Error("unauthorized"); }
-            return r.text().then((text) => {
+            if (r.status === 401) {
+                showLogin();
+                throw new Error("unauthorized");
+            }
+            return r.text().then((txt) => {
                 let data = {};
-                try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+                try {
+                    data = txt ? JSON.parse(txt) : {};
+                } catch (_) {
+                    data = {};
+                }
                 if (!r.ok) {
-                    const err = new Error(data.error || ("http_" + r.status));
-                    err.status = r.status;
-                    err.data = data;
-                    throw err;
+                    const e = new Error(data.error || ("http_" + r.status));
+                    e.status = r.status;
+                    e.data = data;
+                    throw e;
                 }
                 return data;
             });
         });
     }
 
-    function apiRaw(method, path, body) {
-        const opts = { method, headers: {} };
-        if (token) opts.headers["Authorization"] = "Bearer " + token;
-        if (body) { opts.body = body; }
-        return fetch(path, opts);
-    }
-
-    // Navigation
-    function showPage(name) {
-        $$(".page").forEach((p) => (p.hidden = true));
-        const page = $("#" + name + "-page");
-        if (page) page.hidden = false;
-        $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.page === name));
-
-        if (name === "dashboard") loadDashboard();
-        else if (name === "telegrams") loadTelegrams();
-        else if (name === "meters") loadDetectedMeters();
-        else if (name === "watchlist") loadWatchlist();
-        else if (name === "rf") loadRfDiag();
-        else if (name === "mqtt") loadMqttDiag();
-        else if (name === "config") loadConfig();
-        else if (name === "ota") loadOtaStatus();
-        else if (name === "logs") loadLogs();
-    }
-
-    $$(".nav-btn[data-page]").forEach((btn) => {
-        btn.addEventListener("click", () => showPage(btn.dataset.page));
-    });
-
-    // Auth
     function showLogin() {
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
         token = "";
         localStorage.removeItem("wg_token");
-        $("nav").hidden = true;
-        $$(".page").forEach((p) => (p.hidden = true));
+        $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
     }
 
     function showApp() {
-        $("nav").hidden = false;
-        showPage("dashboard");
+        $("#login-page").hidden = true;
+        $("#app-shell").hidden = false;
+        showPage(currentPage);
+        startRefresh();
     }
 
-    $("#login-form").addEventListener("submit", (e) => {
-        e.preventDefault();
-        const pwd = $("#login-pwd").value;
-        fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: pwd }),
-        })
-            .then((r) => r.text().then((text) => {
-                let data = {};
-                try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
-                if (!r.ok) {
-                    const msg = data.error || (r.status === 429 ? "Too many login attempts" : "Login failed");
-                    throw new Error(msg);
-                }
-                return data;
-            }))
+    function showPage(name) {
+        currentPage = name;
+        $$(".page").forEach((p) => {
+            if (p.id !== "login-page") {
+                p.hidden = true;
+            }
+        });
+        const page = $("#" + name + "-page");
+        if (page) {
+            page.hidden = false;
+        }
+        $$(".nav-btn[data-page]").forEach((b) => {
+            b.classList.toggle("active", b.dataset.page === name);
+        });
+        $("#sidebar").classList.remove("open");
+        loadPage(name);
+    }
+
+    function loadPage(name) {
+        if (name === "dashboard") {
+            loadDashboard();
+        } else if (name === "telegrams") {
+            loadTelegrams();
+        } else if (name === "meters") {
+            loadDetectedMeters();
+        } else if (name === "watchlist") {
+            loadWatchlist();
+        } else if (name === "diagnostics") {
+            loadDiagnostics();
+        } else if (name === "logs") {
+            loadLogs();
+        } else if (name === "ota") {
+            loadOtaStatus();
+        } else if (name === "settings") {
+            loadConfig();
+        } else if (name === "support") {
+            loadSupport();
+        } else if (name === "factory-reset") {
+            $("#factory-msg").hidden = true;
+        }
+    }
+
+    function applyModeUi(mode) {
+        const badge = $("#topbar-mode");
+        badge.textContent = "mode: " + text(mode, "--");
+        badge.className = badgeClassByState(mode);
+        const subtitle = $("#login-subtitle");
+        if (String(mode).toLowerCase() === "provisioning") {
+            subtitle.textContent =
+                "Provisioning mode detected. Sign in and open Settings to complete first-time setup.";
+        } else {
+            subtitle.textContent = "Sign in to manage your device.";
+        }
+    }
+
+    function loadDashboard() {
+        Promise.all([
+            api("GET", "/api/status"),
+            api("GET", "/api/meters/detected"),
+            api("GET", "/api/watchlist"),
+        ])
+            .then(([status, metersData, watchlistData]) => {
+                cacheStatus = status;
+                cacheWatchlist = watchlistData.watchlist || [];
+                applyModeUi(status.mode);
+
+                const health = status.health || {};
+                const metrics = status.metrics || {};
+                const wifi = status.wifi || {};
+                const mqtt = status.mqtt || {};
+                const radio = status.radio || {};
+                const meters = metersData.meters || [];
+                const detected = meters.length;
+                const watchCount = (watchlistData.watchlist || []).length;
+                const duplicateCount = meters.reduce(
+                    (sum, m) => sum + Number(m.duplicate_count || 0),
+                    0
+                );
+
+                const statusGrid = $("#dashboard-status-grid");
+                clearChildren(statusGrid);
+                statusGrid.appendChild(
+                    statCard("Health", text(health.state), badgeClassByState(health.state))
+                );
+                statusGrid.appendChild(
+                    statCard("Wi-Fi", text(wifi.state), badgeClassByState(wifi.state))
+                );
+                statusGrid.appendChild(
+                    statCard("MQTT", text(mqtt.state), badgeClassByState(mqtt.state))
+                );
+                statusGrid.appendChild(
+                    statCard("Radio", text(radio.state), badgeClassByState(radio.state))
+                );
+                statusGrid.appendChild(statCard("Mode", status.mode || "--"));
+                statusGrid.appendChild(statCard("Firmware", status.firmware_version || "--"));
+
+                const metricGrid = $("#dashboard-metrics-grid");
+                clearChildren(metricGrid);
+                metricGrid.appendChild(statCard("Uptime", formatUptime(metrics.uptime_s)));
+                metricGrid.appendChild(statCard("Frames Received", radio.frames_received || 0));
+                metricGrid.appendChild(statCard("CRC Fail", radio.frames_crc_fail || 0));
+                metricGrid.appendChild(statCard("Duplicates", duplicateCount));
+                metricGrid.appendChild(statCard("Incomplete Frames", radio.frames_incomplete || 0));
+                metricGrid.appendChild(
+                    statCard("Dropped Too Long", radio.frames_dropped_too_long || 0)
+                );
+                metricGrid.appendChild(statCard("MQTT Publish Failures", mqtt.publish_failures || 0));
+                metricGrid.appendChild(statCard("Detected Meters", detected));
+                metricGrid.appendChild(statCard("Watchlist", watchCount));
+                metricGrid.appendChild(statCard("Wi-Fi RSSI", text(wifi.rssi_dbm, "--") + " dBm"));
+                metricGrid.appendChild(
+                    statCard("Free Heap", Math.round((metrics.free_heap_bytes || 0) / 1024) + " KB")
+                );
+                metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
+            })
+            .catch(() => {});
+    }
+
+    function watchAliasMap() {
+        const map = {};
+        cacheWatchlist.forEach((e) => {
+            map[e.key] = e.alias || "";
+        });
+        return map;
+    }
+
+    function createCell(row, value, className) {
+        const td = document.createElement("td");
+        if (className) {
+            td.className = className;
+        }
+        td.textContent = text(value, "");
+        row.appendChild(td);
+        return td;
+    }
+
+    function addWatchlistQuickAction(key, suggestedAlias, suggestedNote) {
+        $("#wl-key").value = key || "";
+        $("#wl-alias").value = suggestedAlias || "";
+        $("#wl-note").value = suggestedNote || "";
+        $("#wl-enabled").checked = true;
+        showPage("watchlist");
+    }
+
+    function loadTelegrams() {
+        const filter = $("#tg-filter").value || "all";
+        const apiFilter = filter === "problematic" ? "crc_fail" : filter;
+        const suffix = apiFilter === "all" ? "" : ("?filter=" + encodeURIComponent(apiFilter));
+        Promise.all([api("GET", "/api/telegrams" + suffix), api("GET", "/api/watchlist")])
+            .then(([data, watchlist]) => {
+                cacheWatchlist = watchlist.watchlist || [];
+                const aliases = watchAliasMap();
+                const arr = data.telegrams || [];
+                const body = $("#tg-body");
+                clearChildren(body);
+                $("#tg-empty").hidden = arr.length > 0;
+
+                arr.forEach((f) => {
+                    const tr = document.createElement("tr");
+                    createCell(tr, formatTimeMs(f.timestamp_ms));
+                    createCell(tr, f.meter_key || "");
+                    createCell(tr, aliases[f.meter_key] || "");
+                    const raw = createCell(tr, f.raw_hex || "", "hex");
+                    raw.title = f.raw_hex || "";
+                    createCell(tr, f.frame_length);
+                    createCell(tr, f.rssi_dbm);
+                    createCell(tr, f.lqi);
+                    createCell(tr, f.crc_ok ? "OK" : "FAIL");
+                    createCell(tr, f.duplicate ? "YES" : "NO");
+                    createCell(tr, f.watched ? "YES" : "NO");
+
+                    const act = document.createElement("td");
+                    const actions = document.createElement("div");
+                    actions.className = "btn-row";
+
+                    const copyBtn = document.createElement("button");
+                    copyBtn.className = "btn btn-secondary";
+                    copyBtn.textContent = "Copy";
+                    copyBtn.addEventListener("click", () => {
+                        navigator.clipboard.writeText(f.raw_hex || "").catch(() => {});
+                    });
+                    actions.appendChild(copyBtn);
+
+                    const addBtn = document.createElement("button");
+                    addBtn.className = "btn btn-primary";
+                    addBtn.textContent = f.watched ? "Edit Watch" : "Add Watch";
+                    addBtn.addEventListener("click", () => {
+                        addWatchlistQuickAction(f.meter_key || "", aliases[f.meter_key] || "", "");
+                    });
+                    actions.appendChild(addBtn);
+                    act.appendChild(actions);
+                    tr.appendChild(act);
+                    body.appendChild(tr);
+                });
+            })
+            .catch(() => {});
+    }
+
+    function matchesMeterSearch(meter, search) {
+        if (!search) {
+            return true;
+        }
+        const s = search.toLowerCase();
+        return (
+            String(meter.key || "").toLowerCase().includes(s) ||
+            String(meter.alias || "").toLowerCase().includes(s)
+        );
+    }
+
+    function loadDetectedMeters() {
+        const filter = $("#meters-filter").value || "all";
+        const suffix = filter === "all" ? "" : ("?filter=" + encodeURIComponent(filter));
+        const search = ($("#meters-search").value || "").trim();
+        api("GET", "/api/meters/detected" + suffix)
             .then((data) => {
-                if (data.token) {
+                const arr = (data.meters || []).filter((m) => matchesMeterSearch(m, search));
+                const body = $("#meters-body");
+                clearChildren(body);
+                $("#meters-empty").hidden = arr.length > 0;
+                arr.forEach((m) => {
+                    const tr = document.createElement("tr");
+                    createCell(tr, m.alias || "");
+                    createCell(tr, m.key || "", "hex");
+                    createCell(tr, m.manufacturer_id || "--");
+                    createCell(tr, m.device_id || "--");
+                    createCell(tr, formatTimeMs(m.first_seen_ms));
+                    createCell(tr, formatTimeMs(m.last_seen_ms));
+                    createCell(tr, m.seen_count || 0);
+                    createCell(tr, text(m.last_rssi_dbm, "--") + " / " + text(m.last_lqi, "--"));
+                    createCell(
+                        tr,
+                        m.watch_enabled ? "ENABLED" : m.watched ? "DISABLED" : "NO"
+                    );
+                    createCell(tr, m.note || "");
+
+                    const act = document.createElement("td");
+                    const row = document.createElement("div");
+                    row.className = "btn-row";
+                    const watchBtn = document.createElement("button");
+                    watchBtn.className = "btn btn-primary";
+                    watchBtn.textContent = m.watched ? "Edit Watch" : "Add";
+                    watchBtn.addEventListener("click", () => {
+                        addWatchlistQuickAction(m.key, m.alias || "", m.note || "");
+                    });
+                    row.appendChild(watchBtn);
+                    act.appendChild(row);
+                    tr.appendChild(act);
+                    body.appendChild(tr);
+                });
+            })
+            .catch(() => {});
+    }
+
+    function loadWatchlist() {
+        api("GET", "/api/watchlist")
+            .then((data) => {
+                cacheWatchlist = data.watchlist || [];
+                const body = $("#watchlist-body");
+                clearChildren(body);
+                $("#watchlist-empty").hidden = cacheWatchlist.length > 0;
+                cacheWatchlist.forEach((w) => {
+                    const tr = document.createElement("tr");
+                    createCell(tr, w.enabled ? "YES" : "NO");
+                    createCell(tr, w.alias || "");
+                    createCell(tr, w.key || "", "hex");
+                    createCell(tr, w.note || "");
+                    tr.addEventListener("click", () => {
+                        $("#wl-key").value = w.key || "";
+                        $("#wl-alias").value = w.alias || "";
+                        $("#wl-note").value = w.note || "";
+                        $("#wl-enabled").checked = !!w.enabled;
+                    });
+                    body.appendChild(tr);
+                });
+            })
+            .catch(() => {});
+    }
+
+    function loadDiagnostics() {
+        Promise.all([api("GET", "/api/diagnostics/radio"), api("GET", "/api/diagnostics/mqtt"), api("GET", "/api/status"), api("GET", "/api/ota/status")])
+            .then(([radioData, mqttData, statusData, otaData]) => {
+                const radioEl = $("#rf-stats");
+                const mqttEl = $("#mqtt-stats");
+                const sysEl = $("#sys-stats");
+                const otaEl = $("#diag-ota-stats");
+                clearChildren(radioEl);
+                clearChildren(mqttEl);
+                clearChildren(sysEl);
+                clearChildren(otaEl);
+
+                const rsm = radioData.rsm || {};
+                const diag = radioData.diagnostics || {};
+                const rc = diag.radio_counters || {};
+                [
+                    ["RSM State", rsm.state],
+                    ["Consecutive Errors", rsm.consecutive_errors],
+                    ["Radio State", diag.radio_state],
+                    ["Frames Received", rc.frames_received],
+                    ["CRC OK", rc.frames_crc_ok],
+                    ["CRC Fail", rc.frames_crc_fail],
+                    ["Incomplete", rc.frames_incomplete],
+                    ["Dropped Too Long", rc.frames_dropped_too_long],
+                    ["FIFO Overflows", rc.fifo_overflows],
+                    ["SPI Errors", rc.spi_errors],
+                ].forEach((entry) => radioEl.appendChild(kvRow(entry[0], entry[1])));
+
+                [
+                    ["State", mqttData.state],
+                    ["Broker", mqttData.broker_uri],
+                    ["Publish Count", mqttData.publish_count],
+                    ["Publish Failures", mqttData.publish_failures],
+                    ["Reconnects", mqttData.reconnect_count],
+                    ["Last Publish (ms)", mqttData.last_publish_epoch_ms],
+                ].forEach((entry) => mqttEl.appendChild(kvRow(entry[0], entry[1])));
+
+                const health = statusData.health || {};
+                const metrics = statusData.metrics || {};
+                const wifi = statusData.wifi || {};
+                [
+                    ["Health", health.state],
+                    ["Uptime", formatUptime(metrics.uptime_s)],
+                    ["Heap Free", metrics.free_heap_bytes],
+                    ["Heap Min", metrics.min_free_heap_bytes],
+                    ["Largest Block", metrics.largest_free_block],
+                    ["Wi-Fi State", wifi.state],
+                    ["Wi-Fi IP", wifi.ip_address],
+                    ["Wi-Fi RSSI", wifi.rssi_dbm],
+                ].forEach((entry) => sysEl.appendChild(kvRow(entry[0], entry[1])));
+
+                [
+                    ["State", otaData.state],
+                    ["Progress", text(otaData.progress_pct, "0") + "%"],
+                    ["Message", otaData.message],
+                    ["Version", otaData.current_version],
+                ].forEach((entry) => otaEl.appendChild(kvRow(entry[0], entry[1])));
+            })
+            .catch(() => {});
+    }
+
+    function renderConfigSection(container, sectionName, obj) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const title = document.createElement("h3");
+        title.textContent = sectionName;
+        card.appendChild(title);
+        Object.keys(obj).forEach((key) => {
+            const value = obj[key];
+            const id = "cfg-" + sectionName.toLowerCase() + "-" + key;
+            if (key === "password_set") {
+                const row = document.createElement("div");
+                row.className = "kv-item";
+                const left = document.createElement("span");
+                left.textContent = key;
+                const right = document.createElement("span");
+                right.textContent = value ? "yes" : "no";
+                row.appendChild(left);
+                row.appendChild(right);
+                card.appendChild(row);
+                return;
+            }
+            const label = document.createElement("label");
+            label.setAttribute("for", id);
+            label.textContent = key;
+            const input = document.createElement("input");
+            input.id = id;
+            if (typeof value === "boolean") {
+                input.type = "checkbox";
+                input.checked = value;
+            } else if (typeof value === "number") {
+                input.type = "number";
+                input.value = String(value);
+            } else {
+                input.type = "text";
+                input.value = value === undefined || value === null ? "" : String(value);
+            }
+            label.appendChild(input);
+            card.appendChild(label);
+        });
+        container.appendChild(card);
+    }
+
+    function loadConfig() {
+        api("GET", "/api/config")
+            .then((cfg) => {
+                const c = $("#config-form-container");
+                clearChildren(c);
+                if (
+                    cacheStatus &&
+                    String(cacheStatus.mode || "").toLowerCase() === "provisioning"
+                ) {
+                    const onboarding = document.createElement("div");
+                    onboarding.className = "card";
+                    const h = document.createElement("h3");
+                    h.textContent = "Provisioning Checklist";
+                    const p = document.createElement("p");
+                    p.className = "hint";
+                    p.textContent =
+                        "Complete Wi-Fi, admin password, and MQTT settings. Save settings and reboot to enter normal mode.";
+                    onboarding.appendChild(h);
+                    onboarding.appendChild(p);
+                    c.appendChild(onboarding);
+                }
+                renderConfigSection(c, "Device", cfg.device || {});
+                renderConfigSection(c, "WiFi", cfg.wifi || {});
+                renderConfigSection(c, "MQTT", cfg.mqtt || {});
+                renderConfigSection(c, "Radio", cfg.radio || {});
+                renderConfigSection(c, "Auth", cfg.auth || {});
+                renderConfigSection(c, "Logging", cfg.logging || {});
+            })
+            .catch(() => {});
+    }
+
+    function collectConfigValues(cfg) {
+        ["device", "wifi", "mqtt", "radio", "auth", "logging"].forEach((section) => {
+            if (!cfg[section]) {
+                return;
+            }
+            Object.keys(cfg[section]).forEach((key) => {
+                if (key === "password_set") {
+                    return;
+                }
+                const el = $("#cfg-" + section + "-" + key);
+                if (!el) {
+                    return;
+                }
+                if (el.type === "checkbox") {
+                    cfg[section][key] = el.checked;
+                } else if (el.type === "number") {
+                    cfg[section][key] = Number(el.value);
+                } else if (el.value !== "***") {
+                    cfg[section][key] = el.value;
+                }
+            });
+        });
+    }
+
+    function loadOtaStatus() {
+        api("GET", "/api/ota/status")
+            .then((d) => {
+                const otaGrid = $("#ota-state-grid");
+                clearChildren(otaGrid);
+                otaGrid.appendChild(kvRow("State", d.state));
+                otaGrid.appendChild(kvRow("Progress", text(d.progress_pct, "0") + "%"));
+                otaGrid.appendChild(kvRow("Current Version", d.current_version));
+                otaGrid.appendChild(kvRow("Message", d.message));
+                $("#ota-status").textContent = "Status: " + text(d.state);
+            })
+            .catch(() => {});
+    }
+
+    function loadSupport() {
+        const summary = $("#support-summary");
+        clearChildren(summary);
+        Promise.all([api("GET", "/api/status"), api("GET", "/api/ota/status"), api("GET", "/api/watchlist")])
+            .then(([status, ota, watch]) => {
+                summary.appendChild(kvRow("Firmware", status.firmware_version));
+                summary.appendChild(kvRow("Mode", status.mode));
+                summary.appendChild(kvRow("Health", status.health ? status.health.state : "--"));
+                summary.appendChild(kvRow("Watchlist Entries", (watch.watchlist || []).length));
+                summary.appendChild(kvRow("OTA State", ota.state));
+            })
+            .catch(() => {});
+    }
+
+    function loadLogs() {
+        api("GET", "/api/logs")
+            .then((data) => {
+                const lines = data.entries || [];
+                const filter = $("#log-filter").value;
+                const filtered = filter ? lines.filter((l) => l.severity === filter) : lines;
+                const output = filtered
+                    .map((l) => {
+                        const ts = l.timestamp_us
+                            ? new Date(Math.floor(l.timestamp_us / 1000)).toISOString()
+                            : "";
+                        return (
+                            "[" + text(l.severity, "?").toUpperCase().padEnd(7) + "] " + ts + " " + text(l.message, "")
+                        );
+                    })
+                    .join("\n");
+                $("#log-output").textContent = output || "No logs.";
+                $("#logs-empty").hidden = filtered.length > 0;
+            })
+            .catch(() => {});
+    }
+
+    function startRefresh() {
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+        }
+        refreshTimer = setInterval(() => {
+            loadPage(currentPage);
+        }, 10000);
+    }
+
+    function bindEvents() {
+        $$(".nav-btn[data-page]").forEach((btn) => {
+            btn.addEventListener("click", () => showPage(btn.dataset.page));
+        });
+
+        $("#menu-toggle").addEventListener("click", () => {
+            $("#sidebar").classList.toggle("open");
+        });
+
+        $("#btn-logout").addEventListener("click", () => {
+            api("POST", "/api/auth/logout").catch(() => {});
+            showLogin();
+        });
+
+        $("#login-form").addEventListener("submit", (e) => {
+            e.preventDefault();
+            const pwd = $("#login-pwd").value;
+            fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: pwd }),
+            })
+                .then((r) =>
+                    r.text().then((txt) => {
+                        let data = {};
+                        try {
+                            data = txt ? JSON.parse(txt) : {};
+                        } catch (_) {
+                            data = {};
+                        }
+                        if (!r.ok) {
+                            const retry = data.retry_after_s
+                                ? " Try again in " + data.retry_after_s + "s."
+                                : "";
+                            throw new Error((data.error || "Login failed") + retry);
+                        }
+                        return data;
+                    })
+                )
+                .then((data) => {
+                    if (!data.token) {
+                        throw new Error("No auth token");
+                    }
                     token = data.token;
                     localStorage.setItem("wg_token", token);
                     $("#login-error").hidden = true;
                     showApp();
-                } else {
-                    $("#login-error").textContent = data.error || "Login failed";
-                    $("#login-error").hidden = false;
-                }
-            })
-            .catch((err) => {
-                $("#login-error").textContent = (err && err.message) ? err.message : "Connection error";
-                $("#login-error").hidden = false;
-            });
-    });
-
-    $("#btn-logout").addEventListener("click", () => {
-        api("POST", "/api/auth/logout").catch(() => {});
-        showLogin();
-    });
-
-    // Dashboard
-    function loadDashboard() {
-        api("GET", "/api/status").then((d) => {
-            const health = d.health || {};
-            const metrics = d.metrics || {};
-            const wifi = d.wifi || {};
-            const mqtt = d.mqtt || {};
-            const radio = d.radio || {};
-
-            $("#d-health").textContent = health.state || "--";
-            $("#d-uptime").textContent = formatUptime(metrics.uptime_s);
-            $("#d-fw").textContent = d.firmware_version || "--";
-            $("#d-ip").textContent = wifi.ip_address || "--";
-            $("#d-frames").textContent = radio.frames_received ?? "--";
-            $("#d-mqttpub").textContent = mqtt.publish_count ?? "--";
-            $("#d-rssi").textContent = (wifi.rssi_dbm || wifi.rssi_dbm === 0) ? (wifi.rssi_dbm + " dBm") : "--";
-            $("#d-heap").textContent = metrics.free_heap_bytes ? Math.round(metrics.free_heap_bytes / 1024) + " KB" : "--";
-            setHealthColor($("#d-health"), (health.state || "").toLowerCase());
-        }).catch(() => {});
-    }
-
-    function setHealthColor(el, state) {
-        el.className = "";
-        if (state === "healthy") el.classList.add("success");
-        else if (state === "warning") el.classList.add("warning");
-        else if (state === "error") el.classList.add("error");
-    }
-
-    function formatUptime(s) {
-        if (!s && s !== 0) return "--";
-        const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
-              m = Math.floor((s % 3600) / 60);
-        return d > 0 ? d + "d " + h + "h" : h > 0 ? h + "h " + m + "m" : m + "m " + (s % 60) + "s";
-    }
-
-    // Telegrams
-    function loadTelegrams() {
-        const filter = ($("#tg-filter") && $("#tg-filter").value) || "all";
-        const suffix = filter === "all" ? "" : ("?filter=" + encodeURIComponent(filter));
-        api("GET", "/api/telegrams" + suffix).then((data) => {
-            const arr = data.telegrams || data.frames || [];
-            const body = $("#tg-body");
-            body.innerHTML = "";
-            $("#tg-empty").hidden = arr.length > 0;
-            arr.forEach((f) => {
-                const tr = document.createElement("tr");
-                const ts = f.timestamp_ms
-                    ? new Date(Number(f.timestamp_ms)).toISOString()
-                    : (f.timestamp || "");
-                tr.innerHTML =
-                    "<td>" + ts + "</td>" +
-                    "<td>" + (f.meter_key || "") + "</td>" +
-                    '<td class="hex" title="' + f.raw_hex + '">' + (f.raw_hex || "").substring(0, 40) + "</td>" +
-                    "<td>" + (f.rssi_dbm ?? "") + "</td>" +
-                    "<td>" + (f.lqi ?? "") + "</td>" +
-                    "<td>" + (f.crc_ok ? "OK" : "FAIL") + "</td>" +
-                    "<td>" + (f.duplicate ? "YES" : "NO") + "</td>" +
-                    "<td>" + (f.watched ? "YES" : "NO") + "</td>" +
-                    "<td>" + (f.frame_length ?? "") + "</td>";
-                body.appendChild(tr);
-            });
-        }).catch(() => {});
-    }
-
-    function loadDetectedMeters() {
-        const filter = ($("#meters-filter") && $("#meters-filter").value) || "all";
-        const suffix = filter === "all" ? "" : ("?filter=" + encodeURIComponent(filter));
-        api("GET", "/api/meters/detected" + suffix).then((data) => {
-            const arr = data.meters || [];
-            const body = $("#meters-body");
-            body.innerHTML = "";
-            $("#meters-empty").hidden = arr.length > 0;
-            arr.forEach((m) => {
-                const tr = document.createElement("tr");
-                tr.innerHTML =
-                    "<td>" + (m.alias || "") + "</td>" +
-                    '<td class="hex">' + (m.key || "") + "</td>" +
-                    "<td>" + (m.seen_count ?? 0) + "</td>" +
-                    "<td>" + (m.last_rssi_dbm ?? "") + "</td>" +
-                    "<td>" + (m.crc_fail_count ?? 0) + "</td>" +
-                    "<td>" + (m.duplicate_count ?? 0) + "</td>" +
-                    "<td>" + (m.watch_enabled ? "YES" : (m.watched ? "DISABLED" : "NO")) + "</td>";
-                body.appendChild(tr);
-            });
-        }).catch(() => {});
-    }
-
-    function loadWatchlist() {
-        api("GET", "/api/watchlist").then((data) => {
-            const arr = data.watchlist || [];
-            const body = $("#watchlist-body");
-            body.innerHTML = "";
-            arr.forEach((w) => {
-                const tr = document.createElement("tr");
-                tr.innerHTML =
-                    "<td>" + (w.enabled ? "YES" : "NO") + "</td>" +
-                    "<td>" + (w.alias || "") + "</td>" +
-                    '<td class="hex">' + (w.key || "") + "</td>" +
-                    "<td>" + (w.note || "") + "</td>";
-                tr.addEventListener("click", () => {
-                    $("#wl-key").value = w.key || "";
-                    $("#wl-alias").value = w.alias || "";
-                    $("#wl-note").value = w.note || "";
-                    $("#wl-enabled").checked = !!w.enabled;
+                })
+                .catch((err) => {
+                    setMsg($("#login-error"), "error", err.message || "Login failed");
                 });
-                body.appendChild(tr);
-            });
-        }).catch(() => {});
-    }
-
-    // RF Diagnostics
-    function loadRfDiag() {
-        api("GET", "/api/diagnostics/radio").then((d) => {
-            const c = $("#rf-stats");
-            c.innerHTML = "";
-            const rsm = d.rsm || {};
-            const diag = d.diagnostics || {};
-            const counters = diag.radio_counters || {};
-            const fields = [
-                ["RSM State", rsm.state],
-                ["Consecutive Errors", rsm.consecutive_errors],
-                ["Radio State", diag.radio_state],
-                ["Frames Received", counters.frames_received],
-                ["CRC OK", counters.frames_crc_ok],
-                ["CRC Fail", counters.frames_crc_fail],
-                ["Incomplete Frames", counters.frames_incomplete],
-                ["Dropped Too Long", counters.frames_dropped_too_long],
-                ["FIFO Overflows", counters.fifo_overflows],
-                ["Radio Resets", counters.radio_resets],
-                ["Recoveries", counters.radio_recoveries],
-                ["SPI Errors", counters.spi_errors],
-            ];
-            fields.forEach(([k, v]) => {
-                const div = document.createElement("div");
-                div.className = "card stat-card";
-                div.innerHTML = "<h3>" + k + "</h3><span>" + (v ?? "--") + "</span>";
-                c.appendChild(div);
-            });
-        }).catch(() => {});
-    }
-
-    // MQTT Diagnostics
-    function loadMqttDiag() {
-        api("GET", "/api/diagnostics/mqtt").then((d) => {
-            const c = $("#mqtt-stats");
-            c.innerHTML = "";
-            const fields = [
-                ["State", d.state],
-                ["Broker", d.broker_uri],
-                ["Publishes", d.publish_count],
-                ["Failures", d.publish_failures],
-                ["Reconnects", d.reconnect_count],
-            ];
-            fields.forEach(([k, v]) => {
-                const div = document.createElement("div");
-                div.className = "card stat-card";
-                div.innerHTML = "<h3>" + k + "</h3><span>" + (v ?? "--") + "</span>";
-                c.appendChild(div);
-            });
-        }).catch(() => {});
-    }
-
-    // Config
-    function loadConfig() {
-        api("GET", "/api/config").then((cfg) => {
-            const container = $("#config-form-container");
-            container.innerHTML = "";
-            renderConfigSection(container, "Device", cfg.device || {});
-            renderConfigSection(container, "WiFi", cfg.wifi || {});
-            renderConfigSection(container, "MQTT", cfg.mqtt || {});
-            renderConfigSection(container, "Radio", cfg.radio || {});
-            renderConfigSection(container, "Auth", cfg.auth || {});
-            renderConfigSection(container, "Logging", cfg.logging || {});
-        }).catch(() => {});
-    }
-
-    function renderConfigSection(container, title, obj) {
-        const card = document.createElement("div");
-        card.className = "card";
-        card.style.marginBottom = "12px";
-        let html = "<h3>" + title + "</h3>";
-        for (const [k, v] of Object.entries(obj)) {
-            if (k === "password_set") {
-                html += '<label>' + k + '<input type="text" value="' + (v ? "yes" : "no") + '" disabled></label>';
-                continue;
-            }
-            const type = typeof v === "boolean" ? "checkbox" :
-                         typeof v === "number" ? "number" : "text";
-            const id = "cfg-" + title.toLowerCase() + "-" + k;
-            if (type === "checkbox") {
-                html += '<label><input type="checkbox" id="' + id + '"' + (v ? " checked" : "") + '> ' + k + '</label>';
-            } else {
-                html += '<label>' + k + '<input type="' + type + '" id="' + id + '" value="' + (v ?? "") + '"></label>';
-            }
-        }
-        card.innerHTML = html;
-        container.appendChild(card);
-    }
-
-    $("#cfg-save").addEventListener("click", () => {
-        const msg = $("#cfg-msg");
-        msg.hidden = true;
-        api("GET", "/api/config").then((orig) => {
-            collectConfigValues(orig);
-            return api("POST", "/api/config", orig);
-        }).then((resp) => {
-            if (resp && resp.ok) {
-                if (resp.relogin_required) {
-                    msg.textContent = "Configuration saved. Authentication changed, please log in again.";
-                    msg.className = "warning";
-                    msg.hidden = false;
-                    showLogin();
-                    return;
-                }
-                msg.textContent = resp.reboot_required
-                    ? "Configuration saved. Reboot is required to apply runtime changes."
-                    : "Configuration saved.";
-                msg.className = "success";
-            } else {
-                const issues = (resp && resp.issues) ? resp.issues : [];
-                const details = issues.map((i) => i.field + ": " + i.message).join(", ");
-                msg.textContent = details ? ("Validation failed: " + details) : "Validation failed";
-                msg.className = "error";
-            }
-            msg.hidden = false;
-        }).catch((err) => {
-            const issues = err && err.data && err.data.issues ? err.data.issues : [];
-            const details = issues.map((i) => i.field + ": " + i.message).join(", ");
-            msg.textContent = details ? ("Validation failed: " + details) : "Save failed";
-            msg.className = "error";
-            msg.hidden = false;
         });
-    });
 
-    function collectConfigValues(cfg) {
-        for (const section of ["device", "wifi", "mqtt", "radio", "auth", "logging"]) {
-            if (!cfg[section]) continue;
-            for (const k of Object.keys(cfg[section])) {
-                if (k === "password_set") continue;
-                const el = $("#cfg-" + section + "-" + k);
-                if (!el) continue;
-                if (el.type === "checkbox") cfg[section][k] = el.checked;
-                else if (el.type === "number") cfg[section][k] = Number(el.value);
-                else {
-                    if (el.value !== "***") cfg[section][k] = el.value;
-                }
-            }
-        }
-    }
-
-    $("#cfg-export").addEventListener("click", () => {
-        api("GET", "/api/config").then((cfg) => {
-            const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: "application/json" });
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = "wmbus-gw-config.json";
-            a.click();
+        $("#cfg-save").addEventListener("click", () => {
+            const msg = $("#cfg-msg");
+            msg.hidden = true;
+            api("GET", "/api/config")
+                .then((cfg) => {
+                    collectConfigValues(cfg);
+                    return api("POST", "/api/config", cfg);
+                })
+                .then((resp) => {
+                    if (resp.relogin_required) {
+                        setMsg(msg, "warning", "Saved. Authentication changed, please log in again.");
+                        showLogin();
+                        return;
+                    }
+                    if (resp.reboot_required) {
+                        setMsg(msg, "warning", "Saved. Reboot required to apply runtime settings.");
+                    } else {
+                        setMsg(msg, "success", "Settings saved.");
+                    }
+                })
+                .catch((err) => {
+                    const issues = err && err.data && err.data.issues ? err.data.issues : [];
+                    if (issues.length > 0) {
+                        const detail = issues
+                            .map((i) => i.field + ": " + i.message)
+                            .join("; ");
+                        setMsg(msg, "error", "Validation failed: " + detail);
+                    } else {
+                        setMsg(msg, "error", "Save failed.");
+                    }
+                });
         });
-    });
 
-    $("#wl-save").addEventListener("click", () => {
-        const msg = $("#wl-msg");
-        msg.hidden = true;
-        const key = ($("#wl-key").value || "").trim();
-        if (!key) {
-            msg.textContent = "Meter key is required";
-            msg.className = "error";
-            msg.hidden = false;
-            return;
-        }
-        api("POST", "/api/watchlist", {
-            key,
-            alias: $("#wl-alias").value || "",
-            note: $("#wl-note").value || "",
-            enabled: $("#wl-enabled").checked
-        }).then(() => {
-            msg.textContent = "Watchlist updated";
-            msg.className = "success";
-            msg.hidden = false;
-            loadWatchlist();
-            loadDetectedMeters();
-        }).catch(() => {
-            msg.textContent = "Watchlist update failed";
-            msg.className = "error";
-            msg.hidden = false;
-        });
-    });
-
-    $("#wl-delete").addEventListener("click", () => {
-        const msg = $("#wl-msg");
-        msg.hidden = true;
-        const key = ($("#wl-key").value || "").trim();
-        if (!key) {
-            msg.textContent = "Meter key is required";
-            msg.className = "error";
-            msg.hidden = false;
-            return;
-        }
-        api("POST", "/api/watchlist/delete", { key }).then(() => {
-            msg.textContent = "Watchlist entry removed";
-            msg.className = "success";
-            msg.hidden = false;
-            loadWatchlist();
-            loadDetectedMeters();
-        }).catch(() => {
-            msg.textContent = "Watchlist delete failed";
-            msg.className = "error";
-            msg.hidden = false;
-        });
-    });
-
-    // OTA
-    function loadOtaStatus() {
-        api("GET", "/api/ota/status").then((d) => {
-            $("#ota-status").textContent = "Status: " + (d.state || "idle") +
-                (d.progress_pct ? " (" + d.progress_pct + "%)" : "") +
-                (d.message ? " — " + d.message : "") +
-                (d.current_version ? (" — version " + d.current_version) : "");
-        }).catch(() => {});
-    }
-
-    $("#ota-upload-btn").addEventListener("click", () => {
-        const file = $("#ota-file").files[0];
-        if (!file) return;
-        $("#ota-status").textContent = "Uploading firmware...";
-        fetch("/api/ota/upload", {
-            method: "POST",
-            headers: {
-                "Authorization": token ? ("Bearer " + token) : "",
-                "Content-Type": "application/octet-stream"
-            },
-            body: file
-        }).then((r) => r.text().then((text) => {
-            let data = {};
-            try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
-            if (!r.ok) {
-                throw new Error(data.error || ("http_" + r.status));
-            }
-            return data;
-        })).then((d) => {
-            $("#ota-status").textContent = d.detail || "Upload complete. Reboot to activate.";
-            loadOtaStatus();
-        }).catch((err) => {
-            $("#ota-status").textContent = "Upload failed: " + ((err && err.message) || "unknown");
-        });
-    });
-
-    $("#ota-url-btn").addEventListener("click", () => {
-        const url = $("#ota-url").value;
-        if (!url) return;
-        api("POST", "/api/ota/url", { url }).then((d) => {
-            $("#ota-status").textContent = d.message || "OTA started";
-        }).catch(() => { $("#ota-status").textContent = "OTA failed"; });
-    });
-
-    // System
-    $("#sys-reboot").addEventListener("click", () => {
-        if (confirm("Reboot device?")) api("POST", "/api/system/reboot").catch(() => {});
-    });
-
-    $("#sys-reset").addEventListener("click", () => {
-        if (confirm("Factory reset? All config will be lost!")) {
-            api("POST", "/api/system/factory-reset").catch(() => {});
-        }
-    });
-
-    $("#sys-bundle").addEventListener("click", () => {
-        fetch("/api/support-bundle", { headers: { Authorization: "Bearer " + token } })
-            .then((r) => r.blob())
-            .then((blob) => {
+        $("#cfg-export").addEventListener("click", () => {
+            api("GET", "/api/config").then((cfg) => {
+                const blob = new Blob([JSON.stringify(cfg, null, 2)], {
+                    type: "application/json",
+                });
                 const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
-                a.download = "support-bundle.json";
+                a.download = "wmbus-gw-config.json";
                 a.click();
             });
-    });
+        });
 
-    // Logs
-    function loadLogs() {
-        api("GET", "/api/logs").then((data) => {
-            const lines = data.entries || data.lines || [];
-            const filter = $("#log-filter").value;
-            const filtered = filter ? lines.filter((l) => l.severity === filter) : lines;
-            $("#log-output").textContent = filtered.map((l) =>
-                "[" + (l.severity || "?").toUpperCase().padEnd(7) + "] " +
-                (l.timestamp_us ? (new Date(Math.floor(l.timestamp_us / 1000)).toISOString() + " ") : "") +
-                (l.message || "")
-            ).join("\n") || "No logs.";
-        }).catch(() => {});
+        $("#wl-save").addEventListener("click", () => {
+            const msg = $("#wl-msg");
+            msg.hidden = true;
+            const key = $("#wl-key").value.trim();
+            if (!key) {
+                setMsg(msg, "error", "Meter key is required.");
+                return;
+            }
+            api("POST", "/api/watchlist", {
+                key: key,
+                alias: $("#wl-alias").value || "",
+                note: $("#wl-note").value || "",
+                enabled: $("#wl-enabled").checked,
+            })
+                .then(() => {
+                    setMsg(msg, "success", "Watchlist updated.");
+                    loadWatchlist();
+                    if (currentPage === "meters") {
+                        loadDetectedMeters();
+                    }
+                })
+                .catch(() => setMsg(msg, "error", "Watchlist update failed."));
+        });
+
+        $("#wl-delete").addEventListener("click", () => {
+            const msg = $("#wl-msg");
+            msg.hidden = true;
+            const key = $("#wl-key").value.trim();
+            if (!key) {
+                setMsg(msg, "error", "Meter key is required.");
+                return;
+            }
+            api("POST", "/api/watchlist/delete", { key: key })
+                .then(() => {
+                    setMsg(msg, "success", "Watchlist entry removed.");
+                    $("#wl-key").value = "";
+                    $("#wl-alias").value = "";
+                    $("#wl-note").value = "";
+                    $("#wl-enabled").checked = true;
+                    loadWatchlist();
+                    loadDetectedMeters();
+                })
+                .catch(() => setMsg(msg, "error", "Watchlist delete failed."));
+        });
+
+        $("#ota-upload-btn").addEventListener("click", () => {
+            const file = $("#ota-file").files[0];
+            if (!file) {
+                setMsg($("#ota-status"), "warning", "Select a firmware file first.");
+                return;
+            }
+            setMsg($("#ota-status"), "warning", "Uploading firmware...");
+            fetch("/api/ota/upload", {
+                method: "POST",
+                headers: {
+                    Authorization: token ? "Bearer " + token : "",
+                    "Content-Type": "application/octet-stream",
+                },
+                body: file,
+            })
+                .then((r) =>
+                    r.text().then((txt) => {
+                        let data = {};
+                        try {
+                            data = txt ? JSON.parse(txt) : {};
+                        } catch (_) {
+                            data = {};
+                        }
+                        if (!r.ok) {
+                            throw new Error(data.error || "upload_failed");
+                        }
+                        return data;
+                    })
+                )
+                .then((resp) => {
+                    const detail = resp.detail || "Upload complete. Reboot required.";
+                    setMsg($("#ota-status"), "success", detail);
+                    loadOtaStatus();
+                })
+                .catch((err) => setMsg($("#ota-status"), "error", "Upload failed: " + err.message));
+        });
+
+        $("#ota-url-btn").addEventListener("click", () => {
+            const url = $("#ota-url").value.trim();
+            if (!url) {
+                setMsg($("#ota-status"), "warning", "Enter URL first.");
+                return;
+            }
+            api("POST", "/api/ota/url", { url: url })
+                .then(() => setMsg($("#ota-status"), "success", "OTA URL update started."))
+                .catch((err) => setMsg($("#ota-status"), "error", "OTA URL failed: " + err.message));
+        });
+
+        $("#sys-bundle").addEventListener("click", () => {
+            fetch("/api/support-bundle", {
+                headers: {
+                    Authorization: token ? "Bearer " + token : "",
+                },
+            })
+                .then((r) => {
+                    if (!r.ok) {
+                        throw new Error("download_failed");
+                    }
+                    return r.blob();
+                })
+                .then((blob) => {
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "support-bundle.json";
+                    a.click();
+                })
+                .catch(() => {});
+        });
+
+        $("#sys-reboot").addEventListener("click", () => {
+            if (!confirm("Reboot device now?")) {
+                return;
+            }
+            api("POST", "/api/system/reboot")
+                .then(() => setMsg($("#factory-msg"), "warning", "Reboot command sent."))
+                .catch(() => setMsg($("#factory-msg"), "error", "Reboot failed."));
+        });
+
+        $("#dash-reboot").addEventListener("click", () => {
+            if (confirm("Reboot device now?")) {
+                api("POST", "/api/system/reboot").catch(() => {});
+            }
+        });
+
+        $("#sys-reset").addEventListener("click", () => {
+            if (!confirm("Factory reset will erase configuration and reboot. Continue?")) {
+                return;
+            }
+            api("POST", "/api/system/factory-reset")
+                .then(() => setMsg($("#factory-msg"), "warning", "Factory reset command sent."))
+                .catch(() => setMsg($("#factory-msg"), "error", "Factory reset failed."));
+        });
+
+        $("#tg-filter").addEventListener("change", loadTelegrams);
+        $("#tg-refresh").addEventListener("click", loadTelegrams);
+        $("#meters-filter").addEventListener("change", loadDetectedMeters);
+        $("#meters-search").addEventListener("input", loadDetectedMeters);
+        $("#meters-refresh").addEventListener("click", loadDetectedMeters);
+        $("#diag-refresh").addEventListener("click", loadDiagnostics);
+        $("#log-filter").addEventListener("change", loadLogs);
+        $("#log-refresh").addEventListener("click", loadLogs);
+        $$("[data-jump]").forEach((btn) =>
+            btn.addEventListener("click", () => showPage(btn.dataset.jump))
+        );
     }
 
-    $("#log-filter").addEventListener("change", loadLogs);
-    const tgFilter = $("#tg-filter");
-    if (tgFilter) {
-        tgFilter.addEventListener("change", loadTelegrams);
-    }
-    const metersFilter = $("#meters-filter");
-    if (metersFilter) {
-        metersFilter.addEventListener("change", loadDetectedMeters);
-    }
+    bindEvents();
 
-    // Auto-refresh
-    let refreshTimer = null;
-    function startRefresh() {
-        if (refreshTimer) clearInterval(refreshTimer);
-        refreshTimer = setInterval(() => {
-            const active = document.querySelector(".nav-btn.active");
-            if (active) showPage(active.dataset.page);
-        }, 10000);
-    }
-
-    // Init
     if (token) {
-        api("GET", "/api/status").then(() => { showApp(); startRefresh(); }).catch(() => showLogin());
+        api("GET", "/api/status")
+            .then((status) => {
+                cacheStatus = status;
+                applyModeUi(status.mode);
+                showApp();
+            })
+            .catch(() => showLogin());
     } else {
         showLogin();
     }

@@ -6,12 +6,12 @@
 namespace app_core {
 
 class AppCore {
-public:
+  public:
     // Main entry point. Called from app_main().
     // Initializes all services, determines startup mode, creates tasks.
     void start();
 
-private:
+  private:
     // Phase 1: Initialize foundation services (event bus, config, storage)
     common::Result<void> initialize_foundations();
 

@@ -6,13 +6,13 @@
 namespace support_bundle_service {
 
 class SupportBundleService {
-public:
+  public:
     static SupportBundleService& instance();
 
     /// JSON bundle: diagnostics snapshot, metrics, health, redacted config, log lines.
     [[nodiscard]] common::Result<std::string> generate_bundle_json() const;
 
-private:
+  private:
     SupportBundleService() = default;
 };
 

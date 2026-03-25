@@ -24,7 +24,7 @@ struct HealthSnapshot {
 };
 
 class HealthMonitor {
-public:
+  public:
     static HealthMonitor& instance();
 
     common::Result<void> report_healthy();
@@ -35,7 +35,7 @@ public:
 
     [[nodiscard]] static const char* state_to_string(HealthState state);
 
-private:
+  private:
     HealthMonitor() = default;
 
     mutable std::mutex mutex_{};

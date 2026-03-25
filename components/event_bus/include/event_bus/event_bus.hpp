@@ -43,13 +43,12 @@ static constexpr size_t kMaxSubscriptions = 32;
 // If a handler needs to do significant work, it should post to a
 // FreeRTOS queue and return immediately.
 class EventBus {
-public:
+  public:
     static EventBus& instance();
 
     common::Result<void> initialize();
 
-    common::Result<SubscriptionId> subscribe(EventType type,
-                                             EventHandler handler);
+    common::Result<SubscriptionId> subscribe(EventType type, EventHandler handler);
     common::Result<void> unsubscribe(SubscriptionId id);
 
     void publish(const Event& event);
@@ -58,9 +57,11 @@ public:
     void publish(EventType type, int32_t code = 0);
 
     size_t subscription_count() const;
-    bool is_initialized() const { return initialized_; }
+    bool is_initialized() const {
+        return initialized_;
+    }
 
-private:
+  private:
     EventBus() = default;
 
     struct Subscription {

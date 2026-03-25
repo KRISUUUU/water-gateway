@@ -17,7 +17,7 @@ namespace config_store {
 // Thread safety: the config is read from multiple tasks but written only
 // from the HTTP/API task. A mutex protects the config_ member.
 class ConfigStore {
-public:
+  public:
     static ConfigStore& instance();
 
     // Opens NVS namespace and loads config. If no config exists, writes defaults.
@@ -33,10 +33,14 @@ public:
     // Resets config to factory defaults and persists.
     common::Result<void> reset_to_defaults();
 
-    bool is_initialized() const { return initialized_; }
-    bool is_loaded() const { return loaded_; }
+    bool is_initialized() const {
+        return initialized_;
+    }
+    bool is_loaded() const {
+        return loaded_;
+    }
 
-private:
+  private:
     ConfigStore() = default;
 
     common::Result<void> load_from_nvs();

@@ -1,10 +1,10 @@
 #include "wifi_manager/wifi_manager.hpp"
 
 #ifndef HOST_TEST_BUILD
-#include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_wifi.h"
 #include "event_bus/event_bus.hpp"
 #include <cstring>
 
@@ -33,10 +33,10 @@ common::Result<void> WifiManager::initialize() {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, this, nullptr));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_handler, this, nullptr));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler, this, nullptr));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                                        &ip_event_handler, this, nullptr));
 
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 #endif
@@ -46,8 +46,7 @@ common::Result<void> WifiManager::initialize() {
     return common::Result<void>::ok();
 }
 
-common::Result<void> WifiManager::start_sta(const char* ssid,
-                                             const char* password) {
+common::Result<void> WifiManager::start_sta(const char* ssid, const char* password) {
     if (!initialized_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
@@ -136,14 +135,14 @@ WifiStatus WifiManager::status() const {
 
 #ifndef HOST_TEST_BUILD
 
-void WifiManager::wifi_event_handler(void* arg, esp_event_base_t /*event_base*/,
-                                     int32_t event_id, void* event_data) {
+void WifiManager::wifi_event_handler(void* arg, esp_event_base_t /*event_base*/, int32_t event_id,
+                                     void* event_data) {
     auto* self = static_cast<WifiManager*>(arg);
     self->handle_wifi_event(event_id, event_data);
 }
 
-void WifiManager::ip_event_handler(void* arg, esp_event_base_t /*event_base*/,
-                                   int32_t event_id, void* event_data) {
+void WifiManager::ip_event_handler(void* arg, esp_event_base_t /*event_base*/, int32_t event_id,
+                                   void* event_data) {
     auto* self = static_cast<WifiManager*>(arg);
     self->handle_ip_event(event_id, event_data);
 }
@@ -159,14 +158,12 @@ void WifiManager::handle_wifi_event(int32_t event_id, void* /*event_data*/) {
         ip_address_[0] = '\0';
         rssi_dbm_ = 0;
 
-        event_bus::EventBus::instance().publish(
-            event_bus::EventType::WifiDisconnected);
+        event_bus::EventBus::instance().publish(event_bus::EventType::WifiDisconnected);
 
         if (retry_count_ < max_retries_) {
             retry_count_++;
             reconnect_count_++;
-            ESP_LOGW(TAG, "WiFi disconnected, retry %u/%u",
-                     retry_count_, max_retries_);
+            ESP_LOGW(TAG, "WiFi disconnected, retry %u/%u", retry_count_, max_retries_);
             esp_wifi_connect();
             state_ = WifiState::Connecting;
         } else {
@@ -186,8 +183,7 @@ void WifiManager::handle_wifi_event(int32_t event_id, void* /*event_data*/) {
 void WifiManager::handle_ip_event(int32_t event_id, void* event_data) {
     if (event_id == IP_EVENT_STA_GOT_IP) {
         auto* event = static_cast<ip_event_got_ip_t*>(event_data);
-        snprintf(ip_address_, sizeof(ip_address_), IPSTR,
-                 IP2STR(&event->ip_info.ip));
+        snprintf(ip_address_, sizeof(ip_address_), IPSTR, IP2STR(&event->ip_info.ip));
         state_ = WifiState::Connected;
         retry_count_ = 0;
 
@@ -197,11 +193,9 @@ void WifiManager::handle_ip_event(int32_t event_id, void* event_data) {
             rssi_dbm_ = ap_info.rssi;
         }
 
-        ESP_LOGI(TAG, "WiFi connected, IP: %s, RSSI: %d dBm",
-                 ip_address_, rssi_dbm_);
+        ESP_LOGI(TAG, "WiFi connected, IP: %s, RSSI: %d dBm", ip_address_, rssi_dbm_);
 
-        event_bus::EventBus::instance().publish(
-            event_bus::EventType::WifiConnected);
+        event_bus::EventBus::instance().publish(event_bus::EventType::WifiConnected);
     }
 }
 

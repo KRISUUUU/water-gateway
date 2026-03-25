@@ -38,9 +38,8 @@ ValidationResult validate_config(const AppConfig& config) {
     if (config.device.hostname[0] == '\0') {
         result.add_error("device.hostname", "Hostname must not be empty");
     } else if (!is_valid_hostname(config.device.hostname)) {
-        result.add_error("device.hostname",
-                         "Hostname must contain only lowercase letters, digits, "
-                         "and hyphens, and must not start or end with a hyphen");
+        result.add_error("device.hostname", "Hostname must contain only lowercase letters, digits, "
+                                            "and hyphens, and must not start or end with a hyphen");
     }
 
     // --- WiFi section ---
@@ -60,8 +59,7 @@ ValidationResult validate_config(const AppConfig& config) {
     // --- MQTT section ---
     if (config.mqtt.enabled) {
         if (config.mqtt.host[0] == '\0') {
-            result.add_error("mqtt.host",
-                             "MQTT host must not be empty when MQTT is enabled");
+            result.add_error("mqtt.host", "MQTT host must not be empty when MQTT is enabled");
         }
 
         if (config.mqtt.port == 0) {
@@ -69,8 +67,7 @@ ValidationResult validate_config(const AppConfig& config) {
         }
 
         if (config.mqtt.prefix[0] == '\0') {
-            result.add_error("mqtt.prefix",
-                             "MQTT prefix must not be empty when MQTT is enabled");
+            result.add_error("mqtt.prefix", "MQTT prefix must not be empty when MQTT is enabled");
         }
 
         if (config.mqtt.qos > 2) {
@@ -79,16 +76,14 @@ ValidationResult validate_config(const AppConfig& config) {
     }
 
     // --- Radio section ---
-    if (config.radio.frequency_khz < 868000 ||
-        config.radio.frequency_khz > 870000) {
+    if (config.radio.frequency_khz < 868000 || config.radio.frequency_khz > 870000) {
         result.add_error("radio.frequency_khz",
                          "Radio frequency must be between 868000 and 870000 kHz");
     }
 
     // --- Auth section ---
     if (config.auth.session_timeout_s < 60) {
-        result.add_error("auth.session_timeout_s",
-                         "Session timeout must be at least 60 seconds");
+        result.add_error("auth.session_timeout_s", "Session timeout must be at least 60 seconds");
     } else if (config.auth.session_timeout_s > 86400) {
         result.add_error("auth.session_timeout_s",
                          "Session timeout must not exceed 86400 seconds (24 hours)");

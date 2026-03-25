@@ -24,7 +24,7 @@ struct LogEntry {
 };
 
 class PersistentLogBuffer {
-public:
+  public:
     static constexpr std::size_t kMaxLines = 200;
 
     static PersistentLogBuffer& instance();
@@ -33,7 +33,7 @@ public:
 
     [[nodiscard]] std::vector<LogEntry> lines() const;
 
-private:
+  private:
     PersistentLogBuffer() = default;
 
     mutable std::mutex mutex_{};

@@ -24,7 +24,9 @@ struct FirmwareVersion {
     uint8_t minor;
     uint8_t patch;
 
-    static constexpr FirmwareVersion current() { return {0, 1, 0}; }
+    static constexpr FirmwareVersion current() {
+        return {0, 1, 0};
+    }
 };
 
 struct DeviceIdentity {
@@ -43,11 +45,12 @@ struct DeviceIdentity {
 
 // Fixed-capacity string buffer for contexts where std::string is undesirable
 // (ISR-adjacent code, small embedded buffers in structs).
-template <size_t N>
-struct FixedString {
+template <size_t N> struct FixedString {
     char data[N];
 
-    FixedString() { data[0] = '\0'; }
+    FixedString() {
+        data[0] = '\0';
+    }
 
     explicit FixedString(const char* src) {
         if (src) {
@@ -58,9 +61,15 @@ struct FixedString {
         }
     }
 
-    const char* c_str() const { return data; }
-    bool empty() const { return data[0] == '\0'; }
-    size_t length() const { return std::strlen(data); }
+    const char* c_str() const {
+        return data;
+    }
+    bool empty() const {
+        return data[0] == '\0';
+    }
+    size_t length() const {
+        return std::strlen(data);
+    }
 
     void set(const char* src) {
         if (src) {
@@ -71,13 +80,17 @@ struct FixedString {
         }
     }
 
-    void clear() { data[0] = '\0'; }
+    void clear() {
+        data[0] = '\0';
+    }
 
     bool operator==(const FixedString& other) const {
         return std::strcmp(data, other.data) == 0;
     }
 
-    bool operator!=(const FixedString& other) const { return !(*this == other); }
+    bool operator!=(const FixedString& other) const {
+        return !(*this == other);
+    }
 };
 
 } // namespace common

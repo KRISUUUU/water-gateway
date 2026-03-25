@@ -1,11 +1,11 @@
 #include "mqtt_service/mqtt_service.hpp"
 
 #ifndef HOST_TEST_BUILD
-#include "mqtt_client.h"
 #include "esp_log.h"
 #include "event_bus/event_bus.hpp"
-#include <cstring>
+#include "mqtt_client.h"
 #include <cstdio>
+#include <cstring>
 #include <sys/time.h>
 
 static const char* TAG = "mqtt_svc";
@@ -38,11 +38,9 @@ void MqttService::set_last_will(const char* topic, const char* payload) {
     }
 }
 
-common::Result<void> MqttService::connect(const char* host, uint16_t port,
-                                           const char* username,
-                                           const char* password,
-                                           const char* client_id,
-                                           bool use_tls) {
+common::Result<void> MqttService::connect(const char* host, uint16_t port, const char* username,
+                                          const char* password, const char* client_id,
+                                          bool use_tls) {
     if (!initialized_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
@@ -51,8 +49,7 @@ common::Result<void> MqttService::connect(const char* host, uint16_t port,
     }
 
     const char* scheme = use_tls ? "mqtts" : "mqtt";
-    std::snprintf(broker_uri_, sizeof(broker_uri_), "%s://%s:%u",
-                  scheme, host, port);
+    std::snprintf(broker_uri_, sizeof(broker_uri_), "%s://%s:%u", scheme, host, port);
 
 #ifndef HOST_TEST_BUILD
     esp_mqtt_client_config_t mqtt_cfg{};
@@ -90,13 +87,11 @@ common::Result<void> MqttService::connect(const char* host, uint16_t port,
         return common::Result<void>::error(common::ErrorCode::MqttConnectFailed);
     }
 
-    esp_mqtt_client_register_event(
-        static_cast<esp_mqtt_client_handle_t>(client_),
-        static_cast<esp_mqtt_event_id_t>(ESP_EVENT_ANY_ID),
-        mqtt_event_handler, this);
+    esp_mqtt_client_register_event(static_cast<esp_mqtt_client_handle_t>(client_),
+                                   static_cast<esp_mqtt_event_id_t>(ESP_EVENT_ANY_ID),
+                                   mqtt_event_handler, this);
 
-    esp_err_t err = esp_mqtt_client_start(
-        static_cast<esp_mqtt_client_handle_t>(client_));
+    esp_err_t err = esp_mqtt_client_start(static_cast<esp_mqtt_client_handle_t>(client_));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "MQTT client start failed: %d", err);
         state_ = MqttState::Error;
@@ -127,9 +122,8 @@ common::Result<void> MqttService::disconnect() {
     return common::Result<void>::ok();
 }
 
-common::Result<void> MqttService::publish(const char* topic,
-                                           const char* payload,
-                                           int qos, bool retain) {
+common::Result<void> MqttService::publish(const char* topic, const char* payload, int qos,
+                                          bool retain) {
     if (!initialized_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
@@ -142,9 +136,8 @@ common::Result<void> MqttService::publish(const char* topic,
     }
 
 #ifndef HOST_TEST_BUILD
-    int msg_id = esp_mqtt_client_publish(
-        static_cast<esp_mqtt_client_handle_t>(client_),
-        topic, payload, 0, qos, retain ? 1 : 0);
+    int msg_id = esp_mqtt_client_publish(static_cast<esp_mqtt_client_handle_t>(client_), topic,
+                                         payload, 0, qos, retain ? 1 : 0);
 
     if (msg_id < 0) {
         publish_failures_++;
@@ -154,8 +147,7 @@ common::Result<void> MqttService::publish(const char* topic,
     struct timeval tv;
     gettimeofday(&tv, nullptr);
     last_publish_epoch_ms_ =
-        static_cast<int64_t>(tv.tv_sec) * 1000 +
-        static_cast<int64_t>(tv.tv_usec) / 1000;
+        static_cast<int64_t>(tv.tv_sec) * 1000 + static_cast<int64_t>(tv.tv_usec) / 1000;
 #endif
 
     publish_count_++;
@@ -175,10 +167,8 @@ MqttStatus MqttService::status() const {
 
 #ifndef HOST_TEST_BUILD
 
-void MqttService::mqtt_event_handler(void* handler_args,
-                                      esp_event_base_t /*base*/,
-                                      int32_t event_id,
-                                      void* event_data) {
+void MqttService::mqtt_event_handler(void* handler_args, esp_event_base_t /*base*/,
+                                     int32_t event_id, void* event_data) {
     auto* self = static_cast<MqttService*>(handler_args);
     self->handle_event(event_id, event_data);
 }
@@ -188,8 +178,7 @@ void MqttService::handle_event(int32_t event_id, void* /*event_data*/) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT connected to %s", broker_uri_);
         state_ = MqttState::Connected;
-        event_bus::EventBus::instance().publish(
-            event_bus::EventType::MqttConnected);
+        event_bus::EventBus::instance().publish(event_bus::EventType::MqttConnected);
         break;
 
     case MQTT_EVENT_DISCONNECTED:
@@ -198,8 +187,7 @@ void MqttService::handle_event(int32_t event_id, void* /*event_data*/) {
             reconnect_count_++;
         }
         state_ = MqttState::Disconnected;
-        event_bus::EventBus::instance().publish(
-            event_bus::EventType::MqttDisconnected);
+        event_bus::EventBus::instance().publish(event_bus::EventType::MqttDisconnected);
         break;
 
     case MQTT_EVENT_ERROR:

@@ -22,7 +22,7 @@ enum class HttpServerState {
 // stop() on shutdown. Specific URI handlers must be registered before the
 // catch-all static handler so /api wins over /*.
 class HttpServer {
-public:
+  public:
     static HttpServer& instance();
 
     common::Result<void> initialize();
@@ -35,7 +35,9 @@ public:
     // Registers GET /* → files under /storage/web/ (SPIFFS mount point /storage).
     common::Result<void> register_static_web_handler();
 
-    [[nodiscard]] httpd_handle_t native_handle() const { return server_; }
+    [[nodiscard]] httpd_handle_t native_handle() const {
+        return server_;
+    }
 
     // Returns true when Authorization: Bearer <token> is present and
     // AuthService::validate_session accepts the token.
@@ -48,7 +50,7 @@ public:
 
     [[nodiscard]] HttpServerState state() const;
 
-private:
+  private:
     HttpServer() = default;
 
 #ifndef HOST_TEST_BUILD

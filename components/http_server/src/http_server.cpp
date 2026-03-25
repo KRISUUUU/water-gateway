@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include <strings.h>
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include <strings.h>
 
 static const char* TAG = "http_srv";
 static const char* kWebRoot = "/storage";
@@ -165,8 +165,7 @@ bool HttpServer::authorize_request(httpd_req_t* req) {
         return false;
     }
     std::vector<char> buf(len + 1);
-    if (httpd_req_get_hdr_value_str(req, "Authorization", buf.data(), buf.size()) !=
-        ESP_OK) {
+    if (httpd_req_get_hdr_value_str(req, "Authorization", buf.data(), buf.size()) != ESP_OK) {
         return false;
     }
     const char* p = buf.data();
@@ -225,10 +224,8 @@ common::Result<void> HttpServer::register_static_web_handler() {
     if (!server_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
-    httpd_uri_t static_uri = {.uri = "/*",
-                              .method = HTTP_GET,
-                              .handler = static_spiffs_handler,
-                              .user_ctx = nullptr};
+    httpd_uri_t static_uri = {
+        .uri = "/*", .method = HTTP_GET, .handler = static_spiffs_handler, .user_ctx = nullptr};
     return register_uri_handler(static_uri);
 }
 

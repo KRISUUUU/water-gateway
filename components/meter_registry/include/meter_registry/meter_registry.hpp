@@ -55,7 +55,7 @@ enum class TelegramFilter : uint8_t {
 };
 
 class MeterRegistry {
-public:
+  public:
     static MeterRegistry& instance();
 
     common::Result<void> initialize();
@@ -72,7 +72,7 @@ public:
     common::Result<void> upsert_watchlist(const WatchlistEntry& entry);
     common::Result<void> remove_watchlist(const std::string& key);
 
-private:
+  private:
     MeterRegistry() = default;
 
     static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame);

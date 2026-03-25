@@ -281,12 +281,13 @@ RawRadioFrame { bytes[290], len, rssi, lqi, crc_ok }
 pipeline_task (Core 0)
     │
     ├─ WmbusPipeline::from_radio_frame()
-    │   → WmbusFrame { raw_hex, metadata { rssi, lqi, crc_ok, timestamp, frame_len } }
+    │   → WmbusFrame { raw_bytes (canonical), metadata { rssi, lqi, crc_ok, timestamp, frame_len } }
+    │   → raw_hex is derived only for API/MQTT/UI payloads
     │
     ├─ TelegramRouter::route()
-    │   ├─ DedupService::seen_recently(raw_hex, timestamp)?
+    │   ├─ DedupService::seen_recently(dedup_key(raw_bytes), timestamp)?
     │   │   → yes: RouteDecision::SUPPRESS_DUPLICATE
-    │   │   → no:  DedupService::remember(raw_hex, timestamp)
+    │   │   → no:  DedupService::remember(dedup_key(raw_bytes), timestamp)
     │   │          RouteDecision::PUBLISH_RAW
     │   └─ !crc_ok? → additionally flag for event publish
     │
@@ -341,7 +342,7 @@ Browser → HTTP GET/POST → httpd task
             ├─ GET /api/diagnostics → DiagnosticsService snapshot
             ├─ GET /api/config → ConfigStore::config() (redacted)
             ├─ POST /api/config → validate + save
-            ├─ POST /api/ota/upload → (stub — not yet implemented)
+            ├─ POST /api/ota/upload → streamed binary upload (application/octet-stream)
             ├─ POST /api/ota/url → OtaManager::begin_url_ota
             ├─ GET /api/logs → PersistentLogBuffer::lines()
             ├─ GET /api/support-bundle → SupportBundleService::generate
@@ -499,11 +500,12 @@ The existing `partitions.csv` provides:
 6. **Health Check:** After boot, new firmware has N seconds to call `esp_ota_mark_app_valid_cancel_rollback()`
 7. **Rollback:** If health check fails (watchdog timeout, crash loop), ESP-IDF automatically rolls back
 
-### Upload OTA (not yet implemented)
+### Upload OTA
 
-- HTTP POST multipart upload to `/api/ota/upload`
-- **Status:** Endpoint exists but returns 501 (Not Implemented). The `OtaManager` supports `begin_upload()` / `write_chunk()` / `finalize_upload()` but the HTTP multipart streaming handler is not wired up yet.
-- Future: Streamed write (not buffered in RAM), progress reported via OTA state polling.
+- HTTP POST binary upload to `/api/ota/upload`
+- Content-Type: `application/octet-stream` (or `application/x-binary`)
+- Current implementation streams chunks directly to OTA manager write path
+- If packet is too large or OTA is already running, upload is rejected explicitly
 
 ### URL OTA
 
@@ -516,7 +518,7 @@ The existing `partitions.csv` provides:
 - Image size must fit partition (< 1.5MB)
 - Image must have valid ESP-IDF app descriptor
 - OTA rejected if another OTA is in progress
-- OTA rejected during provisioning mode
+- OTA during provisioning mode is not a primary operational path; use with caution
 
 ## 12. Diagnostics Strategy
 

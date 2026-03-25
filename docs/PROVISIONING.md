@@ -24,8 +24,15 @@ can be completed from the web UI/API over AP.
 
 ## Provisioning Interface
 
-Provisioning currently uses the same HTTP/API/static handler stack as normal mode,
+Provisioning uses the same HTTP/API/static handler stack as normal mode,
 but over AP (`WMBus-GW-Setup`) instead of STA.
+
+The web panel provides:
+
+- modern login shell
+- explicit provisioning mode indicator
+- onboarding checklist in Settings (WiFi + admin password + optional MQTT)
+- clear save/reboot feedback before transition to normal mode
 
 ## Security During Provisioning
 

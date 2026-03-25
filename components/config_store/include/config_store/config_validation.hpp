@@ -8,7 +8,7 @@
 namespace config_store {
 
 enum class ValidationSeverity : uint8_t {
-    Error = 0, // Blocks saving
+    Error = 0,   // Blocks saving
     Warning = 1, // Allowed but suspicious
 };
 
@@ -22,7 +22,9 @@ struct ValidationResult {
     bool valid;
     std::vector<ValidationIssue> issues;
 
-    static ValidationResult success() { return {true, {}}; }
+    static ValidationResult success() {
+        return {true, {}};
+    }
 
     void add_error(const std::string& field, const std::string& message) {
         issues.push_back({ValidationSeverity::Error, field, message});

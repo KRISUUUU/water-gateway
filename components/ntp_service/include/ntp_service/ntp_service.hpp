@@ -15,7 +15,7 @@ struct NtpStatus {
 };
 
 class NtpService {
-public:
+  public:
     static NtpService& instance();
 
     common::Result<void> initialize();
@@ -23,7 +23,9 @@ public:
     common::Result<void> stop();
 
     NtpStatus status() const;
-    bool is_synchronized() const { return synchronized_; }
+    bool is_synchronized() const {
+        return synchronized_;
+    }
 
     // Returns current UTC time as epoch seconds, or 0 if not synchronized
     int64_t now_epoch_s() const;
@@ -31,7 +33,7 @@ public:
     // Returns current UTC time as epoch milliseconds, or 0 if not synchronized
     int64_t now_epoch_ms() const;
 
-private:
+  private:
     NtpService() = default;
 
 #ifndef HOST_TEST_BUILD

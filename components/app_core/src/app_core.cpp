@@ -1,21 +1,21 @@
 #include "app_core/app_core.hpp"
 
-#include "event_bus/event_bus.hpp"
+#include "api_handlers/api_handlers.hpp"
+#include "auth_service/auth_service.hpp"
 #include "config_store/config_store.hpp"
-#include "storage_service/storage_service.hpp"
-#include "meter_registry/meter_registry.hpp"
-#include "wifi_manager/wifi_manager.hpp"
-#include "ntp_service/ntp_service.hpp"
+#include "event_bus/event_bus.hpp"
+#include "http_server/http_server.hpp"
 #include "mdns_service/mdns_service.hpp"
-#include "provisioning_manager/provisioning_manager.hpp"
+#include "meter_registry/meter_registry.hpp"
+#include "mqtt_service/mqtt_payloads.hpp"
 #include "mqtt_service/mqtt_service.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
-#include "mqtt_service/mqtt_payloads.hpp"
-#include "auth_service/auth_service.hpp"
-#include "http_server/http_server.hpp"
-#include "api_handlers/api_handlers.hpp"
+#include "ntp_service/ntp_service.hpp"
 #include "ota_manager/ota_manager.hpp"
+#include "provisioning_manager/provisioning_manager.hpp"
+#include "storage_service/storage_service.hpp"
 #include "watchdog_service/watchdog_service.hpp"
+#include "wifi_manager/wifi_manager.hpp"
 #include <string>
 
 #ifndef HOST_TEST_BUILD
@@ -34,8 +34,7 @@ void AppCore::start() {
     if (result.is_error()) {
 #ifndef HOST_TEST_BUILD
         ESP_LOGE(TAG, "Foundation init failed, halting (%s/%d)",
-                 common::error_code_to_string(result.error()),
-                 static_cast<int>(result.error()));
+                 common::error_code_to_string(result.error()), static_cast<int>(result.error()));
 #endif
         return;
     }
@@ -178,7 +177,8 @@ common::Result<void> AppCore::start_provisioning() {
 #endif
 
 #ifndef HOST_TEST_BUILD
-    ESP_LOGI(TAG, "Provisioning mode active. Connect to WMBus-GW-Setup AP and open http://192.168.4.1/");
+    ESP_LOGI(TAG,
+             "Provisioning mode active. Connect to WMBus-GW-Setup AP and open http://192.168.4.1/");
 #endif
     return common::Result<void>::ok();
 }
@@ -266,9 +266,8 @@ common::Result<void> AppCore::start_normal_runtime() {
         std::string lwt_payload = mqtt_service::payload_status_offline();
         mqtt.set_last_will(lwt_topic.c_str(), lwt_payload.c_str());
 
-        auto mqtt_connect = mqtt.connect(cfg.mqtt.host, cfg.mqtt.port,
-                                         cfg.mqtt.username, cfg.mqtt.password,
-                                         cfg.mqtt.client_id, cfg.mqtt.use_tls);
+        auto mqtt_connect = mqtt.connect(cfg.mqtt.host, cfg.mqtt.port, cfg.mqtt.username,
+                                         cfg.mqtt.password, cfg.mqtt.client_id, cfg.mqtt.use_tls);
         if (mqtt_connect.is_error()) {
 #ifndef HOST_TEST_BUILD
             ESP_LOGW(TAG, "MQTT connect failed, runtime continues (%s/%d)",
@@ -345,8 +344,7 @@ common::Result<void> AppCore::start_normal_runtime() {
     if (wd_init.is_error()) {
 #ifndef HOST_TEST_BUILD
         ESP_LOGW(TAG, "Watchdog initialize failed, continuing (%s/%d)",
-                 common::error_code_to_string(wd_init.error()),
-                 static_cast<int>(wd_init.error()));
+                 common::error_code_to_string(wd_init.error()), static_cast<int>(wd_init.error()));
 #endif
     }
 

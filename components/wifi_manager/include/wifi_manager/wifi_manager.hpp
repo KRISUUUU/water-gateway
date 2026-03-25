@@ -27,7 +27,7 @@ struct WifiStatus {
 };
 
 class WifiManager {
-public:
+  public:
     static WifiManager& instance();
 
     // Initialize WiFi subsystem (must be called once)
@@ -43,16 +43,18 @@ public:
     common::Result<void> stop();
 
     WifiStatus status() const;
-    WifiState state() const { return state_; }
+    WifiState state() const {
+        return state_;
+    }
 
-private:
+  private:
     WifiManager() = default;
 
 #ifndef HOST_TEST_BUILD
-    static void wifi_event_handler(void* arg, esp_event_base_t event_base,
-                                   int32_t event_id, void* event_data);
-    static void ip_event_handler(void* arg, esp_event_base_t event_base,
-                                 int32_t event_id, void* event_data);
+    static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                                   void* event_data);
+    static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                                 void* event_data);
     void handle_wifi_event(int32_t event_id, void* event_data);
     void handle_ip_event(int32_t event_id, void* event_data);
 #endif

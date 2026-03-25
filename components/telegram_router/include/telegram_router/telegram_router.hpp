@@ -6,9 +6,9 @@
 namespace telegram_router {
 
 enum class RouteDecision : uint8_t {
-    PublishRaw = 0,      // Publish to MQTT rf/raw topic
-    SuppressDuplicate,   // Frame seen recently, suppress
-    PublishEvent,        // Publish as event (e.g., CRC failure)
+    PublishRaw = 0,    // Publish to MQTT rf/raw topic
+    SuppressDuplicate, // Frame seen recently, suppress
+    PublishEvent,      // Publish as event (e.g., CRC failure)
 };
 
 struct RouteResult {
@@ -38,17 +38,19 @@ struct RouterCounters {
 };
 
 class TelegramRouter {
-public:
+  public:
     static TelegramRouter& instance();
 
     // Route a frame: check dedup, check CRC, decide what to do.
     RouteResult route(const wmbus_minimal_pipeline::WmbusFrame& frame);
 
-    const RouterCounters& counters() const { return counters_; }
+    const RouterCounters& counters() const {
+        return counters_;
+    }
 
     void set_dedup_window_ms(int64_t window_ms);
 
-private:
+  private:
     TelegramRouter() = default;
 
     RouterCounters counters_{};

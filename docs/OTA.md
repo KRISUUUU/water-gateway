@@ -3,6 +3,7 @@
 ## Overview
 
 The firmware currently exposes two OTA API paths:
+
 1. **Direct binary upload** — `POST /api/ota/upload` accepts streamed firmware binary
 2. **URL OTA** — `POST /api/ota/url` starts OTA from an HTTPS URL
 
@@ -11,7 +12,7 @@ Both methods use ESP-IDF's OTA APIs with rollback support.
 ## Partition Strategy
 
 | Partition | Size | Purpose |
-|-----------|------|---------|
+| --------- | ---- | ------- |
 | `ota_0` | 1.5 MB | Active app slot (also used for initial serial flash) |
 | `ota_1` | 1.5 MB | Inactive OTA update slot |
 | `otadata` | 8 KB | Tracks active boot partition |
@@ -70,6 +71,7 @@ ESP-IDF provides automatic rollback when `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=
 ## OTA Status Reporting
 
 The `OtaState` enum tracks:
+
 - `idle` — No OTA in progress
 - `in_progress` — Downloading/writing firmware
 - `validating` — Checking image integrity
@@ -78,3 +80,9 @@ The `OtaState` enum tracks:
 
 After reboot, OTA state returns to `idle` after initialization.
 Boot-origin/rollback MQTT event payloads are not fully implemented yet and should not be assumed by integrations.
+
+## UI Notes
+
+- The OTA page groups current state, binary upload, and URL OTA in separate cards.
+- UI feedback is explicit for `ota_in_progress`, `image_too_large`, and content-type errors.
+- Upload flow remains raw binary body (not multipart form upload).

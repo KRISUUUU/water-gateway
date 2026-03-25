@@ -7,12 +7,12 @@ namespace provisioning_manager {
 
 enum class ProvisioningState : uint8_t {
     Idle = 0,
-    Active,     // AP running, serving config form
-    Completed,  // Config saved, pending reboot
+    Active,    // AP running, serving config form
+    Completed, // Config saved, pending reboot
 };
 
 class ProvisioningManager {
-public:
+  public:
     static ProvisioningManager& instance();
 
     common::Result<void> initialize();
@@ -26,10 +26,14 @@ public:
     // Stop provisioning (cleanup AP)
     common::Result<void> stop();
 
-    ProvisioningState state() const { return state_; }
-    bool is_active() const { return state_ == ProvisioningState::Active; }
+    ProvisioningState state() const {
+        return state_;
+    }
+    bool is_active() const {
+        return state_ == ProvisioningState::Active;
+    }
 
-private:
+  private:
     ProvisioningManager() = default;
 
     bool initialized_ = false;

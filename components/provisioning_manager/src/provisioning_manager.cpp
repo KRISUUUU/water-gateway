@@ -1,6 +1,6 @@
 #include "provisioning_manager/provisioning_manager.hpp"
-#include "wifi_manager/wifi_manager.hpp"
 #include "event_bus/event_bus.hpp"
+#include "wifi_manager/wifi_manager.hpp"
 
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
@@ -42,8 +42,7 @@ common::Result<void> ProvisioningManager::start() {
 
     state_ = ProvisioningState::Active;
 
-    event_bus::EventBus::instance().publish(
-        event_bus::EventType::ProvisioningStarted);
+    event_bus::EventBus::instance().publish(event_bus::EventType::ProvisioningStarted);
 
     return common::Result<void>::ok();
 }
@@ -59,8 +58,7 @@ common::Result<void> ProvisioningManager::complete() {
 
     state_ = ProvisioningState::Completed;
 
-    event_bus::EventBus::instance().publish(
-        event_bus::EventType::ProvisioningCompleted);
+    event_bus::EventBus::instance().publish(event_bus::EventType::ProvisioningCompleted);
 
     return common::Result<void>::ok();
 }

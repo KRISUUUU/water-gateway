@@ -9,7 +9,7 @@
 namespace watchdog_service {
 
 class WatchdogService {
-public:
+  public:
     static WatchdogService& instance();
 
     common::Result<void> initialize();
@@ -22,7 +22,7 @@ public:
 
     common::Result<void> feed();
 
-private:
+  private:
     WatchdogService() = default;
 
 #ifndef HOST_TEST_BUILD
