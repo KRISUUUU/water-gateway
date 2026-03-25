@@ -83,6 +83,24 @@ AppConfig ConfigStore::config() const {
     return copy;
 }
 
+bool ConfigStore::wifi_is_configured() const {
+#ifndef HOST_TEST_BUILD
+    if (mutex_) {
+        xSemaphoreTake(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)), portMAX_DELAY);
+    }
+#endif
+
+    const bool configured = config_.wifi.is_configured();
+
+#ifndef HOST_TEST_BUILD
+    if (mutex_) {
+        xSemaphoreGive(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)));
+    }
+#endif
+
+    return configured;
+}
+
 common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) {
     if (!initialized_) {
         return common::Result<ValidationResult>::error(common::ErrorCode::NotInitialized);
@@ -160,8 +178,7 @@ common::Result<void> ConfigStore::load_from_nvs() {
     }
 
     size_t required_size = sizeof(AppConfig);
-    AppConfig loaded{};
-    err = nvs_get_blob(handle, kNvsKey, &loaded, &required_size);
+    err = nvs_get_blob(handle, kNvsKey, &config_, &required_size);
     nvs_close(handle);
 
     if (err != ESP_OK || required_size != sizeof(AppConfig)) {
@@ -170,31 +187,29 @@ common::Result<void> ConfigStore::load_from_nvs() {
     }
 
     // Migrate if needed
-    if (loaded.version != kCurrentConfigVersion) {
-        ESP_LOGI(TAG, "Config version %lu, current %lu — migrating", (unsigned long)loaded.version,
+    if (config_.version != kCurrentConfigVersion) {
+        ESP_LOGI(TAG, "Config version %lu, current %lu — migrating", (unsigned long)config_.version,
                  (unsigned long)kCurrentConfigVersion);
-        auto migrated = migrate_to_current(loaded);
+        auto migrated = migrate_to_current(config_);
         if (migrated.is_error()) {
             ESP_LOGE(TAG, "Config migration failed");
             return common::Result<void>::error(migrated.error());
         }
-        loaded = migrated.value();
+        config_ = migrated.value();
 
         // Persist the migrated config
-        auto persist_result = persist_to_nvs(loaded);
+        auto persist_result = persist_to_nvs(config_);
         if (persist_result.is_error()) {
             ESP_LOGW(TAG, "Failed to persist migrated config");
         }
     }
 
     // Validate loaded config
-    auto validation = validate_config(loaded);
+    auto validation = validate_config(config_);
     if (!validation.valid) {
         ESP_LOGE(TAG, "Stored config is invalid (%zu issues)", validation.issues.size());
         return common::Result<void>::error(common::ErrorCode::ConfigInvalid);
     }
-
-    config_ = loaded;
     return common::Result<void>::ok();
 #endif
 }

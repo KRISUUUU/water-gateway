@@ -27,6 +27,9 @@ class ConfigStore {
     // Returns a copy of the current config. Safe to call from any task.
     AppConfig config() const;
 
+    // Fast boot-path helper to avoid full AppConfig copies.
+    bool wifi_is_configured() const;
+
     // Validates and persists the given config. Returns validation errors if invalid.
     common::Result<ValidationResult> save(const AppConfig& new_config);
 

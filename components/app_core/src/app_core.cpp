@@ -114,9 +114,7 @@ common::Result<void> AppCore::initialize_foundations() {
 }
 
 common::SystemMode AppCore::determine_start_mode() {
-    auto cfg = config_store::ConfigStore::instance().config();
-
-    if (!cfg.wifi.is_configured()) {
+    if (!config_store::ConfigStore::instance().wifi_is_configured()) {
 #ifndef HOST_TEST_BUILD
         ESP_LOGI(TAG, "WiFi not configured, entering provisioning mode");
 #endif
