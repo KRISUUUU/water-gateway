@@ -46,7 +46,8 @@
 #### T1: Unauthorized Web Panel Access
 - **Risk:** High (local attacker can reconfigure device, trigger OTA, read diagnostics)
 - **Mitigation:**
-  - All `/api/*` endpoints (except `/api/auth/login`) require valid session token
+  - Management `/api/*` endpoints require valid session token
+  - Only startup/auth bootstrap endpoints are unauthenticated: `/api/bootstrap`, `/api/auth/login`
   - Session token is 32 random bytes (hex-encoded), not guessable
   - Session expires after configurable timeout (default 1 hour)
   - Failed login attempts are rate-limited (max 5 per minute)
@@ -109,7 +110,7 @@
 
 ## Security Design Rules
 
-1. **Auth required for API.** All management endpoints require a bearer token, but first provisioning login accepts any non-empty password until `auth.admin_password` is set.
+1. **Auth required for management API.** All management endpoints require a bearer token. Only `/api/bootstrap` and `/api/auth/login` are unauthenticated startup/auth endpoints. First provisioning login compatibility remains (non-empty password accepted until `auth.admin_password` is set), but UI routes first boot through explicit Initial Setup flow.
 2. **Secrets never logged.** Any `ESP_LOG*` call involving config data must use redacted versions.
 3. **Secrets never exported.** Config export, support bundle, and API responses replace secret fields with `"***"`.
 4. **Validate before persist.** No config change is saved without passing validation.

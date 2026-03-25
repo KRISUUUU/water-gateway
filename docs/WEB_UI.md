@@ -12,7 +12,7 @@ while remaining lightweight and embedded-friendly (no heavy frontend framework).
 
 - URL: `http://{device_ip}/` (provisioning AP: `http://192.168.4.1/`)
 - Port: `80`
-- Authentication: required for all `/api/*` endpoints except login
+- Authentication: required for management endpoints; unauthenticated bootstrap/login endpoints are used only for startup/auth flow
 
 ## Navigation and Pages
 
@@ -82,7 +82,20 @@ Main sections:
 
 - Sectioned config editor (Device/WiFi/MQTT/Radio/Auth/Logging)
 - Validation/success/relogin/reboot messaging
-- Provisioning checklist card shown when mode is provisioning
+- Used after onboarding and in normal operations
+
+### Initial Setup (Provisioning First Boot)
+
+- Shown when `/api/bootstrap` reports `provisioning=true` and `password_set=false`
+- Replaces normal sign-in prompt on first boot
+- Collects minimum onboarding fields:
+  - WiFi SSID
+  - WiFi password
+  - admin password
+- Optional fields:
+  - device name/hostname
+  - MQTT section (enabled via toggle)
+- On success, UI shows explicit reboot/apply guidance
 
 ### Support
 
@@ -98,6 +111,7 @@ Main sections:
 
 | Method | Path | Auth | Notes |
 | ------ | ---- | ---- | ----- |
+| GET | `/api/bootstrap` | No | Returns `{ mode, provisioning, password_set }` for startup UX routing |
 | POST | `/api/auth/login` | No | Returns bearer token |
 | POST | `/api/auth/logout` | Yes | Invalidates current session |
 | POST | `/api/auth/password` | Yes | Change admin password (requires current password when already set) |
@@ -122,10 +136,12 @@ Main sections:
 ## Provisioning Notes
 
 - First boot with empty WiFi config runs AP mode and serves the same UI stack.
-- If no admin password hash is configured, login accepts any non-empty password.
-- Set `auth.admin_password` in Settings and save to establish a real admin password hash.
-- After save, reboot is required to apply runtime configuration changes predictably.
-- In provisioning mode, the UI presents setup guidance in the Settings page.
+- UI startup calls `/api/bootstrap` to choose between:
+  - Initial Setup (first boot, no admin hash)
+  - Normal Sign In (already configured auth)
+- Backend compatibility note: if no admin hash exists, login accepts any non-empty password.
+- UI intentionally avoids exposing that behavior as a generic login step on first boot.
+- After initial setup save, reboot is required before normal operations.
 
 ## Static Asset Delivery
 

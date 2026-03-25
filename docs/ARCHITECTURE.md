@@ -47,7 +47,7 @@ to external systems.
 - No exceptions (disabled in ESP-IDF by default; use `Result<T>` instead)
 - No RTTI (disabled by default; not needed)
 - Minimal STL use in hot paths (radio RX); STL acceptable in config/HTTP/diagnostics paths
-- `std::string` acceptable for JSON building, config, HTTP; avoid in ISR or radio hot path
+- `std::string` acceptable in config/HTTP/diagnostics paths; JSON serialization uses `cJSON` with RAII wrappers in service/API layers
 - No dynamic allocation in ISR context
 
 ## 3. Module Responsibility Map
@@ -189,17 +189,17 @@ Layer 7 (Entry):           main/app_main.cpp
 | `wmbus_minimal_pipeline` | `common`, `radio_cc1101` |
 | `dedup_service` | `common` |
 | `telegram_router` | `common`, `dedup_service`, `wmbus_minimal_pipeline` |
-| `mqtt_service` | `common`, `event_bus`, `config_store` |
+| `mqtt_service` | `common`, `event_bus`, `config_store`, `json` |
 | `auth_service` | `common`, `config_store` |
 | `http_server` | `common`, `auth_service` |
 | `api_handlers` | `common`, `http_server`, `auth_service`, `config_store`, `mqtt_service`, `diagnostics_service`, `metrics_service`, `health_monitor`, `ota_manager`, `radio_state_machine`, `persistent_log_buffer`, `support_bundle_service`, `json` |
 | `ota_manager` | `common`, `event_bus` |
-| `diagnostics_service` | `common`, `radio_cc1101`, `mqtt_service`, `wifi_manager`, `metrics_service`, `health_monitor` |
+| `diagnostics_service` | `common`, `radio_cc1101`, `mqtt_service`, `wifi_manager`, `metrics_service`, `health_monitor`, `json` |
 | `metrics_service` | `common` |
 | `health_monitor` | `common`, `esp_timer` |
 | `watchdog_service` | `common` |
 | `persistent_log_buffer` | `common` |
-| `support_bundle_service` | `common`, `diagnostics_service`, `metrics_service`, `health_monitor`, `config_store`, `persistent_log_buffer` |
+| `support_bundle_service` | `common`, `diagnostics_service`, `metrics_service`, `health_monitor`, `config_store`, `persistent_log_buffer`, `meter_registry`, `ota_manager`, `json` |
 | `app_core` | All components (orchestrator) |
 
 ## 5. FreeRTOS Task Model
@@ -337,6 +337,7 @@ Browser → HTTP GET/POST → httpd task
         │   → 401 if invalid
         │
         └─ route to ApiHandler
+            ├─ GET /api/bootstrap → startup mode/password-set hints for frontend routing
             ├─ GET /api/status → HealthMonitor + MetricsService snapshot
             ├─ GET /api/telegrams → recent frame buffer
             ├─ GET /api/diagnostics → DiagnosticsService snapshot
@@ -458,7 +459,7 @@ Defined in detail in `docs/MQTT_TOPICS.md`.
 - **Single-page feel** with tab navigation (no router library).
 - **Assets served from SPIFFS** partition mounted at `/storage`.
 - **API calls** via `fetch()` to `/api/*` endpoints.
-- **Authentication:** Login form → POST `/api/auth/login` → session token stored in cookie/localStorage → sent as `Authorization: Bearer {token}` header.
+- **Authentication/startup:** UI first calls `/api/bootstrap` to decide between Initial Setup and Sign In. Sign In uses POST `/api/auth/login`; session token is stored in localStorage and sent as `Authorization: Bearer {token}`.
 
 ### Pages
 
@@ -583,7 +584,7 @@ Detailed in `docs/SECURITY.md`. Summary:
 - Single active session (new login invalidates previous)
 
 ### Endpoint Protection
-- All `/api/*` endpoints require valid session token except `/api/auth/login`
+- Management `/api/*` endpoints require valid session token; unauthenticated startup/auth endpoints are `/api/bootstrap` and `/api/auth/login`
 - Static file serving (`/web/*`) is unauthenticated (HTML/JS/CSS are not sensitive)
 - Auth check is in HTTP server middleware, not scattered across handlers
 
@@ -601,7 +602,7 @@ Detailed in `docs/SECURITY.md`. Summary:
 
 ### Safe Defaults
 - Auth enabled by default
-- Default admin password requires change on first login
+- First-boot provisioning has no fixed default password; backend login compatibility accepts any non-empty password until admin hash is set, while UI enforces explicit Initial Setup flow
 - MQTT TLS disabled by default (most local brokers don't use it) but configurable
 - Radio auto-recovery enabled by default
 

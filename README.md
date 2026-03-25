@@ -9,8 +9,10 @@ for water meter telegram reception.
 - Captures raw frames with RF metadata (RSSI, LQI, CRC status)
 - Uses raw bytes as canonical in-pipeline frame representation (hex is derived for API/MQTT/UI)
 - Publishes raw telegrams and telemetry via MQTT
+- Uses `cJSON`-based JSON serialization with RAII wrappers in API/services (no manual JSON escaping paths)
 - Maintains detected meters inventory and configurable watchlist (alias/note/enabled)
 - Provides a built-in modern web control panel for diagnostics, meters/watchlist workflow, configuration, OTA, and support
+- Includes first-boot Initial Setup UX in provisioning mode (WiFi + admin password + optional MQTT)
 - Supports OTA firmware updates (HTTPS URL and direct binary upload endpoint with rollback support)
 - Stores config in NVS with validation, migration, and import/export
 - Integrates with Home Assistant and external decoders (e.g., wmbusmeters)

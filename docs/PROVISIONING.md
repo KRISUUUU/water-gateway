@@ -16,11 +16,17 @@ can be completed from the web UI/API over AP.
 5. HTTP server starts on `192.168.4.1:80`
 6. API handlers + static web handler are registered
 7. User connects to AP, opens `http://192.168.4.1/`
-8. User authenticates (`POST /api/auth/login`; first boot accepts any non-empty password)
-9. User saves config (`POST /api/config`), including `auth.admin_password` when setting first admin password
-10. API response indicates `reboot_required`
-11. User reboots (`POST /api/system/reboot`)
-12. Device boots into normal mode (with WiFi STA)
+8. Web UI reads bootstrap state (`GET /api/bootstrap`) and detects:
+   - `provisioning=true`
+   - `password_set=false` on first boot
+9. UI shows **Initial Setup** (instead of normal sign-in) and collects:
+   - WiFi SSID/password
+   - admin password
+   - optional device identity + optional MQTT fields
+10. UI performs first setup save via existing auth/config API path
+11. API response indicates `reboot_required`
+12. User reboots (`POST /api/system/reboot`)
+13. Device boots into normal mode (with WiFi STA)
 
 ## Provisioning Interface
 
@@ -29,9 +35,9 @@ but over AP (`WMBus-GW-Setup`) instead of STA.
 
 The web panel provides:
 
-- modern login shell
+- explicit first-boot **Initial Setup** screen (no misleading normal login prompt)
 - explicit provisioning mode indicator
-- onboarding checklist in Settings (WiFi + admin password + optional MQTT)
+- onboarding form focused on WiFi + admin password (+ optional MQTT)
 - clear save/reboot feedback before transition to normal mode
 
 ## Security During Provisioning
@@ -42,6 +48,7 @@ The web panel provides:
 - Admin password should be set during first provisioning save (`auth.admin_password`)
 - If auth fields are changed later (`admin_password`, session timeout), API may return `relogin_required`
 - After provisioning completes, the AP is shut down
+- First-boot auth backend behavior remains backward compatible (`login` accepts non-empty password when no hash exists), but UI now hides this behind explicit Initial Setup flow.
 
 ## Re-Provisioning
 
