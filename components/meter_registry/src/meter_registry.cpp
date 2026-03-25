@@ -128,7 +128,7 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
 
     RecentTelegram t{};
     t.timestamp_ms = frame.metadata.timestamp_ms;
-    t.raw_hex = frame.raw_hex;
+    t.raw_hex = frame.raw_hex();
     t.frame_length = frame.metadata.frame_length;
     t.rssi_dbm = frame.metadata.rssi_dbm;
     t.lqi = frame.metadata.lqi;
@@ -138,7 +138,8 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
     t.watched = watched;
     s.recent.push_back(std::move(t));
     if (s.recent.size() > kMaxRecentTelegrams) {
-        s.recent.erase(s.recent.begin(), s.recent.begin() + (s.recent.size() - kMaxRecentTelegrams));
+        s.recent.erase(s.recent.begin(),
+                       s.recent.begin() + (s.recent.size() - kMaxRecentTelegrams));
     }
 }
 
@@ -167,21 +168,21 @@ std::vector<RecentTelegram> MeterRegistry::recent_telegrams(TelegramFilter filte
         const RecentTelegram& t = *it;
         bool include = false;
         switch (filter) {
-            case TelegramFilter::All:
-                include = true;
-                break;
-            case TelegramFilter::WatchedOnly:
-                include = t.watched;
-                break;
-            case TelegramFilter::UnknownOnly:
-                include = !t.watched;
-                break;
-            case TelegramFilter::DuplicatesOnly:
-                include = t.duplicate;
-                break;
-            case TelegramFilter::CrcFailOnly:
-                include = !t.crc_ok;
-                break;
+        case TelegramFilter::All:
+            include = true;
+            break;
+        case TelegramFilter::WatchedOnly:
+            include = t.watched;
+            break;
+        case TelegramFilter::UnknownOnly:
+            include = !t.watched;
+            break;
+        case TelegramFilter::DuplicatesOnly:
+            include = t.duplicate;
+            break;
+        case TelegramFilter::CrcFailOnly:
+            include = !t.crc_ok;
+            break;
         }
         if (include) {
             out.push_back(t);
@@ -220,31 +221,16 @@ common::Result<void> MeterRegistry::remove_watchlist(const std::string& key) {
     RegistryState& s = state();
     {
         std::lock_guard<std::mutex> lock(s.mutex);
-        s.watchlist.erase(
-            std::remove_if(s.watchlist.begin(), s.watchlist.end(),
-                           [&key](const WatchlistEntry& e) { return e.key == key; }),
-            s.watchlist.end());
+        s.watchlist.erase(std::remove_if(s.watchlist.begin(), s.watchlist.end(),
+                                         [&key](const WatchlistEntry& e) { return e.key == key; }),
+                          s.watchlist.end());
         apply_watchlist_to_detected_locked();
     }
     return persist_watchlist();
 }
 
 std::string MeterRegistry::derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame) {
-    const uint16_t mfg = frame.manufacturer_id();
-    const uint32_t dev = frame.device_id();
-    if (mfg != 0 || dev != 0) {
-        char buf[48];
-        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X",
-                      static_cast<unsigned int>(mfg),
-                      static_cast<unsigned int>(dev));
-        return std::string(buf);
-    }
-
-    std::string sig = frame.raw_hex.substr(0, std::min<size_t>(24, frame.raw_hex.size()));
-    if (sig.empty()) {
-        sig = "EMPTY";
-    }
-    return "sig:" + sig;
+    return frame.identity_key();
 }
 
 std::string MeterRegistry::escape_field(const std::string& s) {
@@ -293,10 +279,8 @@ std::string MeterRegistry::unescape_field(const std::string& s) {
 }
 
 std::string MeterRegistry::serialize_watchlist_line(const WatchlistEntry& entry) {
-    return escape_field(entry.key) + "|" +
-           (entry.enabled ? "1" : "0") + "|" +
-           escape_field(entry.alias) + "|" +
-           escape_field(entry.note);
+    return escape_field(entry.key) + "|" + (entry.enabled ? "1" : "0") + "|" +
+           escape_field(entry.alias) + "|" + escape_field(entry.note);
 }
 
 bool MeterRegistry::parse_watchlist_line(const std::string& line, WatchlistEntry& out) {

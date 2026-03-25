@@ -13,4 +13,12 @@ radio_cc1101::SpiPins default_cc1101_pins() {
     };
 }
 
+radio_cc1101::SpiBusConfig default_cc1101_spi_bus_config() {
+    return {
+        .host_id = 2,
+        .clock_hz = 4 * 1000 * 1000,
+        .max_transfer_size = 64,
+    };
+}
+
 } // namespace board_config

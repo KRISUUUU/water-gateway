@@ -2,8 +2,8 @@
 
 #include "common/error.hpp"
 #include "common/result.hpp"
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 namespace radio_cc1101 {
 
@@ -18,6 +18,8 @@ struct RadioCounters {
     uint32_t frames_received = 0;
     uint32_t frames_crc_ok = 0;
     uint32_t frames_crc_fail = 0;
+    uint32_t frames_incomplete = 0;
+    uint32_t frames_dropped_too_long = 0;
     uint32_t fifo_overflows = 0;
     uint32_t radio_resets = 0;
     uint32_t radio_recoveries = 0;
@@ -44,13 +46,20 @@ struct SpiPins {
     int gdo2; // Optional: -1 if not used
 };
 
+struct SpiBusConfig {
+    int host_id = 2; // SPI2_HOST on ESP32
+    uint32_t clock_hz = 4 * 1000 * 1000;
+    int max_transfer_size = 64;
+};
+
 class RadioCc1101 {
-public:
+  public:
     static RadioCc1101& instance();
 
     // Initialize SPI bus and CC1101 chip with T-mode config.
     // Must provide valid SPI pins.
     common::Result<void> initialize(const SpiPins& pins);
+    common::Result<void> initialize(const SpiPins& pins, const SpiBusConfig& bus_config);
 
     // Reset CC1101 and re-apply configuration
     common::Result<void> reset();
@@ -71,13 +80,17 @@ public:
     // Recovery: reset + reconfigure + restart RX
     common::Result<void> recover();
 
-    RadioState state() const { return state_; }
-    const RadioCounters& counters() const { return counters_; }
+    RadioState state() const {
+        return state_;
+    }
+    const RadioCounters& counters() const {
+        return counters_;
+    }
 
     // Read chip part number and version for identification
     bool verify_chip_id();
 
-private:
+  private:
     RadioCc1101() = default;
 
 #ifndef HOST_TEST_BUILD
@@ -98,6 +111,7 @@ private:
     RadioState state_ = RadioState::Uninitialized;
     RadioCounters counters_{};
     SpiPins pins_{};
+    SpiBusConfig bus_config_{};
 };
 
 } // namespace radio_cc1101

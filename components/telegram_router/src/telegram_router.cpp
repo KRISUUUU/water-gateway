@@ -1,5 +1,6 @@
 #include "telegram_router/telegram_router.hpp"
 #include "dedup_service/dedup_service.hpp"
+#include <string>
 
 namespace telegram_router {
 
@@ -8,21 +9,22 @@ TelegramRouter& TelegramRouter::instance() {
     return router;
 }
 
-RouteResult TelegramRouter::route(
-    const wmbus_minimal_pipeline::WmbusFrame& frame) {
+RouteResult TelegramRouter::route(const wmbus_minimal_pipeline::WmbusFrame& frame) {
 
     counters_.frames_routed++;
 
     auto& dedup = dedup_service::DedupService::instance();
     int64_t now = frame.metadata.timestamp_ms;
 
-    // Dedup check based on raw hex content
-    if (dedup.seen_recently(frame.raw_hex, now)) {
+    const std::string dedup_key = frame.dedup_key();
+
+    // Dedup check based on canonical raw bytes.
+    if (dedup.seen_recently(dedup_key, now)) {
         counters_.frames_duplicate++;
         return RouteResult::suppress();
     }
 
-    dedup.remember(frame.raw_hex, now);
+    dedup.remember(dedup_key, now);
 
     // CRC-failed frames are still published (external decoder may handle them)
     // but we also publish an event for diagnostics

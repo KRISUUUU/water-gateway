@@ -68,7 +68,7 @@ static void test_from_radio_frame() {
     assert(result.is_ok());
 
     auto& frame = result.value();
-    assert(frame.raw_hex == "2C44931578563412");
+    assert(frame.raw_hex() == "2C44931578563412");
     assert(frame.metadata.rssi_dbm == -65);
     assert(frame.metadata.lqi == 45);
     assert(frame.metadata.crc_ok == true);
@@ -103,6 +103,32 @@ static void test_frame_l_field() {
     printf("  PASS: frame field accessors\n");
 }
 
+static void test_identity_and_signature_helpers() {
+    RawRadioFrame raw{};
+    raw.data[0] = 0x2C;
+    raw.data[1] = 0x44;
+    raw.data[2] = 0x93;
+    raw.data[3] = 0x15;
+    raw.data[4] = 0x78;
+    raw.data[5] = 0x56;
+    raw.data[6] = 0x34;
+    raw.data[7] = 0x12;
+    raw.data[8] = 0xAA;
+    raw.data[9] = 0xBB;
+    raw.length = 10;
+    raw.crc_ok = true;
+
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
+    assert(result.is_ok());
+    const auto& frame = result.value();
+    assert(frame.manufacturer_id() == 0x1593);
+    assert(frame.device_id() == 0x12345678);
+    assert(frame.identity_key() == "mfg:1593-id:12345678");
+    assert(frame.signature_prefix_hex(4) == "2C449315");
+    assert(frame.dedup_key().size() == frame.raw_bytes.size());
+    printf("  PASS: identity/signature helpers\n");
+}
+
 static void test_roundtrip_hex() {
     uint8_t original[] = {0x00, 0x7F, 0x80, 0xFF, 0x01, 0xFE};
     std::string hex = WmbusPipeline::bytes_to_hex(original, 6);
@@ -125,6 +151,7 @@ int main() {
     test_from_radio_frame();
     test_from_radio_frame_empty_fails();
     test_frame_l_field();
+    test_identity_and_signature_helpers();
     test_roundtrip_hex();
     printf("All WMBus pipeline tests passed.\n");
     return 0;

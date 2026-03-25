@@ -236,6 +236,8 @@
                 ["Frames Received", counters.frames_received],
                 ["CRC OK", counters.frames_crc_ok],
                 ["CRC Fail", counters.frames_crc_fail],
+                ["Incomplete Frames", counters.frames_incomplete],
+                ["Dropped Too Long", counters.frames_dropped_too_long],
                 ["FIFO Overflows", counters.fifo_overflows],
                 ["Radio Resets", counters.radio_resets],
                 ["Recoveries", counters.radio_recoveries],

@@ -133,13 +133,17 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     out += "\"radio_state\":\"";
     out += radio_state_str(snap.radio_state);
     out += "\",\"radio_counters\":{";
-    std::snprintf(buf, sizeof(buf), "\"frames_received\":%lu,\"frames_crc_ok\":%lu,"
-                                     "\"frames_crc_fail\":%lu,\"fifo_overflows\":%lu,"
-                                     "\"radio_resets\":%lu,\"radio_recoveries\":%lu,"
-                                     "\"spi_errors\":%lu}",
+    std::snprintf(buf, sizeof(buf),
+                  "\"frames_received\":%lu,\"frames_crc_ok\":%lu,"
+                  "\"frames_crc_fail\":%lu,\"frames_incomplete\":%lu,"
+                  "\"frames_dropped_too_long\":%lu,\"fifo_overflows\":%lu,"
+                  "\"radio_resets\":%lu,\"radio_recoveries\":%lu,"
+                  "\"spi_errors\":%lu}",
                   static_cast<unsigned long>(snap.radio.frames_received),
                   static_cast<unsigned long>(snap.radio.frames_crc_ok),
                   static_cast<unsigned long>(snap.radio.frames_crc_fail),
+                  static_cast<unsigned long>(snap.radio.frames_incomplete),
+                  static_cast<unsigned long>(snap.radio.frames_dropped_too_long),
                   static_cast<unsigned long>(snap.radio.fifo_overflows),
                   static_cast<unsigned long>(snap.radio.radio_resets),
                   static_cast<unsigned long>(snap.radio.radio_recoveries),
@@ -147,9 +151,10 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     out += buf;
 
     out += ",\"mqtt\":{";
-    std::snprintf(buf, sizeof(buf), "\"state\":\"%s\",\"publish_count\":%lu,"
-                                     "\"publish_failures\":%lu,\"reconnect_count\":%lu,"
-                                     "\"last_publish_epoch_ms\":%lld,",
+    std::snprintf(buf, sizeof(buf),
+                  "\"state\":\"%s\",\"publish_count\":%lu,"
+                  "\"publish_failures\":%lu,\"reconnect_count\":%lu,"
+                  "\"last_publish_epoch_ms\":%lld,",
                   mqtt_state_str(snap.mqtt.state),
                   static_cast<unsigned long>(snap.mqtt.publish_count),
                   static_cast<unsigned long>(snap.mqtt.publish_failures),
@@ -161,8 +166,9 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     out += "\"}";
 
     out += ",\"wifi\":{";
-    std::snprintf(buf, sizeof(buf), "\"state\":\"%s\",\"rssi_dbm\":%d,"
-                                     "\"reconnect_count\":%lu,",
+    std::snprintf(buf, sizeof(buf),
+                  "\"state\":\"%s\",\"rssi_dbm\":%d,"
+                  "\"reconnect_count\":%lu,",
                   wifi_state_str(snap.wifi.state), static_cast<int>(snap.wifi.rssi_dbm),
                   static_cast<unsigned long>(snap.wifi.reconnect_count));
     out += buf;
@@ -186,8 +192,9 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     out += "\"state\":\"";
     out += health_monitor::HealthMonitor::state_to_string(snap.health.state);
     out += '"';
-    std::snprintf(buf, sizeof(buf), ",\"warning_count\":%lu,\"error_count\":%lu,"
-                                     "\"uptime_s\":%llu,",
+    std::snprintf(buf, sizeof(buf),
+                  ",\"warning_count\":%lu,\"error_count\":%lu,"
+                  "\"uptime_s\":%llu,",
                   static_cast<unsigned long>(snap.health.warning_count),
                   static_cast<unsigned long>(snap.health.error_count),
                   static_cast<unsigned long long>(snap.health.uptime_s));

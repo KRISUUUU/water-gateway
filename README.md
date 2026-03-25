@@ -7,6 +7,7 @@ for water meter telegram reception.
 
 - Receives Wireless M-Bus T-mode telegrams on 868.95 MHz via CC1101
 - Captures raw frames with RF metadata (RSSI, LQI, CRC status)
+- Uses raw bytes as canonical in-pipeline frame representation (hex is derived for API/MQTT/UI)
 - Publishes raw telegrams and telemetry via MQTT
 - Maintains detected meters inventory and configurable watchlist (alias/note/enabled)
 - Provides a built-in web panel for diagnostics, configuration, and service

@@ -617,6 +617,8 @@ esp_err_t handle_status(httpd_req_t* req) {
       << "\"frames_received\":" << rc.frames_received << ","
       << "\"frames_crc_ok\":" << rc.frames_crc_ok << ","
       << "\"frames_crc_fail\":" << rc.frames_crc_fail << ","
+      << "\"frames_incomplete\":" << rc.frames_incomplete << ","
+      << "\"frames_dropped_too_long\":" << rc.frames_dropped_too_long << ","
       << "\"fifo_overflows\":" << rc.fifo_overflows << "}"
       << "}";
     const std::string json = o.str();

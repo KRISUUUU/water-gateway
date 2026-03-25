@@ -5,8 +5,8 @@
 #include "board_config/board_config.hpp"
 #include "config_store/config_store.hpp"
 #include "health_monitor/health_monitor.hpp"
-#include "metrics_service/metrics_service.hpp"
 #include "meter_registry/meter_registry.hpp"
+#include "metrics_service/metrics_service.hpp"
 #include "mqtt_service/mqtt_payloads.hpp"
 #include "mqtt_service/mqtt_service.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
@@ -14,18 +14,18 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
 #include "telegram_router/telegram_router.hpp"
-#include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 #include "watchdog_service/watchdog_service.hpp"
 #include "wifi_manager/wifi_manager.hpp"
+#include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include <algorithm>
 #include <cstring>
 #include <ctime>
-#include <algorithm>
 #include <string>
 
 namespace {
@@ -51,20 +51,7 @@ static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
 }
 
 static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame) {
-    const uint16_t mfg = frame.manufacturer_id();
-    const uint32_t dev = frame.device_id();
-    if (mfg != 0 || dev != 0) {
-        char buf[48];
-        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X",
-                      static_cast<unsigned int>(mfg),
-                      static_cast<unsigned int>(dev));
-        return std::string(buf);
-    }
-    std::string sig = frame.raw_hex.substr(0, std::min<size_t>(24, frame.raw_hex.size()));
-    if (sig.empty()) {
-        sig = "EMPTY";
-    }
-    return "sig:" + sig;
+    return frame.identity_key();
 }
 
 static void radio_rx_task(void* /*param*/) {
@@ -95,7 +82,8 @@ static void pipeline_task(void* /*param*/) {
 
             const int64_t ts = ntp_service::NtpService::instance().now_epoch_ms();
 
-            auto frame_result = wmbus_minimal_pipeline::WmbusPipeline::from_radio_frame(raw, ts, rx_count);
+            auto frame_result =
+                wmbus_minimal_pipeline::WmbusPipeline::from_radio_frame(raw, ts, rx_count);
             if (frame_result.is_error()) {
                 continue;
             }
@@ -103,7 +91,8 @@ static void pipeline_task(void* /*param*/) {
             const auto& frame = frame_result.value();
             const auto route = router.route(frame);
             const auto cfg = config_store::ConfigStore::instance().config();
-            const bool duplicate = route.decision == telegram_router::RouteDecision::SuppressDuplicate;
+            const bool duplicate =
+                route.decision == telegram_router::RouteDecision::SuppressDuplicate;
             meter_registry::MeterRegistry::instance().observe_frame(frame, duplicate);
 
             if (route.publish_raw) {
@@ -115,19 +104,12 @@ static void pipeline_task(void* /*param*/) {
                     strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
                 }
 
-                enqueue_mqtt(
-                    mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
-                    mqtt_service::payload_raw_frame(
-                        frame.raw_hex.c_str(),
-                        frame.metadata.frame_length,
-                        frame.metadata.rssi_dbm,
-                        frame.metadata.lqi,
-                        frame.metadata.crc_ok,
-                        frame.manufacturer_id(),
-                        frame.device_id(),
-                        derive_meter_key(frame).c_str(),
-                        ts_str,
-                        rx_count));
+                enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
+                             mqtt_service::payload_raw_frame(
+                                 frame.raw_hex().c_str(), frame.metadata.frame_length,
+                                 frame.metadata.rssi_dbm, frame.metadata.lqi, frame.metadata.crc_ok,
+                                 frame.manufacturer_id(), frame.device_id(),
+                                 derive_meter_key(frame).c_str(), ts_str, rx_count));
             }
 
             if (route.publish_event && route.event_message) {
@@ -177,25 +159,17 @@ static void health_task(void* /*param*/) {
                 const auto& rc = radio_cc1101::RadioCc1101::instance().counters();
                 const auto& tc = telegram_router::TelegramRouter::instance().counters();
                 const auto ms = mqtt.status();
-                const bool rx_active = radio_state_machine::RadioStateMachine::instance().state()
-                                       == radio_state_machine::RsmState::Receiving;
+                const bool rx_active = radio_state_machine::RadioStateMachine::instance().state() ==
+                                       radio_state_machine::RsmState::Receiving;
 
-                enqueue_mqtt(
-                    mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname),
-                    mqtt_service::payload_telemetry(
-                        static_cast<uint32_t>(m.uptime_s),
-                        m.free_heap_bytes,
-                        m.min_free_heap_bytes,
-                        wifi.status().rssi_dbm,
-                        mqtt.is_connected() ? "connected" : "disconnected",
-                        rx_active ? "rx_active" : "idle",
-                        rc.frames_received,
-                        tc.frames_published,
-                        tc.frames_duplicate,
-                        rc.frames_crc_fail,
-                        ms.publish_count,
-                        ms.publish_failures,
-                        ""));
+                enqueue_mqtt(mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname),
+                             mqtt_service::payload_telemetry(
+                                 static_cast<uint32_t>(m.uptime_s), m.free_heap_bytes,
+                                 m.min_free_heap_bytes, wifi.status().rssi_dbm,
+                                 mqtt.is_connected() ? "connected" : "disconnected",
+                                 rx_active ? "rx_active" : "idle", rc.frames_received,
+                                 tc.frames_published, tc.frames_duplicate, rc.frames_crc_fail,
+                                 ms.publish_count, ms.publish_failures, ""));
             }
         }
 
@@ -218,10 +192,13 @@ common::Result<void> AppCore::create_runtime_tasks() {
 
     auto& rsm = radio_state_machine::RadioStateMachine::instance();
     const auto pins = board_config::default_cc1101_pins();
-    ESP_LOGI(TAG, "Board CC1101 pins: MOSI=%d MISO=%d SCK=%d CS=%d GDO0=%d GDO2=%d",
-             pins.mosi, pins.miso, pins.sck, pins.cs, pins.gdo0, pins.gdo2);
+    const auto bus = board_config::default_cc1101_spi_bus_config();
+    ESP_LOGI(TAG, "Board CC1101 pins: MOSI=%d MISO=%d SCK=%d CS=%d GDO0=%d GDO2=%d", pins.mosi,
+             pins.miso, pins.sck, pins.cs, pins.gdo0, pins.gdo2);
+    ESP_LOGI(TAG, "CC1101 SPI bus: host=%d clock_hz=%lu max_transfer=%d", bus.host_id,
+             static_cast<unsigned long>(bus.clock_hz), bus.max_transfer_size);
 
-    auto rsm_init = rsm.initialize(pins);
+    auto rsm_init = rsm.initialize(pins, bus);
     if (rsm_init.is_error()) {
         ESP_LOGE(TAG, "Radio state machine initialize failed (%s/%d)",
                  common::error_code_to_string(rsm_init.error()),
@@ -237,11 +214,13 @@ common::Result<void> AppCore::create_runtime_tasks() {
         return rx_start;
     }
 
-    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, nullptr, 1) != pdPASS) {
+    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, nullptr, 1) !=
+        pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: radio_rx");
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, nullptr, 0) != pdPASS) {
+    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, nullptr, 0) !=
+        pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: pipeline");
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
@@ -254,7 +233,9 @@ common::Result<void> AppCore::create_runtime_tasks() {
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
 
-    ESP_LOGI(TAG, "Runtime tasks created (radio_rx@Core1, pipeline@Core0, mqtt_pub@Core0, health@Core0)");
+    ESP_LOGI(
+        TAG,
+        "Runtime tasks created (radio_rx@Core1, pipeline@Core0, mqtt_pub@Core0, health@Core0)");
     return common::Result<void>::ok();
 }
 

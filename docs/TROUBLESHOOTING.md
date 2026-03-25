@@ -11,6 +11,20 @@
 3. **Antenna missing or poor** — CC1101 needs an appropriate 868 MHz antenna. A wire cut to ~86mm (quarter-wave) is a minimum.
 4. **Radio in error state** — Check web panel RF Diagnostics page. If radio state is "error", check `fifo_overflows` and `radio_resets` counters.
 
+## Long Frame / FIFO Drops
+
+**Symptoms:** `frames_received` increases slowly while `frames_dropped_too_long` or
+`frames_incomplete` counters rise.
+
+**Possible Causes:**
+
+1. Current polling RX path cannot safely drain all long frames without GDO-threshold interrupts.
+2. Bursty RF traffic causing FIFO pressure and partial captures.
+3. Incorrect CC1101 mode/config for local RF environment.
+
+Use this as an RF validation signal, not as a UI/API bug. Full mitigation requires
+hardware-validated interrupt-driven FIFO draining.
+
 ## Live Telegrams Shows Empty
 
 **Symptoms:** Dashboard counters increase, but Live Telegrams page stays empty.

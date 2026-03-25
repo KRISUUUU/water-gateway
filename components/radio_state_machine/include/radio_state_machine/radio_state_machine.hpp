@@ -15,11 +15,13 @@ enum class RsmState : uint8_t {
 };
 
 class RadioStateMachine {
-public:
+  public:
     static RadioStateMachine& instance();
 
     // Initialize radio hardware with pin config
     common::Result<void> initialize(const radio_cc1101::SpiPins& pins);
+    common::Result<void> initialize(const radio_cc1101::SpiPins& pins,
+                                    const radio_cc1101::SpiBusConfig& bus_config);
 
     // Enter RX mode
     common::Result<void> start_receiving();
@@ -31,10 +33,14 @@ public:
     // and handle automatic recovery
     void tick();
 
-    RsmState state() const { return state_; }
-    uint32_t consecutive_errors() const { return consecutive_errors_; }
+    RsmState state() const {
+        return state_;
+    }
+    uint32_t consecutive_errors() const {
+        return consecutive_errors_;
+    }
 
-private:
+  private:
     RadioStateMachine() = default;
 
     void transition_to(RsmState new_state);

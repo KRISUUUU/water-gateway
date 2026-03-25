@@ -13,8 +13,12 @@ RadioStateMachine& RadioStateMachine::instance() {
     return sm;
 }
 
-common::Result<void> RadioStateMachine::initialize(
-    const radio_cc1101::SpiPins& pins) {
+common::Result<void> RadioStateMachine::initialize(const radio_cc1101::SpiPins& pins) {
+    return initialize(pins, radio_cc1101::SpiBusConfig{});
+}
+
+common::Result<void> RadioStateMachine::initialize(const radio_cc1101::SpiPins& pins,
+                                                   const radio_cc1101::SpiBusConfig& bus_config) {
     if (initialized_) {
         return common::Result<void>::error(common::ErrorCode::AlreadyInitialized);
     }
@@ -22,7 +26,7 @@ common::Result<void> RadioStateMachine::initialize(
     transition_to(RsmState::Initializing);
 
     auto& radio = radio_cc1101::RadioCc1101::instance();
-    auto result = radio.initialize(pins);
+    auto result = radio.initialize(pins, bus_config);
     if (result.is_error()) {
 #ifndef HOST_TEST_BUILD
         ESP_LOGE(TAG, "Radio initialization failed");
@@ -49,9 +53,8 @@ common::Result<void> RadioStateMachine::start_receiving() {
 #endif
         consecutive_errors_++;
         transition_to(RsmState::Error);
-        event_bus::EventBus::instance().publish(
-            event_bus::EventType::RadioError,
-            static_cast<int32_t>(result.error()));
+        event_bus::EventBus::instance().publish(event_bus::EventType::RadioError,
+                                                static_cast<int32_t>(result.error()));
         return result;
     }
 
@@ -86,14 +89,14 @@ common::Result<void> RadioStateMachine::recover() {
     consecutive_errors_ = 0;
     transition_to(RsmState::Receiving);
 
-    event_bus::EventBus::instance().publish(
-        event_bus::EventType::RadioRecovered);
+    event_bus::EventBus::instance().publish(event_bus::EventType::RadioRecovered);
 
     return common::Result<void>::ok();
 }
 
 void RadioStateMachine::tick() {
-    if (!initialized_ || !auto_recovery_) return;
+    if (!initialized_ || !auto_recovery_)
+        return;
 
     auto& radio = radio_cc1101::RadioCc1101::instance();
 
@@ -102,7 +105,8 @@ void RadioStateMachine::tick() {
             recover();
         } else {
 #ifndef HOST_TEST_BUILD
-            ESP_LOGE(TAG, "Max consecutive errors reached (%lu), "
+            ESP_LOGE(TAG,
+                     "Max consecutive errors reached (%lu), "
                      "radio recovery disabled until manual intervention",
                      (unsigned long)kMaxConsecutiveErrors);
 #endif
@@ -112,13 +116,13 @@ void RadioStateMachine::tick() {
 }
 
 void RadioStateMachine::transition_to(RsmState new_state) {
-    if (state_ == new_state) return;
+    if (state_ == new_state)
+        return;
 
 #ifndef HOST_TEST_BUILD
-    static const char* state_names[] = {
-        "Uninitialized", "Initializing", "Receiving", "Error", "Recovering"};
-    ESP_LOGD(TAG, "State: %s -> %s",
-             state_names[static_cast<int>(state_)],
+    static const char* state_names[] = {"Uninitialized", "Initializing", "Receiving", "Error",
+                                        "Recovering"};
+    ESP_LOGD(TAG, "State: %s -> %s", state_names[static_cast<int>(state_)],
              state_names[static_cast<int>(new_state)]);
 #endif
 

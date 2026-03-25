@@ -26,6 +26,7 @@ Subscribe to `wmbus-gw/{id}/telemetry` for periodic metrics:
 - `uptime_s`, `free_heap_bytes`, `frames_received`, `mqtt_publishes`
 - If `frames_received` stops incrementing, the radio may have an issue
 - If `mqtt_failures` is climbing, check broker connectivity
+- Track `frames_incomplete` / `frames_dropped_too_long` in radio diagnostics to detect FIFO pressure
 
 ### Events Topic
 

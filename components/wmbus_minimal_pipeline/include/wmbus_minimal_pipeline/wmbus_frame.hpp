@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace wmbus_minimal_pipeline {
 
@@ -15,8 +16,11 @@ struct WmbusFrameMetadata {
 };
 
 struct WmbusFrame {
-    std::string raw_hex; // Uppercase hex representation of raw bytes
+    std::vector<uint8_t> raw_bytes; // Canonical raw frame bytes
     WmbusFrameMetadata metadata;
+
+    // Presentation helper for API/UI/logging.
+    std::string raw_hex() const;
 
     // Basic WMBus T-mode L-field (first byte = length of remaining data)
     uint8_t l_field() const;
@@ -29,6 +33,15 @@ struct WmbusFrame {
 
     // Device serial (bytes 5-8, BCD-encoded)
     uint32_t device_id() const;
+
+    // Best-effort meter identity key for product-layer indexing.
+    std::string identity_key() const;
+
+    // Best-effort stable key for dedup/indexing without converting to hex.
+    std::string dedup_key() const;
+
+    // Hex prefix used for unknown meter signature fallback.
+    std::string signature_prefix_hex(size_t max_bytes = 12) const;
 };
 
 } // namespace wmbus_minimal_pipeline

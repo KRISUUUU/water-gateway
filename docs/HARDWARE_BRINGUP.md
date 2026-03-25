@@ -43,6 +43,7 @@ before flashing.
    - Verify CC1101 init log with chip ID.
    - Verify RX task is running (no immediate radio error loop).
    - Verify frame counters change when known WMBus traffic is present.
+   - Observe `frames_incomplete` / `frames_dropped_too_long` counters under heavy traffic.
 7. **API Checks**
    - Login: `POST /api/auth/login`.
    - Query health/config/diagnostics endpoints with bearer token.
@@ -94,6 +95,7 @@ Provisioning mode (WiFi not configured):
 - **WiFi unstable:** verify antenna/PSU and AP RSSI.
 - **MQTT unstable:** verify broker reachability, credentials, and ACLs.
 - **No frames:** verify frequency/antenna/nearby transmitter and check CRC/fifo counters.
+- **Long frame drops:** inspect `frames_dropped_too_long` and `frames_incomplete`; current polling RX is conservative and may drop oversized/incomplete captures.
 - **No HTTP/API:** verify `HTTP server listening on port 80` exists in logs, then check auth login endpoint first.
 
 ## Fastest Triage Paths
@@ -110,4 +112,4 @@ Provisioning mode (WiFi not configured):
 - CC1101 initializes and receives at least one frame in live RF conditions.
 - Live Telegrams and Detected Meters pages show coherent entries for received traffic.
 - API auth + diagnostics endpoints work.
-- Known limitations are confirmed (OTA upload endpoint still 501).
+- Known RF limitations are confirmed (`frames_dropped_too_long` behavior in polling mode).

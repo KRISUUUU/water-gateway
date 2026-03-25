@@ -1,17 +1,19 @@
 #include "meter_registry/meter_registry.hpp"
+#include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 
 #include <cassert>
 
-static wmbus_minimal_pipeline::WmbusFrame make_frame(const char* hex, int64_t ts_ms,
-                                                     bool crc_ok, int8_t rssi = -70,
-                                                     uint8_t lqi = 40) {
+static wmbus_minimal_pipeline::WmbusFrame make_frame(const char* hex, int64_t ts_ms, bool crc_ok,
+                                                     int8_t rssi = -70, uint8_t lqi = 40) {
     wmbus_minimal_pipeline::WmbusFrame f{};
-    f.raw_hex = hex;
+    uint8_t bytes[300] = {};
+    const size_t n = wmbus_minimal_pipeline::WmbusPipeline::hex_to_bytes(hex, bytes, sizeof(bytes));
+    f.raw_bytes.assign(bytes, bytes + n);
     f.metadata.timestamp_ms = ts_ms;
     f.metadata.crc_ok = crc_ok;
     f.metadata.rssi_dbm = rssi;
     f.metadata.lqi = lqi;
-    f.metadata.frame_length = static_cast<uint16_t>(f.raw_hex.size() / 2);
+    f.metadata.frame_length = static_cast<uint16_t>(f.raw_bytes.size());
     return f;
 }
 
@@ -28,6 +30,7 @@ int main() {
     assert(!meters.empty());
     assert(meters[0].seen_count >= 1);
     assert(!meters[0].key.empty());
+    assert(meters[0].key == "mfg:1593-id:12345678");
 
     meter_registry::WatchlistEntry wl{};
     wl.key = meters[0].key;
