@@ -22,7 +22,8 @@ tests/host/
 ├── test_mqtt_payloads.cpp
 ├── test_auth_helpers.cpp
 ├── test_health_logic.cpp
-└── test_wmbus_pipeline.cpp
+├── test_wmbus_pipeline.cpp
+└── test_meter_registry.cpp
 ```
 
 Host tests include component source files directly and provide minimal stubs
@@ -58,6 +59,7 @@ ctest --output-on-failure
 | `test_auth_helpers.cpp` | `auth_service` (static helpers only) | `hash_password` produces correct `salt:hash` format; `verify_password` accepts correct password and rejects wrong password; null/empty input handling |
 | `test_health_logic.cpp` | `health_monitor` | State transitions: starting→healthy, healthy→warning, warning→error; counter increments on warnings/errors; recovery back to healthy |
 | `test_wmbus_pipeline.cpp` | `wmbus_minimal_pipeline` | `from_radio_frame` produces correct hex encoding; metadata fields (RSSI, LQI, CRC, length) are preserved; `bytes_to_hex` handles empty and max-length inputs |
+| `test_meter_registry.cpp` | `meter_registry` | Detected meter observation, watchlist upsert/remove, and telegram filtering (`watched`, `duplicates`, `crc_fail`) |
 
 ### Fixture Data
 

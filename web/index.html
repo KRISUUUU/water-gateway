@@ -12,6 +12,8 @@
     <nav id="nav">
         <button class="nav-btn active" data-page="dashboard">Dashboard</button>
         <button class="nav-btn" data-page="telegrams">Telegrams</button>
+        <button class="nav-btn" data-page="meters">Detected Meters</button>
+        <button class="nav-btn" data-page="watchlist">Watchlist</button>
         <button class="nav-btn" data-page="rf">RF</button>
         <button class="nav-btn" data-page="mqtt">MQTT</button>
         <button class="nav-btn" data-page="config">Config</button>
@@ -53,11 +55,59 @@
     <!-- Live Telegrams -->
     <section id="telegrams-page" class="page" hidden>
         <h2>Live Telegrams</h2>
+        <div class="btn-row" style="margin-bottom:10px">
+            <label>Filter
+                <select id="tg-filter">
+                    <option value="all">All</option>
+                    <option value="watched">Watched only</option>
+                    <option value="unknown">Unknown only</option>
+                    <option value="duplicates">Duplicates</option>
+                    <option value="crc_fail">CRC fail</option>
+                </select>
+            </label>
+        </div>
         <table id="tg-table">
-            <thead><tr><th>Time</th><th>Hex</th><th>RSSI</th><th>LQI</th><th>CRC</th><th>Len</th></tr></thead>
+            <thead><tr><th>Time</th><th>Meter Key</th><th>Hex</th><th>RSSI</th><th>LQI</th><th>CRC</th><th>Dup</th><th>Watched</th><th>Len</th></tr></thead>
             <tbody id="tg-body"></tbody>
         </table>
         <p id="tg-empty">No telegrams received yet.</p>
+    </section>
+
+    <section id="meters-page" class="page" hidden>
+        <h2>Detected Meters</h2>
+        <div class="btn-row" style="margin-bottom:10px">
+            <label>Filter
+                <select id="meters-filter">
+                    <option value="all">All</option>
+                    <option value="watched">Watched</option>
+                    <option value="unknown">Unknown</option>
+                </select>
+            </label>
+        </div>
+        <table id="meters-table">
+            <thead><tr><th>Alias</th><th>Key</th><th>Seen</th><th>Last RSSI</th><th>CRC Fail</th><th>Duplicates</th><th>Watch</th></tr></thead>
+            <tbody id="meters-body"></tbody>
+        </table>
+        <p id="meters-empty">No meters detected yet.</p>
+    </section>
+
+    <section id="watchlist-page" class="page" hidden>
+        <h2>Watchlist</h2>
+        <div class="card" style="margin-bottom:12px">
+            <label>Meter key<input type="text" id="wl-key" placeholder="mfg:....-id:.... or sig:..."></label>
+            <label>Alias<input type="text" id="wl-alias" placeholder="Friendly name"></label>
+            <label>Note<input type="text" id="wl-note" placeholder="Optional note"></label>
+            <label><input type="checkbox" id="wl-enabled" checked> enabled</label>
+            <div class="btn-row">
+                <button id="wl-save">Save/Update</button>
+                <button id="wl-delete" class="danger">Delete</button>
+            </div>
+            <p id="wl-msg" hidden></p>
+        </div>
+        <table id="watchlist-table">
+            <thead><tr><th>Enabled</th><th>Alias</th><th>Key</th><th>Note</th></tr></thead>
+            <tbody id="watchlist-body"></tbody>
+        </table>
     </section>
 
     <!-- RF Diagnostics -->

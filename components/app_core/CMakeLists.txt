@@ -18,6 +18,7 @@ idf_component_register(
         wmbus_minimal_pipeline
         dedup_service
         telegram_router
+        meter_registry
         mqtt_service
         auth_service
         http_server

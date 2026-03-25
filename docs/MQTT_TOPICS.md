@@ -124,6 +124,9 @@ for external decoders (wmbusmeters, Home Assistant, custom consumers).
   "rssi_dbm": -65,
   "lqi": 45,
   "crc_ok": true,
+  "manufacturer_id": 5523,
+  "device_id": 305419896,
+  "meter_key": "mfg:1593-id:12345678",
   "timestamp": "2025-01-15T12:00:01Z",
   "rx_count": 4524
 }
@@ -138,6 +141,9 @@ for external decoders (wmbusmeters, Home Assistant, custom consumers).
 | `rssi_dbm` | integer | Received signal strength in dBm |
 | `lqi` | integer | Link Quality Indicator (CC1101-specific, 0-127) |
 | `crc_ok` | boolean | Whether CC1101 hardware CRC check passed |
+| `manufacturer_id` | integer | Observed WMBus manufacturer field from current frame parsing |
+| `device_id` | integer | Observed WMBus device ID field from current frame parsing |
+| `meter_key` | string | Stable gateway identity key (`mfg:....-id:....` or `sig:...`) |
 | `timestamp` | string | ISO 8601 UTC timestamp of reception |
 | `rx_count` | integer | Monotonic frame reception counter (useful for detecting gaps) |
 
@@ -197,7 +203,8 @@ mqtt:
 
 The `rf/raw` topic provides the raw hex telegram that wmbusmeters can process.
 Configure wmbusmeters to subscribe to `wmbus-gw/+/rf/raw` and parse the
-`raw_hex` field.
+`raw_hex` field. The additional `meter_key` field can be used for routing,
+watchlists, and entity naming in Home Assistant automations.
 
 ## Topic Summary Table
 

@@ -22,6 +22,7 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/wmbus_minimal_pipeline/include"
     "${COMP_DIR}/dedup_service/include"
     "${COMP_DIR}/telegram_router/include"
+    "${COMP_DIR}/meter_registry/include"
     "${COMP_DIR}/mqtt_service/include"
     "${COMP_DIR}/auth_service/include"
     "${COMP_DIR}/health_monitor/include"
@@ -85,5 +86,13 @@ add_host_test(test_health_logic
 # ---- test_wmbus_pipeline ----
 add_host_test(test_wmbus_pipeline
     test_wmbus_pipeline.cpp
+    "${COMP_DIR}/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp"
+)
+
+# ---- test_meter_registry ----
+add_host_test(test_meter_registry
+    test_meter_registry.cpp
+    "${COMP_DIR}/meter_registry/src/meter_registry.cpp"
+    "${COMP_DIR}/storage_service/src/storage_service.cpp"
     "${COMP_DIR}/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp"
 )

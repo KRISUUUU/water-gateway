@@ -1,82 +1,87 @@
 ﻿# PROJECT_RULES.md
 
 ## 1. Current Project Phase
-The repository is currently beyond bootstrap and early stabilization.
-The current phase is:
-- technical product completion
-- service/web usability completion
-- honest pre-hardware productization
+The repository is now in a combined Phase D + E:
+- user/product layer completion
+- hardening
+- near-premium readiness
+- still honest about missing hardware validation
 
-Before adding premium features, prioritize:
-- provisioning end-to-end
-- normal-mode end-to-end
-- usable web panel
-- clean diagnostics
-- truthful OTA/config/auth behavior
-- build/test/docs consistency
+Do not fall back into random feature sprawl.
+Work toward coherent product value.
 
 ## 2. Scope Discipline
-Do not start feature expansion while core product flows are incomplete.
-Specifically, do NOT prioritize yet:
-- detected meters UX
-- watchlist UX
-- advanced Home Assistant polish
-- extra protocol/product features
-- decorative frontend work
+Priority is now:
+- detected meters
+- watchlist
+- aliases and filtering
+- live telegram UX
+- better MQTT/HA flow
+- OTA/auth/security hardening
+- long-run stability
+- warning cleanup
+- docs/release polish
+
+Still do NOT drift into:
+- giant vendor-specific protocol decoding
+- excessive frontend complexity
+- fake “verified RF” claims
+- random product features not aligned with the gateway mission
 
 ## 3. Architecture Rules
 - Keep strict separation between RF, MQTT, HTTP/UI, auth, OTA, config, diagnostics, and storage.
+- `app_core` remains an orchestrator.
+- User/product features must sit on top of existing clean module boundaries.
 - Do not create god-modules.
-- `app_core` must remain an orchestrator.
-- Runtime logic may be split into focused files, but responsibilities must stay clear.
-- Board-specific wiring must remain outside orchestration logic.
+- Do not mix board wiring into unrelated layers.
+- Do not put logic into the wrong layer just for convenience.
 
-## 4. Provisioning/Product Rules
-Provisioning must be genuinely usable:
-- AP starts
-- web UI is reachable
-- config submission works
-- config is validated
-- config is persisted
-- device behavior after save is explicit
+## 4. Product Rules
+The UI and API must feel like a real gateway product:
+- useful
+- clear
+- honest
+- serviceable
 
-No fake provisioning UX is allowed.
+No fake buttons, fake metrics, or fake states.
 
-## 5. Web/UI Rules
-- Static assets must actually be packaged and served correctly.
-- `/` must resolve correctly.
-- Missing assets must log clearly.
-- UI should be simple, robust, and service-oriented.
-- No overdesigned frontend.
-- No fake buttons for unavailable features.
+If something is not fully implemented or hardware-validated:
+- say so in the UI/API/docs where appropriate
 
-## 6. Normal Mode Rules
-Normal mode must be coherent:
-- Wi-Fi config present -> normal mode path
-- HTTP/API remains reachable
-- auth remains coherent
-- MQTT lifecycle is visible
-- failures degrade clearly and safely
+## 5. Detected Meters / Watchlist Rules
+- Build detected meters on honest observable data from the gateway.
+- Do not fake perfect meter decoding if not actually supported.
+- Watchlist entries may include alias, note/tag, enabled state.
+- Filtering and recent/live telegram UX should integrate with detected meters/watchlist cleanly.
 
-## 7. OTA Rules
-- Do not pretend OTA upload works if it does not.
-- URL OTA must be honest and clearly documented.
-- OTA state must be consistent in code, API, and docs.
-
-## 8. Security Rules
+## 6. OTA / Security Rules
+- Do not claim OTA upload works unless it truly works.
+- OTA URL/upload/API/UI/docs must stay aligned.
+- Protect admin actions.
 - Never log secrets.
-- Redact secrets in logs, UI, config export, and support bundle.
-- Protect admin endpoints.
-- Validate all external input.
-- Keep config redaction and secret overwrite behavior safe.
+- Redact secrets in logs, UI, export, and support bundles.
+- Keep auth/session behavior explicit and safe.
 
-## 9. Testing and Docs
+## 7. Reliability Rules
+- Improve health, logs, counters, watchdog, and recovery visibility.
+- Avoid silent runtime degradation.
+- Prefer explicit warnings and operational clarity.
+
+## 8. Testing / Build Rules
 - Keep host tests passing.
 - Keep ESP-IDF build passing.
+- Keep web asset packaging/build coherent.
+- Clean up warnings where practical, especially ones that risk future breakage.
+- Keep OTA partition margin in mind.
+
+## 9. Documentation Rules
 - Docs must match code reality.
-- If hardware validation is missing, say so clearly.
+- If hardware is required to validate something, say so clearly.
+- Keep operations/troubleshooting practical and useful.
+- Polish docs toward a serious release-quality project.
 
 ## 10. Change Discipline
-- Prefer small safe patches over sweeping rewrites.
-- Do not silently change architecture or contracts.
-- Refactors must improve clarity, not just move code around.
+- Small safe patches are preferred.
+- Do not silently break working provisioning/build/static web flow.
+- Do not overclaim readiness.
+- Refactors must improve clarity and maintainability.

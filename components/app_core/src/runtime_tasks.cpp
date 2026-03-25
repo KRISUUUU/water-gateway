@@ -6,6 +6,7 @@
 #include "config_store/config_store.hpp"
 #include "health_monitor/health_monitor.hpp"
 #include "metrics_service/metrics_service.hpp"
+#include "meter_registry/meter_registry.hpp"
 #include "mqtt_service/mqtt_payloads.hpp"
 #include "mqtt_service/mqtt_service.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
@@ -24,6 +25,7 @@
 
 #include <cstring>
 #include <ctime>
+#include <algorithm>
 #include <string>
 
 namespace {
@@ -35,7 +37,7 @@ static QueueHandle_t mqtt_outbox = nullptr;
 
 struct MqttOutboxItem {
     char topic[128];
-    char payload[640];
+    char payload[896];
 };
 
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
@@ -46,6 +48,23 @@ static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
     std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
     std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
     return xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10)) == pdTRUE;
+}
+
+static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame) {
+    const uint16_t mfg = frame.manufacturer_id();
+    const uint32_t dev = frame.device_id();
+    if (mfg != 0 || dev != 0) {
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X",
+                      static_cast<unsigned int>(mfg),
+                      static_cast<unsigned int>(dev));
+        return std::string(buf);
+    }
+    std::string sig = frame.raw_hex.substr(0, std::min<size_t>(24, frame.raw_hex.size()));
+    if (sig.empty()) {
+        sig = "EMPTY";
+    }
+    return "sig:" + sig;
 }
 
 static void radio_rx_task(void* /*param*/) {
@@ -84,6 +103,8 @@ static void pipeline_task(void* /*param*/) {
             const auto& frame = frame_result.value();
             const auto route = router.route(frame);
             const auto cfg = config_store::ConfigStore::instance().config();
+            const bool duplicate = route.decision == telegram_router::RouteDecision::SuppressDuplicate;
+            meter_registry::MeterRegistry::instance().observe_frame(frame, duplicate);
 
             if (route.publish_raw) {
                 char ts_str[32] = "1970-01-01T00:00:00Z";
@@ -102,6 +123,9 @@ static void pipeline_task(void* /*param*/) {
                         frame.metadata.rssi_dbm,
                         frame.metadata.lqi,
                         frame.metadata.crc_ok,
+                        frame.manufacturer_id(),
+                        frame.device_id(),
+                        derive_meter_key(frame).c_str(),
                         ts_str,
                         rx_count));
             }

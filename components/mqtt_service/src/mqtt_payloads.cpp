@@ -99,17 +99,24 @@ std::string payload_raw_frame(const char* raw_hex,
                                int8_t rssi_dbm,
                                uint8_t lqi,
                                bool crc_ok,
+                               uint16_t manufacturer_id,
+                               uint32_t device_id,
+                               const char* meter_key,
                                const char* timestamp,
                                uint32_t rx_count) {
     char buf[640];
     std::snprintf(buf, sizeof(buf),
         R"({"raw_hex":"%s","frame_length":%u,"rssi_dbm":%d,)"
-        R"("lqi":%u,"crc_ok":%s,"timestamp":"%s","rx_count":%lu})",
+        R"("lqi":%u,"crc_ok":%s,"manufacturer_id":%u,"device_id":%lu,)"
+        R"("meter_key":"%s","timestamp":"%s","rx_count":%lu})",
         json_escape(raw_hex).c_str(),
         (unsigned)frame_length,
         (int)rssi_dbm,
         (unsigned)lqi,
         crc_ok ? "true" : "false",
+        (unsigned)manufacturer_id,
+        (unsigned long)device_id,
+        json_escape(meter_key).c_str(),
         json_escape(timestamp).c_str(),
         (unsigned long)rx_count);
     return std::string(buf);

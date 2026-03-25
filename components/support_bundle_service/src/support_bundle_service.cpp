@@ -2,6 +2,7 @@
 #include "config_store/config_store.hpp"
 #include "diagnostics_service/diagnostics_service.hpp"
 #include "health_monitor/health_monitor.hpp"
+#include "meter_registry/meter_registry.hpp"
 #include "metrics_service/metrics_service.hpp"
 #include "persistent_log_buffer/persistent_log_buffer.hpp"
 
@@ -233,6 +234,14 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
     out += config_section;
     out += ",\"logs\":";
     out += logs_json();
+    const auto detected = meter_registry::MeterRegistry::instance().detected_meters();
+    const auto watchlist = meter_registry::MeterRegistry::instance().watchlist();
+    char meter_buf[96];
+    std::snprintf(meter_buf, sizeof(meter_buf),
+                  ",\"meters\":{\"detected_count\":%lu,\"watchlist_count\":%lu}",
+                  static_cast<unsigned long>(detected.size()),
+                  static_cast<unsigned long>(watchlist.size()));
+    out += meter_buf;
     out += '}';
 
     return common::Result<std::string>::ok(std::move(out));

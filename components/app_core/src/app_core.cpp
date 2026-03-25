@@ -3,6 +3,7 @@
 #include "event_bus/event_bus.hpp"
 #include "config_store/config_store.hpp"
 #include "storage_service/storage_service.hpp"
+#include "meter_registry/meter_registry.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 #include "ntp_service/ntp_service.hpp"
 #include "mdns_service/mdns_service.hpp"
@@ -83,6 +84,19 @@ common::Result<void> AppCore::initialize_foundations() {
     auto storage_result = storage.initialize();
     if (storage_result.is_error()) {
         return storage_result;
+    }
+
+#ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "[BOOT] Foundations: meter registry");
+#endif
+    auto& registry = meter_registry::MeterRegistry::instance();
+    auto registry_result = registry.initialize();
+    if (registry_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "Meter registry initialize failed, continuing (%s/%d)",
+                 common::error_code_to_string(registry_result.error()),
+                 static_cast<int>(registry_result.error()));
+#endif
     }
 
 #ifndef HOST_TEST_BUILD

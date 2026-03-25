@@ -8,6 +8,7 @@ for water meter telegram reception.
 - Receives Wireless M-Bus T-mode telegrams on 868.95 MHz via CC1101
 - Captures raw frames with RF metadata (RSSI, LQI, CRC status)
 - Publishes raw telegrams and telemetry via MQTT
+- Maintains detected meters inventory and configurable watchlist (alias/note/enabled)
 - Provides a built-in web panel for diagnostics, configuration, and service
 - Supports OTA firmware updates (HTTPS URL with rollback; local upload endpoint exists but is not yet implemented)
 - Stores config in NVS with validation, migration, and import/export
@@ -82,12 +83,13 @@ Core components are implemented but **not yet validated on real hardware**:
 - WiFi STA/AP, NTP, mDNS, MQTT with reconnect
 - CC1101 SPI driver with T-mode register config (untested on hardware)
 - WMBus pipeline with dedup and routing
+- Detected meters + watchlist service with API/UI integration
 - Auth service with SHA-256 password hashing
 - HTTP server with auth middleware and REST API
 - OTA manager (URL-based OTA works; multipart upload endpoint is a stub)
 - Web panel (static HTML/JS/CSS served from SPIFFS)
 - Diagnostics, metrics, health monitoring, watchdog, support bundle
-- 7 host test suites, CI pipeline
+- 8 host test suites, CI pipeline
 
 **Status:** Pre-hardware-validation. Host tests pass with a prepared host toolchain. Real RF reception, NVS persistence, WiFi/MQTT connectivity, and full ESP-IDF build validation still require local ESP-IDF environment verification and board testing.
 

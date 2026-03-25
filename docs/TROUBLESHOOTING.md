@@ -11,6 +11,26 @@
 3. **Antenna missing or poor** — CC1101 needs an appropriate 868 MHz antenna. A wire cut to ~86mm (quarter-wave) is a minimum.
 4. **Radio in error state** — Check web panel RF Diagnostics page. If radio state is "error", check `fifo_overflows` and `radio_resets` counters.
 
+## Live Telegrams Shows Empty
+
+**Symptoms:** Dashboard counters increase, but Live Telegrams page stays empty.
+
+**Possible Causes:**
+
+1. **Wrong filter selected** — Switch filter to `all` (`watched`/`unknown`/`duplicates`/`crc_fail` can be empty).
+2. **Session expired** — Refresh page and log in again.
+3. **No recent traffic window** — List is a bounded recent cache and can be empty after reboot/start.
+
+## Watchlist / Detected Meters Issues
+
+**Symptoms:** Meter appears in telegrams but not as expected in watchlist UX.
+
+**Possible Causes:**
+
+1. **Identity format mismatch** — Use exact key from Detected Meters page (`mfg:....-id:....` or `sig:...`).
+2. **Watchlist disabled** — Entry exists but `enabled=false`.
+3. **Identity fallback changed** — For undecodable frames fallback is signature-based and can differ with frame preamble/content.
+
 ## WiFi Connection Issues
 
 **Symptoms:** Device fails to connect, frequent reconnects.

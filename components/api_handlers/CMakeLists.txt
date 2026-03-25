@@ -13,6 +13,7 @@ idf_component_register(
         ota_manager
         provisioning_manager
         radio_state_machine
+        meter_registry
         persistent_log_buffer
         support_bundle_service
         json

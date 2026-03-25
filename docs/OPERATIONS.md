@@ -37,6 +37,14 @@ Subscribe to `wmbus-gw/{id}/events` for discrete alerts:
 
 Access `http://{hostname}.local/` for a visual overview.
 
+### Live Telegrams / Detected Meters
+
+- Use the **Live Telegrams** page to inspect recent frames with filters:
+  `all`, `watched`, `unknown`, `duplicates`, `crc_fail`.
+- Use **Detected Meters** to review observed transmitter identities and counters.
+- Use **Watchlist** to assign alias/note and mark important meters as enabled.
+- Meter identity is best-effort and based on observed frame fields/signature.
+
 ## Common Operational Tasks
 
 ### Updating Firmware
@@ -63,7 +71,7 @@ Note: local multipart upload endpoint exists but is not implemented yet (`501`).
 ### Downloading Support Bundle
 
 1. Open web panel → System page → Download Support Bundle
-2. JSON file includes diagnostics, metrics, config (redacted), and recent logs
+2. JSON file includes diagnostics, metrics, config (redacted), recent logs, and meter/watchlist counts
 3. Useful for remote troubleshooting
 
 ### Factory Reset

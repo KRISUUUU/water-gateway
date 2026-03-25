@@ -11,6 +11,7 @@
 | Admin password hash | High | NVS |
 | Session tokens | Medium | RAM only |
 | Device config (non-secret) | Low | NVS |
+| Watchlist aliases/notes | Low-Medium | SPIFFS (`/storage/watchlist.db`) |
 | Raw telegrams | Low | Transient (RAM queue) |
 | Diagnostic counters | Low | RAM |
 | Log buffer | Low-Medium | RAM (may contain operational details) |
@@ -57,7 +58,7 @@
 - **Mitigation:**
   - Secret fields are never included in `ESP_LOG*` output
   - Config export replaces secrets with `"***"`
-  - Support bundle redacts all secret fields
+  - Support bundle redacts all secret fields and exports only meter/watchlist counts
   - Web UI API never returns plaintext passwords
   - Error messages do not include credential values
 

@@ -9,6 +9,7 @@
 #include "diagnostics_service/diagnostics_service.hpp"
 #include "health_monitor/health_monitor.hpp"
 #include "metrics_service/metrics_service.hpp"
+#include "meter_registry/meter_registry.hpp"
 #include "mqtt_service/mqtt_service.hpp"
 #include "ota_manager/ota_manager.hpp"
 #include "persistent_log_buffer/persistent_log_buffer.hpp"
@@ -72,6 +73,29 @@ std::string json_escape(const std::string& s) {
 bool has_https_scheme(const std::string& url) {
     static constexpr const char* kHttps = "https://";
     return url.size() >= 8 && url.compare(0, 8, kHttps) == 0;
+}
+
+std::string query_param(const char* uri, const char* key) {
+    if (!uri || !key || key[0] == '\0') {
+        return "";
+    }
+    std::string s(uri);
+    const size_t q = s.find('?');
+    if (q == std::string::npos || q + 1 >= s.size()) {
+        return "";
+    }
+    const std::string query = s.substr(q + 1);
+    const std::string needle = std::string(key) + "=";
+    size_t pos = query.find(needle);
+    if (pos == std::string::npos) {
+        return "";
+    }
+    pos += needle.size();
+    size_t end = query.find('&', pos);
+    if (end == std::string::npos) {
+        end = query.size();
+    }
+    return query.substr(pos, end - pos);
 }
 
 esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
@@ -524,7 +548,181 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
     if (g != ESP_OK) {
         return g;
     }
-    return send_json(req, 200, "{\"telegrams\":[]}");
+    meter_registry::TelegramFilter filter = meter_registry::TelegramFilter::All;
+    const std::string f = query_param(req->uri, "filter");
+    if (f == "watched") {
+        filter = meter_registry::TelegramFilter::WatchedOnly;
+    } else if (f == "unknown") {
+        filter = meter_registry::TelegramFilter::UnknownOnly;
+    } else if (f == "duplicates") {
+        filter = meter_registry::TelegramFilter::DuplicatesOnly;
+    } else if (f == "crc_fail") {
+        filter = meter_registry::TelegramFilter::CrcFailOnly;
+    }
+
+    const auto telegrams = meter_registry::MeterRegistry::instance().recent_telegrams(filter);
+    std::ostringstream o;
+    o << "{\"telegrams\":[";
+    for (size_t i = 0; i < telegrams.size(); ++i) {
+        if (i > 0) {
+            o << ',';
+        }
+        const auto& t = telegrams[i];
+        o << "{"
+          << "\"timestamp_ms\":" << static_cast<long long>(t.timestamp_ms) << ","
+          << "\"raw_hex\":\"" << json_escape(t.raw_hex) << "\","
+          << "\"frame_length\":" << static_cast<unsigned int>(t.frame_length) << ","
+          << "\"rssi_dbm\":" << static_cast<int>(t.rssi_dbm) << ","
+          << "\"lqi\":" << static_cast<unsigned int>(t.lqi) << ","
+          << "\"crc_ok\":" << (t.crc_ok ? "true" : "false") << ","
+          << "\"duplicate\":" << (t.duplicate ? "true" : "false") << ","
+          << "\"meter_key\":\"" << json_escape(t.meter_key) << "\","
+          << "\"watched\":" << (t.watched ? "true" : "false")
+          << "}";
+    }
+    o << "]}";
+    const std::string json = o.str();
+    return send_json(req, 200, json.c_str());
+}
+
+esp_err_t handle_meters_detected(httpd_req_t* req) {
+    esp_err_t g = require_auth(req);
+    if (g != ESP_OK) {
+        return g;
+    }
+    const auto meters = meter_registry::MeterRegistry::instance().detected_meters();
+    const std::string filter = query_param(req->uri, "filter");
+    std::ostringstream o;
+    o << "{\"meters\":[";
+    size_t emitted = 0;
+    for (size_t i = 0; i < meters.size(); ++i) {
+        const auto& m = meters[i];
+        if (filter == "watched" && !m.watched) {
+            continue;
+        }
+        if (filter == "unknown" && m.watched) {
+            continue;
+        }
+        if (emitted > 0) {
+            o << ',';
+        }
+        emitted++;
+        o << "{"
+          << "\"key\":\"" << json_escape(m.key) << "\","
+          << "\"manufacturer_id\":" << static_cast<unsigned int>(m.manufacturer_id) << ","
+          << "\"device_id\":" << static_cast<unsigned long>(m.device_id) << ","
+          << "\"first_seen_ms\":" << static_cast<long long>(m.first_seen_ms) << ","
+          << "\"last_seen_ms\":" << static_cast<long long>(m.last_seen_ms) << ","
+          << "\"seen_count\":" << static_cast<unsigned long>(m.seen_count) << ","
+          << "\"last_rssi_dbm\":" << static_cast<int>(m.last_rssi_dbm) << ","
+          << "\"last_lqi\":" << static_cast<unsigned int>(m.last_lqi) << ","
+          << "\"last_crc_ok\":" << (m.last_crc_ok ? "true" : "false") << ","
+          << "\"duplicate_count\":" << static_cast<unsigned long>(m.duplicate_count) << ","
+          << "\"crc_fail_count\":" << static_cast<unsigned long>(m.crc_fail_count) << ","
+          << "\"watched\":" << (m.watched ? "true" : "false") << ","
+          << "\"watch_enabled\":" << (m.watch_enabled ? "true" : "false") << ","
+          << "\"alias\":\"" << json_escape(m.alias) << "\","
+          << "\"note\":\"" << json_escape(m.note) << "\""
+          << "}";
+    }
+    o << "]}";
+    const std::string json = o.str();
+    return send_json(req, 200, json.c_str());
+}
+
+esp_err_t handle_watchlist_get(httpd_req_t* req) {
+    esp_err_t g = require_auth(req);
+    if (g != ESP_OK) {
+        return g;
+    }
+    const auto entries = meter_registry::MeterRegistry::instance().watchlist();
+    std::ostringstream o;
+    o << "{\"watchlist\":[";
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i > 0) {
+            o << ',';
+        }
+        const auto& e = entries[i];
+        o << "{"
+          << "\"key\":\"" << json_escape(e.key) << "\","
+          << "\"enabled\":" << (e.enabled ? "true" : "false") << ","
+          << "\"alias\":\"" << json_escape(e.alias) << "\","
+          << "\"note\":\"" << json_escape(e.note) << "\""
+          << "}";
+    }
+    o << "]}";
+    const std::string json = o.str();
+    return send_json(req, 200, json.c_str());
+}
+
+esp_err_t handle_watchlist_post(httpd_req_t* req) {
+    esp_err_t g = require_auth(req);
+    if (g != ESP_OK) {
+        return g;
+    }
+    std::string body;
+    if (!read_request_body(req, body, 4096)) {
+        return send_json(req, 413, "{\"error\":\"body_too_large\"}");
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    if (!root) {
+        return send_json(req, 400, "{\"error\":\"invalid_json\"}");
+    }
+
+    meter_registry::WatchlistEntry e{};
+    const cJSON* key = cJSON_GetObjectItemCaseSensitive(root, "key");
+    const cJSON* enabled = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+    const cJSON* alias = cJSON_GetObjectItemCaseSensitive(root, "alias");
+    const cJSON* note = cJSON_GetObjectItemCaseSensitive(root, "note");
+
+    if (key && cJSON_IsString(key) && key->valuestring) {
+        e.key = key->valuestring;
+    }
+    if (enabled && (cJSON_IsBool(enabled) || cJSON_IsNumber(enabled))) {
+        e.enabled = cJSON_IsTrue(enabled) || (cJSON_IsNumber(enabled) && enabled->valuedouble != 0);
+    }
+    if (alias && cJSON_IsString(alias) && alias->valuestring) {
+        e.alias = alias->valuestring;
+    }
+    if (note && cJSON_IsString(note) && note->valuestring) {
+        e.note = note->valuestring;
+    }
+    cJSON_Delete(root);
+
+    if (e.key.empty()) {
+        return send_json(req, 400, "{\"error\":\"missing_key\"}");
+    }
+    auto r = meter_registry::MeterRegistry::instance().upsert_watchlist(e);
+    if (r.is_error()) {
+        return send_json(req, 500, "{\"error\":\"watchlist_save_failed\"}");
+    }
+    return send_json(req, 200, "{\"ok\":true}");
+}
+
+esp_err_t handle_watchlist_delete(httpd_req_t* req) {
+    esp_err_t g = require_auth(req);
+    if (g != ESP_OK) {
+        return g;
+    }
+    std::string body;
+    if (!read_request_body(req, body, 2048)) {
+        return send_json(req, 413, "{\"error\":\"body_too_large\"}");
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    if (!root) {
+        return send_json(req, 400, "{\"error\":\"invalid_json\"}");
+    }
+    const cJSON* key = cJSON_GetObjectItemCaseSensitive(root, "key");
+    std::string key_val = (key && cJSON_IsString(key) && key->valuestring) ? key->valuestring : "";
+    cJSON_Delete(root);
+    if (key_val.empty()) {
+        return send_json(req, 400, "{\"error\":\"missing_key\"}");
+    }
+    auto r = meter_registry::MeterRegistry::instance().remove_watchlist(key_val);
+    if (r.is_error()) {
+        return send_json(req, 500, "{\"error\":\"watchlist_delete_failed\"}");
+    }
+    return send_json(req, 200, "{\"ok\":true}");
 }
 
 esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
@@ -798,6 +996,10 @@ void register_all_handlers(void* server) {
     REG(HTTP_POST, "/api/auth/logout", handle_auth_logout);
     REG(HTTP_GET, "/api/status", handle_status);
     REG(HTTP_GET, "/api/telegrams", handle_telegrams);
+    REG(HTTP_GET, "/api/meters/detected", handle_meters_detected);
+    REG(HTTP_GET, "/api/watchlist", handle_watchlist_get);
+    REG(HTTP_POST, "/api/watchlist", handle_watchlist_post);
+    REG(HTTP_POST, "/api/watchlist/delete", handle_watchlist_delete);
     REG(HTTP_GET, "/api/diagnostics/radio", handle_diagnostics_radio);
     REG(HTTP_GET, "/api/diagnostics/mqtt", handle_diagnostics_mqtt);
     REG(HTTP_GET, "/api/config", handle_config_get);

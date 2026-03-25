@@ -60,21 +60,22 @@ Normal mode (WiFi configured):
 1. `=== WMBus Gateway Starting ===`
 2. `[BOOT] Foundations: event bus`
 3. `[BOOT] Foundations: storage`
-4. `[BOOT] Foundations: config`
-5. `Foundations initialized`
-6. `Startup mode selected: normal`
-7. `[BOOT] Normal mode: WiFi init + STA start`
-8. `[BOOT] Normal mode: NTP init`
-9. `[BOOT] Normal mode: mDNS init` (currently expected to run in no-op mode)
-10. `[BOOT] Normal mode: MQTT init`
-11. `[BOOT] Normal mode: auth init`
-12. `[BOOT] Normal mode: HTTP init + handler registration`
-13. `[BOOT] Normal mode: OTA init + boot-valid`
-14. `[BOOT] Normal mode: watchdog init`
-15. `Board CC1101 pins: MOSI=... MISO=... SCK=... CS=... GDO0=... GDO2=...`
-16. `CC1101 PARTNUM=... VERSION=...`
-17. `Runtime tasks created (...)`
-18. `Normal runtime started`
+4. `[BOOT] Foundations: meter registry`
+5. `[BOOT] Foundations: config`
+6. `Foundations initialized`
+7. `Startup mode selected: normal`
+8. `[BOOT] Normal mode: WiFi init + STA start`
+9. `[BOOT] Normal mode: NTP init`
+10. `[BOOT] Normal mode: mDNS init` (currently expected to run in no-op mode)
+11. `[BOOT] Normal mode: MQTT init`
+12. `[BOOT] Normal mode: auth init`
+13. `[BOOT] Normal mode: HTTP init + handler registration`
+14. `[BOOT] Normal mode: OTA init + boot-valid`
+15. `[BOOT] Normal mode: watchdog init`
+16. `Board CC1101 pins: MOSI=... MISO=... SCK=... CS=... GDO0=... GDO2=...`
+17. `CC1101 PARTNUM=... VERSION=...`
+18. `Runtime tasks created (...)`
+19. `Normal runtime started`
 
 Provisioning mode (WiFi not configured):
 
@@ -107,5 +108,6 @@ Provisioning mode (WiFi not configured):
 - Firmware boots and stays stable for at least 15 minutes.
 - WiFi and MQTT lifecycle events behave as expected.
 - CC1101 initializes and receives at least one frame in live RF conditions.
+- Live Telegrams and Detected Meters pages show coherent entries for received traffic.
 - API auth + diagnostics endpoints work.
 - Known limitations are confirmed (OTA upload endpoint still 501).

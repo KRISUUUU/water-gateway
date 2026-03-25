@@ -45,6 +45,8 @@
 
         if (name === "dashboard") loadDashboard();
         else if (name === "telegrams") loadTelegrams();
+        else if (name === "meters") loadDetectedMeters();
+        else if (name === "watchlist") loadWatchlist();
         else if (name === "rf") loadRfDiag();
         else if (name === "mqtt") loadMqttDiag();
         else if (name === "config") loadConfig();
@@ -78,7 +80,15 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ password: pwd }),
         })
-            .then((r) => r.json())
+            .then((r) => r.text().then((text) => {
+                let data = {};
+                try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+                if (!r.ok) {
+                    const msg = data.error || (r.status === 429 ? "Too many login attempts" : "Login failed");
+                    throw new Error(msg);
+                }
+                return data;
+            }))
             .then((data) => {
                 if (data.token) {
                     token = data.token;
@@ -90,8 +100,8 @@
                     $("#login-error").hidden = false;
                 }
             })
-            .catch(() => {
-                $("#login-error").textContent = "Connection error";
+            .catch((err) => {
+                $("#login-error").textContent = (err && err.message) ? err.message : "Connection error";
                 $("#login-error").hidden = false;
             });
     });
@@ -138,20 +148,74 @@
 
     // Telegrams
     function loadTelegrams() {
-        api("GET", "/api/telegrams").then((data) => {
+        const filter = ($("#tg-filter") && $("#tg-filter").value) || "all";
+        const suffix = filter === "all" ? "" : ("?filter=" + encodeURIComponent(filter));
+        api("GET", "/api/telegrams" + suffix).then((data) => {
             const arr = data.telegrams || data.frames || [];
             const body = $("#tg-body");
             body.innerHTML = "";
             $("#tg-empty").hidden = arr.length > 0;
             arr.forEach((f) => {
                 const tr = document.createElement("tr");
+                const ts = f.timestamp_ms
+                    ? new Date(Number(f.timestamp_ms)).toISOString()
+                    : (f.timestamp || "");
                 tr.innerHTML =
-                    "<td>" + (f.timestamp || "") + "</td>" +
+                    "<td>" + ts + "</td>" +
+                    "<td>" + (f.meter_key || "") + "</td>" +
                     '<td class="hex" title="' + f.raw_hex + '">' + (f.raw_hex || "").substring(0, 40) + "</td>" +
                     "<td>" + (f.rssi_dbm ?? "") + "</td>" +
                     "<td>" + (f.lqi ?? "") + "</td>" +
                     "<td>" + (f.crc_ok ? "OK" : "FAIL") + "</td>" +
+                    "<td>" + (f.duplicate ? "YES" : "NO") + "</td>" +
+                    "<td>" + (f.watched ? "YES" : "NO") + "</td>" +
                     "<td>" + (f.frame_length ?? "") + "</td>";
+                body.appendChild(tr);
+            });
+        }).catch(() => {});
+    }
+
+    function loadDetectedMeters() {
+        const filter = ($("#meters-filter") && $("#meters-filter").value) || "all";
+        const suffix = filter === "all" ? "" : ("?filter=" + encodeURIComponent(filter));
+        api("GET", "/api/meters/detected" + suffix).then((data) => {
+            const arr = data.meters || [];
+            const body = $("#meters-body");
+            body.innerHTML = "";
+            $("#meters-empty").hidden = arr.length > 0;
+            arr.forEach((m) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML =
+                    "<td>" + (m.alias || "") + "</td>" +
+                    '<td class="hex">' + (m.key || "") + "</td>" +
+                    "<td>" + (m.seen_count ?? 0) + "</td>" +
+                    "<td>" + (m.last_rssi_dbm ?? "") + "</td>" +
+                    "<td>" + (m.crc_fail_count ?? 0) + "</td>" +
+                    "<td>" + (m.duplicate_count ?? 0) + "</td>" +
+                    "<td>" + (m.watch_enabled ? "YES" : (m.watched ? "DISABLED" : "NO")) + "</td>";
+                body.appendChild(tr);
+            });
+        }).catch(() => {});
+    }
+
+    function loadWatchlist() {
+        api("GET", "/api/watchlist").then((data) => {
+            const arr = data.watchlist || [];
+            const body = $("#watchlist-body");
+            body.innerHTML = "";
+            arr.forEach((w) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML =
+                    "<td>" + (w.enabled ? "YES" : "NO") + "</td>" +
+                    "<td>" + (w.alias || "") + "</td>" +
+                    '<td class="hex">' + (w.key || "") + "</td>" +
+                    "<td>" + (w.note || "") + "</td>";
+                tr.addEventListener("click", () => {
+                    $("#wl-key").value = w.key || "";
+                    $("#wl-alias").value = w.alias || "";
+                    $("#wl-note").value = w.note || "";
+                    $("#wl-enabled").checked = !!w.enabled;
+                });
                 body.appendChild(tr);
             });
         }).catch(() => {});
@@ -298,6 +362,57 @@
         });
     });
 
+    $("#wl-save").addEventListener("click", () => {
+        const msg = $("#wl-msg");
+        msg.hidden = true;
+        const key = ($("#wl-key").value || "").trim();
+        if (!key) {
+            msg.textContent = "Meter key is required";
+            msg.className = "error";
+            msg.hidden = false;
+            return;
+        }
+        api("POST", "/api/watchlist", {
+            key,
+            alias: $("#wl-alias").value || "",
+            note: $("#wl-note").value || "",
+            enabled: $("#wl-enabled").checked
+        }).then(() => {
+            msg.textContent = "Watchlist updated";
+            msg.className = "success";
+            msg.hidden = false;
+            loadWatchlist();
+            loadDetectedMeters();
+        }).catch(() => {
+            msg.textContent = "Watchlist update failed";
+            msg.className = "error";
+            msg.hidden = false;
+        });
+    });
+
+    $("#wl-delete").addEventListener("click", () => {
+        const msg = $("#wl-msg");
+        msg.hidden = true;
+        const key = ($("#wl-key").value || "").trim();
+        if (!key) {
+            msg.textContent = "Meter key is required";
+            msg.className = "error";
+            msg.hidden = false;
+            return;
+        }
+        api("POST", "/api/watchlist/delete", { key }).then(() => {
+            msg.textContent = "Watchlist entry removed";
+            msg.className = "success";
+            msg.hidden = false;
+            loadWatchlist();
+            loadDetectedMeters();
+        }).catch(() => {
+            msg.textContent = "Watchlist delete failed";
+            msg.className = "error";
+            msg.hidden = false;
+        });
+    });
+
     // OTA
     function loadOtaStatus() {
         api("GET", "/api/ota/status").then((d) => {
@@ -360,6 +475,14 @@
     }
 
     $("#log-filter").addEventListener("change", loadLogs);
+    const tgFilter = $("#tg-filter");
+    if (tgFilter) {
+        tgFilter.addEventListener("change", loadTelegrams);
+    }
+    const metersFilter = $("#meters-filter");
+    if (metersFilter) {
+        metersFilter.addEventListener("change", loadDetectedMeters);
+    }
 
     // Auto-refresh
     let refreshTimer = null;

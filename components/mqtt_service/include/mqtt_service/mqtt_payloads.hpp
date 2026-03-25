@@ -44,6 +44,9 @@ std::string payload_raw_frame(const char* raw_hex,
                                int8_t rssi_dbm,
                                uint8_t lqi,
                                bool crc_ok,
+                               uint16_t manufacturer_id,
+                               uint32_t device_id,
+                               const char* meter_key,
                                const char* timestamp,
                                uint32_t rx_count);
 

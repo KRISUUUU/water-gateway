@@ -16,7 +16,9 @@ It is intended for serviceability and provisioning support, not premium UX.
 ## Available Pages
 
 - Dashboard: health + runtime metrics + WiFi/MQTT/radio summary from `/api/status`
-- Live Telegrams: currently placeholder (`/api/telegrams` returns empty list by design)
+- Live Telegrams: recent frame list with filters (`all`, `watched`, `unknown`, `duplicates`, `crc_fail`)
+- Detected Meters: observed meter/signature inventory with first/last seen and counters
+- Watchlist: add/edit/remove watch entries (`key`, `alias`, `note`, `enabled`)
 - RF Diagnostics: radio/RSM counters from `/api/diagnostics/radio`
 - MQTT Status: MQTT state/counters from `/api/diagnostics/mqtt`
 - Configuration: reads redacted config from `/api/config`, posts updates to `/api/config`
@@ -31,7 +33,11 @@ It is intended for serviceability and provisioning support, not premium UX.
 | POST | `/api/auth/login` | No | Returns bearer token |
 | POST | `/api/auth/logout` | Yes | Invalidates current session |
 | GET | `/api/status` | Yes | Mode + health + metrics + WiFi/MQTT/radio summary |
-| GET | `/api/telegrams` | Yes | Returns `{"telegrams":[]}` currently |
+| GET | `/api/telegrams` | Yes | Recent telegrams; optional `?filter=watched\|unknown\|duplicates\|crc_fail` |
+| GET | `/api/meters/detected` | Yes | Detected meter model; optional `?filter=watched\|unknown` |
+| GET | `/api/watchlist` | Yes | Watchlist entries |
+| POST | `/api/watchlist` | Yes | Upsert watchlist entry (`key`, `alias`, `note`, `enabled`) |
+| POST | `/api/watchlist/delete` | Yes | Remove watchlist entry (`key`) |
 | GET | `/api/diagnostics/radio` | Yes | RSM + detailed diagnostics snapshot |
 | GET | `/api/diagnostics/mqtt` | Yes | MQTT diagnostics |
 | GET | `/api/config` | Yes | Redacted config; secrets represented as `***` |
@@ -64,5 +70,6 @@ It is intended for serviceability and provisioning support, not premium UX.
 ## Honest Limitations
 
 - OTA multipart upload is not implemented (endpoint intentionally returns 501).
-- Live telegram list in UI is still placeholder until runtime cache/API is added.
+- Detected meter identity is best-effort: it uses `manufacturer_id` + `device_id`
+  when present in the observed frame layout, otherwise a stable signature prefix.
 - RF correctness/throughput remains hardware-dependent and must be validated on board.
