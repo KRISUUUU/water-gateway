@@ -7,6 +7,11 @@
     let cacheWatchlist = [];
     let refreshTimer = null;
     let bootstrapInfo = null;
+    const STARTUP_STATE = {
+        FIRST_BOOT_PROVISIONING: "first_boot_provisioning",
+        NORMAL_UNAUTHENTICATED: "normal_unauthenticated",
+        NORMAL_AUTHENTICATED: "normal_authenticated",
+    };
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -64,6 +69,10 @@
 
     function toBool(value) {
         return !!value;
+    }
+
+    function isFirstBootProvisioning() {
+        return !!(bootstrapInfo && bootstrapInfo.provisioning && !bootstrapInfo.password_set);
     }
 
     function badgeClassByState(value) {
@@ -149,7 +158,7 @@
         localStorage.removeItem("wg_token");
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
-        if (bootstrapInfo && bootstrapInfo.provisioning && !bootstrapInfo.password_set) {
+        if (isFirstBootProvisioning()) {
             showSetupScreen();
         } else {
             showSignInScreen();
@@ -157,6 +166,7 @@
     }
 
     function showSignInScreen() {
+        $("#auth-startup-msg").hidden = true;
         $("#login-form").hidden = false;
         $("#setup-form").hidden = true;
         if (bootstrapInfo && bootstrapInfo.provisioning) {
@@ -168,10 +178,19 @@
     }
 
     function showSetupScreen() {
+        $("#auth-startup-msg").hidden = true;
         $("#login-form").hidden = true;
         $("#setup-form").hidden = false;
         $("#login-subtitle").textContent =
             "Initial setup required. Configure Wi-Fi and admin password.";
+    }
+
+    function forceFirstBootSetup() {
+        token = "";
+        localStorage.removeItem("wg_token");
+        $("#app-shell").hidden = true;
+        $("#login-page").hidden = false;
+        showSetupScreen();
     }
 
     function showApp() {
@@ -258,13 +277,41 @@
                     mode: data.mode || "unknown",
                     provisioning: toBool(data.provisioning),
                     password_set: toBool(data.password_set),
+                    bootstrap_failed: false,
                 };
                 return bootstrapInfo;
             })
             .catch(() => {
-                bootstrapInfo = { mode: "unknown", provisioning: false, password_set: true };
+                bootstrapInfo = {
+                    mode: "unknown",
+                    provisioning: false,
+                    password_set: true,
+                    bootstrap_failed: true,
+                };
                 return bootstrapInfo;
             });
+    }
+
+    function checkFirstBootByLiveConfig(status) {
+        if (!status || String(status.mode || "").toLowerCase() !== "provisioning") {
+            return Promise.resolve(false);
+        }
+        return api("GET", "/api/config")
+            .then((cfg) => {
+                const auth = cfg && cfg.auth ? cfg.auth : {};
+                const passwordSet = !!auth.password_set;
+                if (!passwordSet) {
+                    bootstrapInfo = {
+                        mode: "provisioning",
+                        provisioning: true,
+                        password_set: false,
+                        bootstrap_failed: false,
+                    };
+                    return true;
+                }
+                return false;
+            })
+            .catch(() => false);
     }
 
     function runInitialSetup() {
@@ -809,6 +856,15 @@
 
         $("#login-form").addEventListener("submit", (e) => {
             e.preventDefault();
+            if (isFirstBootProvisioning()) {
+                setMsg(
+                    $("#setup-msg"),
+                    "warning",
+                    "First boot requires Initial Setup. Configure Wi-Fi and admin password below."
+                );
+                showSetupScreen();
+                return;
+            }
             const pwd = $("#login-pwd").value;
             fetch("/api/auth/login", {
                 method: "POST",
@@ -1053,22 +1109,41 @@
 
     bindEvents();
     applySetupMqttEnabled(false);
+    $("#app-shell").hidden = true;
+    $("#login-page").hidden = false;
+    $("#auth-startup-msg").hidden = false;
+    $("#login-form").hidden = true;
+    $("#setup-form").hidden = true;
 
     bootstrap().then((boot) => {
-        if (token) {
-            api("GET", "/api/status")
-                .then((status) => {
-                    cacheStatus = status;
-                    applyModeUi(status.mode);
-                    showApp();
-                })
-                .catch(() => showLogin());
+        let startupState = STARTUP_STATE.NORMAL_UNAUTHENTICATED;
+        if (boot.provisioning && !boot.password_set) {
+            startupState = STARTUP_STATE.FIRST_BOOT_PROVISIONING;
+        } else if (token) {
+            startupState = STARTUP_STATE.NORMAL_AUTHENTICATED;
+        }
+
+        if (startupState === STARTUP_STATE.FIRST_BOOT_PROVISIONING) {
+            forceFirstBootSetup();
             return;
         }
-        if (boot.provisioning && !boot.password_set) {
+
+        if (startupState === STARTUP_STATE.NORMAL_UNAUTHENTICATED) {
             showLogin();
             return;
         }
-        showLogin();
+
+        api("GET", "/api/status")
+            .then((status) => checkFirstBootByLiveConfig(status).then((firstBoot) => ({ status, firstBoot })))
+            .then((result) => {
+                if (result.firstBoot) {
+                    forceFirstBootSetup();
+                    return;
+                }
+                cacheStatus = result.status;
+                applyModeUi(result.status.mode);
+                showApp();
+            })
+            .catch(() => showLogin());
     });
 })();

@@ -11,7 +11,8 @@
     <div class="auth-card">
         <h1>WMBus Gateway</h1>
         <p id="login-subtitle" class="muted">Sign in to manage your device.</p>
-        <form id="login-form">
+        <p id="auth-startup-msg" class="hint">Checking device state...</p>
+        <form id="login-form" hidden>
             <label for="login-pwd">Admin Password</label>
             <input type="password" id="login-pwd" required autocomplete="current-password">
             <button type="submit" class="btn btn-primary btn-full">Sign In</button>
