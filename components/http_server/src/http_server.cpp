@@ -191,7 +191,7 @@ common::Result<void> HttpServer::start(uint16_t port) {
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = port;
-    cfg.max_uri_handlers = 20;
+    cfg.max_uri_handlers = 32;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
 
