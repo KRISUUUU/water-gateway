@@ -20,6 +20,10 @@ common::Result<void> WatchdogService::initialize() {
     }
 
 #ifndef HOST_TEST_BUILD
+#if defined(CONFIG_ESP_TASK_WDT_INIT) && CONFIG_ESP_TASK_WDT_INIT
+    // TWDT is initialized by ESP-IDF startup configuration.
+    twdt_configured_ = true;
+#else
     esp_task_wdt_config_t cfg = {
         .timeout_ms = 5000,
         .idle_core_mask = 0,
@@ -30,6 +34,7 @@ common::Result<void> WatchdogService::initialize() {
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
     twdt_configured_ = true;
+#endif
 #endif
 
     initialized_ = true;
@@ -69,6 +74,16 @@ common::Result<void> WatchdogService::feed() {
 
 #ifndef HOST_TEST_BUILD
     esp_err_t err = esp_task_wdt_reset();
+    if (err == ESP_ERR_NOT_FOUND) {
+        // Register current task lazily when feed is called before explicit registration.
+        TaskHandle_t h = xTaskGetCurrentTaskHandle();
+        esp_err_t add_err = esp_task_wdt_add(h);
+        if (add_err == ESP_OK || add_err == ESP_ERR_INVALID_ARG) {
+            err = esp_task_wdt_reset();
+        } else {
+            return common::Result<void>::error(common::ErrorCode::Unknown);
+        }
+    }
     if (err != ESP_OK) {
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }

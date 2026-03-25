@@ -136,6 +136,7 @@ static void mqtt_task(void* /*param*/) {
 }
 
 static void health_task(void* /*param*/) {
+    watchdog_service::WatchdogService::instance().register_task();
     while (true) {
         watchdog_service::WatchdogService::instance().feed();
 

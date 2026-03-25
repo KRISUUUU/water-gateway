@@ -75,6 +75,13 @@
         return !!(bootstrapInfo && bootstrapInfo.provisioning && !bootstrapInfo.password_set);
     }
 
+    function setHiddenIfPresent(sel, hidden) {
+        const el = $(sel);
+        if (el) {
+            el.hidden = hidden;
+        }
+    }
+
     function badgeClassByState(value) {
         const v = String(value || "").toLowerCase();
         if (v.includes("ok") || v.includes("connected") || v.includes("healthy") || v === "up") {
@@ -166,9 +173,9 @@
     }
 
     function showSignInScreen() {
-        $("#auth-startup-msg").hidden = true;
-        $("#login-form").hidden = false;
-        $("#setup-form").hidden = true;
+        setHiddenIfPresent("#auth-startup-msg", true);
+        setHiddenIfPresent("#login-form", false);
+        setHiddenIfPresent("#setup-form", true);
         if (bootstrapInfo && bootstrapInfo.provisioning) {
             $("#login-subtitle").textContent =
                 "Provisioning mode detected. Sign in with the configured admin password.";
@@ -178,9 +185,9 @@
     }
 
     function showSetupScreen() {
-        $("#auth-startup-msg").hidden = true;
-        $("#login-form").hidden = true;
-        $("#setup-form").hidden = false;
+        setHiddenIfPresent("#auth-startup-msg", true);
+        setHiddenIfPresent("#login-form", true);
+        setHiddenIfPresent("#setup-form", false);
         $("#login-subtitle").textContent =
             "Initial setup required. Configure Wi-Fi and admin password.";
     }
@@ -249,7 +256,7 @@
         const subtitle = $("#login-subtitle");
         if (String(mode).toLowerCase() === "provisioning") {
             subtitle.textContent =
-                "Provisioning mode detected. Sign in and open Settings to complete first-time setup.";
+                "Provisioning mode detected. Use Initial Setup on first boot, or sign in if already configured.";
         } else {
             subtitle.textContent = "Sign in to manage your device.";
         }
@@ -1130,9 +1137,9 @@
     applySetupMqttEnabled(false);
     $("#app-shell").hidden = true;
     $("#login-page").hidden = false;
-    $("#auth-startup-msg").hidden = false;
-    $("#login-form").hidden = true;
-    $("#setup-form").hidden = true;
+    setHiddenIfPresent("#auth-startup-msg", false);
+    setHiddenIfPresent("#login-form", true);
+    setHiddenIfPresent("#setup-form", true);
 
     bootstrap().then((boot) => {
         let startupState = STARTUP_STATE.NORMAL_UNAUTHENTICATED;
@@ -1149,9 +1156,12 @@
 
         if (startupState === STARTUP_STATE.NORMAL_UNAUTHENTICATED) {
             if (boot.bootstrap_failed) {
-                $("#auth-startup-msg").hidden = false;
-                $("#auth-startup-msg").textContent =
-                    "Unable to read bootstrap state. Showing sign in fallback.";
+                const startupMsg = $("#auth-startup-msg");
+                if (startupMsg) {
+                    startupMsg.hidden = false;
+                    startupMsg.textContent =
+                        "Unable to read bootstrap state. Showing sign in fallback.";
+                }
             }
             showLogin();
             return;

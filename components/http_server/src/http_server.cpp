@@ -109,7 +109,9 @@ static esp_err_t static_spiffs_handler(httpd_req_t* req) {
     }
 
     httpd_resp_set_type(req, content_type_for_path(fs_path));
-    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=3600");
+    // Avoid stale web assets after firmware updates; onboarding/login flow depends on
+    // synchronized index.html + app.js versions.
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
 
     if (sz == 0) {
         std::fclose(f);
