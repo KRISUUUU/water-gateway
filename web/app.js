@@ -265,7 +265,20 @@
     }
 
     function bootstrap() {
-        return fetch("/api/bootstrap")
+        const timeoutMs = 5000;
+        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        let timeoutId = null;
+        if (controller) {
+            timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        }
+        const fetchOpts = {
+            cache: "no-store",
+        };
+        if (controller) {
+            fetchOpts.signal = controller.signal;
+        }
+
+        return fetch("/api/bootstrap", fetchOpts)
             .then((r) => {
                 if (!r.ok) {
                     throw new Error("bootstrap_failed");
@@ -273,6 +286,9 @@
                 return r.json();
             })
             .then((data) => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
                 bootstrapInfo = {
                     mode: data.mode || "unknown",
                     provisioning: toBool(data.provisioning),
@@ -282,6 +298,9 @@
                 return bootstrapInfo;
             })
             .catch(() => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
                 bootstrapInfo = {
                     mode: "unknown",
                     provisioning: false,
@@ -339,10 +358,34 @@
 
         setMsg(msg, "warning", "Saving initial setup...");
 
-        return fetch("/api/auth/login", {
+        const payload = {
+            device: {
+                name: $("#setup-device-name").value.trim(),
+                hostname: $("#setup-hostname").value.trim(),
+            },
+            wifi: {
+                ssid: ssid,
+                password: wifiPassword,
+            },
+            auth: {
+                admin_password: adminPassword,
+            },
+            mqtt: {
+                enabled: mqttEnabled,
+                host: mqttHost,
+                username: $("#setup-mqtt-user").value.trim(),
+                password: $("#setup-mqtt-password").value,
+            },
+        };
+        const portValue = Number($("#setup-mqtt-port").value);
+        if (!Number.isNaN(portValue) && portValue > 0) {
+            payload.mqtt.port = portValue;
+        }
+
+        return fetch("/api/bootstrap/setup", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: adminPassword }),
+            body: JSON.stringify(payload),
         })
             .then((r) =>
                 r.text().then((txt) => {
@@ -352,43 +395,19 @@
                     } catch (_) {
                         data = {};
                     }
-                    if (!r.ok || !data.token) {
-                        throw new Error(data.error || "setup_login_failed");
+                    if (!r.ok) {
+                        const issues = Array.isArray(data.issues)
+                            ? data.issues.map((i) => i.field + ": " + i.message).join("; ")
+                            : "";
+                        const suffix = issues ? " (" + issues + ")" : "";
+                        throw new Error((data.error || "setup_save_failed") + suffix);
                     }
                     return data;
                 })
             )
-            .then((loginData) => {
-                token = loginData.token;
-                localStorage.setItem("wg_token", token);
-                return api("GET", "/api/config");
-            })
-            .then((cfg) => {
-                cfg.device = cfg.device || {};
-                cfg.wifi = cfg.wifi || {};
-                cfg.auth = cfg.auth || {};
-                cfg.mqtt = cfg.mqtt || {};
-
-                cfg.device.name = $("#setup-device-name").value.trim() || cfg.device.name || "";
-                cfg.device.hostname = $("#setup-hostname").value.trim() || cfg.device.hostname || "";
-                cfg.wifi.ssid = ssid;
-                cfg.wifi.password = wifiPassword;
-                cfg.auth.admin_password = adminPassword;
-
-                cfg.mqtt.enabled = mqttEnabled;
-                if (mqttEnabled) {
-                    cfg.mqtt.host = mqttHost;
-                    const portValue = Number($("#setup-mqtt-port").value);
-                    if (!Number.isNaN(portValue) && portValue > 0) {
-                        cfg.mqtt.port = portValue;
-                    }
-                    cfg.mqtt.username = $("#setup-mqtt-user").value.trim();
-                    cfg.mqtt.password = $("#setup-mqtt-password").value;
-                }
-
-                return api("POST", "/api/config", cfg);
-            })
             .then(() => {
+                token = "";
+                localStorage.removeItem("wg_token");
                 setMsg(
                     msg,
                     "success",
@@ -1129,6 +1148,11 @@
         }
 
         if (startupState === STARTUP_STATE.NORMAL_UNAUTHENTICATED) {
+            if (boot.bootstrap_failed) {
+                $("#auth-startup-msg").hidden = false;
+                $("#auth-startup-msg").textContent =
+                    "Unable to read bootstrap state. Showing sign in fallback.";
+            }
             showLogin();
             return;
         }

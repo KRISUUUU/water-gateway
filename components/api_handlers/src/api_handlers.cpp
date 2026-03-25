@@ -39,6 +39,8 @@ static const char* TAG = "api_handlers";
 namespace {
 
 esp_err_t send_json(httpd_req_t* req, int status_code, const char* body);
+bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len);
+void apply_config_json(const cJSON* root, config_store::AppConfig& cfg);
 
 using JsonPtr = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
 using JsonStringPtr = std::unique_ptr<char, decltype(&cJSON_free)>;
@@ -165,6 +167,82 @@ esp_err_t handle_bootstrap(httpd_req_t* req) {
     cJSON_AddBoolToObject(root.get(), "provisioning", provisioning);
     cJSON_AddBoolToObject(root.get(), "password_set", password_set);
     return send_json_root(req, 200, root);
+}
+
+esp_err_t handle_bootstrap_setup(httpd_req_t* req) {
+    const auto current_cfg = config_store::ConfigStore::instance().config();
+    const bool provisioning = !current_cfg.wifi.is_configured();
+    const bool password_set = current_cfg.auth.has_password();
+    if (!provisioning || password_set) {
+        return send_json(
+            req, 409,
+            "{\"error\":\"bootstrap_setup_not_allowed\",\"detail\":\"already_configured\"}");
+    }
+
+    std::string body;
+    if (!read_request_body(req, body, 16384)) {
+        return send_json(req, 413, "{\"error\":\"body_too_large\"}");
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    if (!root) {
+        return send_json(req, 400, "{\"error\":\"invalid_json\"}");
+    }
+
+    config_store::AppConfig cfg = current_cfg;
+    apply_config_json(root, cfg);
+    cJSON_Delete(root);
+
+    if (!cfg.wifi.is_configured()) {
+        return send_json(req, 400, "{\"error\":\"wifi_not_configured\"}");
+    }
+    if (!cfg.auth.has_password()) {
+        return send_json(req, 400, "{\"error\":\"admin_password_required\"}");
+    }
+
+    auto save_result = config_store::ConfigStore::instance().save(cfg);
+    if (save_result.is_error()) {
+        return send_json(req, 500, "{\"error\":\"save_failed\"}");
+    }
+    if (!save_result.value().valid) {
+        JsonPtr err_root = make_json_object();
+        if (!err_root) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
+        cJSON_AddBoolToObject(err_root.get(), "ok", false);
+        cJSON* issues = cJSON_AddArrayToObject(err_root.get(), "issues");
+        if (!issues) {
+            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        }
+        for (const auto& issue : save_result.value().issues) {
+            cJSON* it = cJSON_CreateObject();
+            if (!it) {
+                return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+            }
+            cJSON_AddStringToObject(it, "field", issue.field.c_str());
+            cJSON_AddStringToObject(it, "message", issue.message.c_str());
+            cJSON_AddStringToObject(
+                it, "severity",
+                issue.severity == config_store::ValidationSeverity::Error ? "error" : "warning");
+            cJSON_AddItemToArray(issues, it);
+        }
+        return send_json_root(req, 400, err_root);
+    }
+
+    auto& prov = provisioning_manager::ProvisioningManager::instance();
+    bool provisioning_completed = false;
+    if (prov.is_active()) {
+        auto complete_result = prov.complete();
+        provisioning_completed = complete_result.is_ok();
+    }
+
+    JsonPtr ok = make_json_object();
+    if (!ok) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+    cJSON_AddBoolToObject(ok.get(), "ok", true);
+    cJSON_AddBoolToObject(ok.get(), "reboot_required", true);
+    cJSON_AddBoolToObject(ok.get(), "provisioning_completed", provisioning_completed);
+    return send_json_root(req, 200, ok);
 }
 
 bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len) {
@@ -1192,6 +1270,7 @@ void register_all_handlers(void* server) {
     return
 
     REG(HTTP_GET, "/api/bootstrap", handle_bootstrap);
+    REG(HTTP_POST, "/api/bootstrap/setup", handle_bootstrap_setup);
     REG(HTTP_POST, "/api/auth/login", handle_auth_login);
     REG(HTTP_POST, "/api/auth/logout", handle_auth_logout);
     REG(HTTP_POST, "/api/auth/password", handle_auth_password);
