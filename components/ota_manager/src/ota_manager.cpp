@@ -1,13 +1,13 @@
 #include "ota_manager/ota_manager.hpp"
 #include "event_bus/event_bus.hpp"
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 
 #ifndef HOST_TEST_BUILD
-#include "esp_ota_ops.h"
+#include "esp_app_format.h"
 #include "esp_https_ota.h"
 #include "esp_log.h"
-#include "esp_app_format.h"
+#include "esp_ota_ops.h"
 static const char* TAG = "ota_mgr";
 #endif
 
@@ -32,8 +32,7 @@ common::Result<void> OtaManager::initialize() {
                      sizeof(status_.current_version) - 1);
     }
 #else
-    std::strncpy(status_.current_version, "0.1.0",
-                 sizeof(status_.current_version) - 1);
+    std::strncpy(status_.current_version, "0.1.0", sizeof(status_.current_version) - 1);
 #endif
 
     initialized_ = true;
@@ -49,6 +48,7 @@ common::Result<void> OtaManager::begin_upload(size_t image_size) {
     }
 
 #ifndef HOST_TEST_BUILD
+    reset_upload_state(true);
     const esp_partition_t* partition = esp_ota_get_next_update_partition(nullptr);
     if (!partition) {
         set_status(OtaState::Failed, "No OTA partition available");
@@ -73,8 +73,9 @@ common::Result<void> OtaManager::begin_upload(size_t image_size) {
     bytes_written_ = 0;
     image_size_ = image_size;
 
-    ESP_LOGI(TAG, "OTA upload started, partition: %s, size: %zu",
-             partition->label, image_size);
+    ESP_LOGI(TAG, "OTA upload started, partition: %s, size: %zu", partition->label, image_size);
+#else
+    (void)image_size;
 #endif
 
     set_status(OtaState::InProgress, "Upload in progress");
@@ -82,9 +83,11 @@ common::Result<void> OtaManager::begin_upload(size_t image_size) {
     return common::Result<void>::ok();
 }
 
-common::Result<void> OtaManager::write_chunk(const uint8_t* data,
-                                              size_t length) {
+common::Result<void> OtaManager::write_chunk(const uint8_t* data, size_t length) {
     if (status_.state != OtaState::InProgress) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+    if (!data || length == 0) {
         return common::Result<void>::error(common::ErrorCode::InvalidArgument);
     }
 
@@ -95,13 +98,13 @@ common::Result<void> OtaManager::write_chunk(const uint8_t* data,
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_write failed: %d", err);
         set_status(OtaState::Failed, "Write failed");
+        reset_upload_state(true);
         return common::Result<void>::error(common::ErrorCode::OtaWriteFailed);
     }
 
     bytes_written_ += length;
     if (image_size_ > 0) {
-        status_.progress_pct =
-            static_cast<uint8_t>((bytes_written_ * 100) / image_size_);
+        status_.progress_pct = static_cast<uint8_t>((bytes_written_ * 100) / image_size_);
     }
 #else
     (void)data;
@@ -126,27 +129,27 @@ common::Result<void> OtaManager::finalize_upload() {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_end failed (validation): %d", err);
         set_status(OtaState::Failed, "Image validation failed");
-        return common::Result<void>::error(
-            common::ErrorCode::OtaValidationFailed);
+        reset_upload_state(true);
+        return common::Result<void>::error(common::ErrorCode::OtaValidationFailed);
     }
 
-    const esp_partition_t* partition =
-        static_cast<const esp_partition_t*>(update_partition_);
+    const esp_partition_t* partition = static_cast<const esp_partition_t*>(update_partition_);
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %d", err);
         set_status(OtaState::Failed, "Failed to set boot partition");
+        reset_upload_state(true);
         return common::Result<void>::error(common::ErrorCode::OtaCommitFailed);
     }
 
     ESP_LOGI(TAG, "OTA upload finalized, reboot to activate");
+    reset_upload_state(false);
 #endif
 
     set_status(OtaState::Rebooting, "OTA complete, reboot to activate");
     status_.progress_pct = 100;
 
-    event_bus::EventBus::instance().publish(
-        event_bus::EventType::OtaCompleted, 0);
+    event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
 
     return common::Result<void>::ok();
 }
@@ -179,8 +182,7 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTPS OTA failed: %d", err);
         set_status(OtaState::Failed, "URL OTA download failed");
-        event_bus::EventBus::instance().publish(
-            event_bus::EventType::OtaCompleted, -1);
+        event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, -1);
         return common::Result<void>::error(common::ErrorCode::OtaWriteFailed);
     }
 
@@ -190,8 +192,7 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
     set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate");
     status_.progress_pct = 100;
 
-    event_bus::EventBus::instance().publish(
-        event_bus::EventType::OtaCompleted, 0);
+    event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
 
     return common::Result<void>::ok();
 }
@@ -212,8 +213,7 @@ OtaStatus OtaManager::status() const {
     return status_;
 }
 
-void OtaManager::set_status(OtaState state, const char* msg,
-                             uint8_t progress) {
+void OtaManager::set_status(OtaState state, const char* msg, uint8_t progress) {
     status_.state = state;
     status_.progress_pct = progress;
     if (msg) {
@@ -221,5 +221,19 @@ void OtaManager::set_status(OtaState state, const char* msg,
         status_.message[sizeof(status_.message) - 1] = '\0';
     }
 }
+
+#ifndef HOST_TEST_BUILD
+void OtaManager::reset_upload_state(bool abort_active) {
+    if (abort_active && update_handle_ != nullptr) {
+        esp_ota_handle_t handle =
+            static_cast<esp_ota_handle_t>(reinterpret_cast<uintptr_t>(update_handle_));
+        esp_ota_abort(handle);
+    }
+    update_handle_ = nullptr;
+    update_partition_ = nullptr;
+    bytes_written_ = 0;
+    image_size_ = 0;
+}
+#endif
 
 } // namespace ota_manager

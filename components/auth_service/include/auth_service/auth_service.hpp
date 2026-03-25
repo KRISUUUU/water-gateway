@@ -2,13 +2,14 @@
 
 #include "common/result.hpp"
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 namespace auth_service {
 
-static constexpr size_t kTokenLength = 64;     // Hex-encoded 32 bytes
-static constexpr size_t kSaltLength = 32;      // Hex-encoded 16 bytes
-static constexpr size_t kHashLength = 64;      // Hex-encoded SHA-256
+static constexpr size_t kTokenLength = 64; // Hex-encoded 32 bytes
+static constexpr size_t kSaltLength = 32;  // Hex-encoded 16 bytes
+static constexpr size_t kHashLength = 64;  // Hex-encoded SHA-256
 static constexpr size_t kMaxPasswordLength = 64;
 
 struct SessionInfo {
@@ -19,7 +20,7 @@ struct SessionInfo {
 };
 
 class AuthService {
-public:
+  public:
     static AuthService& instance();
 
     common::Result<void> initialize();
@@ -41,9 +42,12 @@ public:
     // Verify a plaintext password against a "salt:hash" stored hash.
     static bool verify_password(const char* password, const char* stored_hash);
 
-    bool has_active_session() const { return session_.valid; }
+    bool has_active_session() const {
+        return session_.valid;
+    }
+    int32_t retry_after_seconds() const;
 
-private:
+  private:
     AuthService() = default;
 
     static void generate_random_hex(char* out, size_t hex_len);
@@ -54,6 +58,7 @@ private:
     uint32_t session_timeout_s_ = 3600;
     uint32_t failed_login_count_ = 0;
     int64_t last_failed_login_s_ = 0;
+    mutable std::mutex mutex_;
 };
 
 } // namespace auth_service

@@ -46,7 +46,7 @@ before flashing.
 7. **API Checks**
    - Login: `POST /api/auth/login`.
    - Query health/config/diagnostics endpoints with bearer token.
-   - Confirm `/api/ota/upload` returns 501 (known not implemented).
+   - Confirm `/api/ota/upload` accepts binary upload and returns `reboot_required`.
    - Confirm `/api/ota/url` rejects non-HTTPS URLs.
 8. **Stability Checks (15-30 min)**
    - No crash/reboot loop.

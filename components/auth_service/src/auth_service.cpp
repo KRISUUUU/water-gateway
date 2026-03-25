@@ -1,7 +1,7 @@
 #include "auth_service/auth_service.hpp"
 #include "config_store/config_store.hpp"
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #ifndef HOST_TEST_BUILD
@@ -17,12 +17,41 @@ static const char* TAG = "auth_svc";
 
 namespace auth_service {
 
+namespace {
+int64_t now_epoch_seconds() {
+#ifndef HOST_TEST_BUILD
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return static_cast<int64_t>(tv.tv_sec);
+#else
+    return static_cast<int64_t>(std::time(nullptr));
+#endif
+}
+
+bool secure_equals(const char* a, const char* b) {
+    if (!a || !b) {
+        return false;
+    }
+    size_t la = std::strlen(a);
+    size_t lb = std::strlen(b);
+    if (la != lb) {
+        return false;
+    }
+    unsigned char diff = 0;
+    for (size_t i = 0; i < la; ++i) {
+        diff |= static_cast<unsigned char>(a[i] ^ b[i]);
+    }
+    return diff == 0;
+}
+} // namespace
+
 AuthService& AuthService::instance() {
     static AuthService svc;
     return svc;
 }
 
 common::Result<void> AuthService::initialize() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
         return common::Result<void>::error(common::ErrorCode::AlreadyInitialized);
     }
@@ -39,28 +68,19 @@ common::Result<void> AuthService::initialize() {
 }
 
 common::Result<SessionInfo> AuthService::login(const char* password) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_) {
-        return common::Result<SessionInfo>::error(
-            common::ErrorCode::NotInitialized);
+        return common::Result<SessionInfo>::error(common::ErrorCode::NotInitialized);
     }
     if (!password || password[0] == '\0') {
-        return common::Result<SessionInfo>::error(
-            common::ErrorCode::InvalidArgument);
+        return common::Result<SessionInfo>::error(common::ErrorCode::InvalidArgument);
     }
 
     // Rate limiting: max 5 failures per 60 seconds
-    int64_t now_s = 0;
-#ifndef HOST_TEST_BUILD
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    now_s = static_cast<int64_t>(tv.tv_sec);
-#else
-    now_s = static_cast<int64_t>(std::time(nullptr));
-#endif
+    const int64_t now_s = now_epoch_seconds();
 
     if (failed_login_count_ >= 5 && (now_s - last_failed_login_s_) < 60) {
-        return common::Result<SessionInfo>::error(
-            common::ErrorCode::AuthRateLimited);
+        return common::Result<SessionInfo>::error(common::ErrorCode::AuthRateLimited);
     }
 
     auto cfg = config_store::ConfigStore::instance().config();
@@ -98,38 +118,46 @@ common::Result<SessionInfo> AuthService::login(const char* password) {
 }
 
 common::Result<void> AuthService::logout() {
+    std::lock_guard<std::mutex> lock(mutex_);
     session_.valid = false;
     std::memset(session_.token, 0, sizeof(session_.token));
     return common::Result<void>::ok();
 }
 
 bool AuthService::validate_session(const char* token) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || !session_.valid || !token) {
         return false;
     }
 
     // Check expiry
-    int64_t now_s = 0;
-#ifndef HOST_TEST_BUILD
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    now_s = static_cast<int64_t>(tv.tv_sec);
-#else
-    now_s = static_cast<int64_t>(std::time(nullptr));
-#endif
+    const int64_t now_s = now_epoch_seconds();
 
     if (now_s > session_.expires_epoch_s) {
         session_.valid = false;
+        std::memset(session_.token, 0, sizeof(session_.token));
         return false;
     }
 
-    return std::strcmp(token, session_.token) == 0;
+    return secure_equals(token, session_.token);
+}
+
+int32_t AuthService::retry_after_seconds() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (failed_login_count_ < 5) {
+        return 0;
+    }
+    const int64_t now_s = now_epoch_seconds();
+    const int64_t delta = now_s - last_failed_login_s_;
+    if (delta >= 60) {
+        return 0;
+    }
+    return static_cast<int32_t>(60 - delta);
 }
 
 common::Result<std::string> AuthService::hash_password(const char* password) {
     if (!password || password[0] == '\0') {
-        return common::Result<std::string>::error(
-            common::ErrorCode::InvalidArgument);
+        return common::Result<std::string>::error(common::ErrorCode::InvalidArgument);
     }
 
     // Generate random salt
@@ -159,16 +187,18 @@ common::Result<std::string> AuthService::hash_password(const char* password) {
     return common::Result<std::string>::ok(std::move(result));
 }
 
-bool AuthService::verify_password(const char* password,
-                                   const char* stored_hash) {
-    if (!password || !stored_hash) return false;
+bool AuthService::verify_password(const char* password, const char* stored_hash) {
+    if (!password || !stored_hash)
+        return false;
 
     // Parse "salt_hex:hash_hex"
     const char* colon = std::strchr(stored_hash, ':');
-    if (!colon) return false;
+    if (!colon)
+        return false;
 
     size_t salt_hex_len = static_cast<size_t>(colon - stored_hash);
-    if (salt_hex_len != kSaltLength) return false;
+    if (salt_hex_len != kSaltLength)
+        return false;
 
     char salt_hex[kSaltLength + 1] = {};
     std::memcpy(salt_hex, stored_hash, salt_hex_len);
@@ -198,7 +228,8 @@ bool AuthService::verify_password(const char* password,
 void AuthService::generate_random_hex(char* out, size_t hex_len) {
     size_t byte_len = hex_len / 2;
     uint8_t bytes[64] = {};
-    if (byte_len > sizeof(bytes)) byte_len = sizeof(bytes);
+    if (byte_len > sizeof(bytes))
+        byte_len = sizeof(bytes);
 
 #ifndef HOST_TEST_BUILD
     esp_fill_random(bytes, byte_len);

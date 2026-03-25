@@ -11,8 +11,7 @@ PersistentLogBuffer& PersistentLogBuffer::instance() {
     return buffer;
 }
 
-common::Result<void> PersistentLogBuffer::append(LogSeverity severity,
-                                                 const char* message) {
+common::Result<void> PersistentLogBuffer::append(LogSeverity severity, const char* message) {
     if (!message) {
         return common::Result<void>::error(common::ErrorCode::InvalidArgument);
     }

@@ -25,6 +25,7 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/meter_registry/include"
     "${COMP_DIR}/mqtt_service/include"
     "${COMP_DIR}/auth_service/include"
+    "${COMP_DIR}/ota_manager/include"
     "${COMP_DIR}/health_monitor/include"
     "${COMP_DIR}/metrics_service/include"
     "${COMP_DIR}/persistent_log_buffer/include"
@@ -95,4 +96,11 @@ add_host_test(test_meter_registry
     "${COMP_DIR}/meter_registry/src/meter_registry.cpp"
     "${COMP_DIR}/storage_service/src/storage_service.cpp"
     "${COMP_DIR}/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp"
+)
+
+# ---- test_ota_manager ----
+add_host_test(test_ota_manager
+    test_ota_manager.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/ota_manager/src/ota_manager.cpp"
 )

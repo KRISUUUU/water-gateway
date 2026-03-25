@@ -22,7 +22,7 @@ It is intended for serviceability and provisioning support, not premium UX.
 - RF Diagnostics: radio/RSM counters from `/api/diagnostics/radio`
 - MQTT Status: MQTT state/counters from `/api/diagnostics/mqtt`
 - Configuration: reads redacted config from `/api/config`, posts updates to `/api/config`
-- OTA: shows OTA status, supports URL OTA trigger; local upload is explicitly unavailable
+- OTA: shows OTA status, supports URL OTA and direct binary upload trigger
 - System: reboot, factory reset, support bundle download
 - Logs: recent buffered logs from `/api/logs`
 
@@ -32,6 +32,7 @@ It is intended for serviceability and provisioning support, not premium UX.
 | ------ | ---- | ---- | ----- |
 | POST | `/api/auth/login` | No | Returns bearer token |
 | POST | `/api/auth/logout` | Yes | Invalidates current session |
+| POST | `/api/auth/password` | Yes | Change admin password (requires current password when already set) |
 | GET | `/api/status` | Yes | Mode + health + metrics + WiFi/MQTT/radio summary |
 | GET | `/api/telegrams` | Yes | Recent telegrams; optional `?filter=watched\|unknown\|duplicates\|crc_fail` |
 | GET | `/api/meters/detected` | Yes | Detected meter model; optional `?filter=watched\|unknown` |
@@ -43,7 +44,7 @@ It is intended for serviceability and provisioning support, not premium UX.
 | GET | `/api/config` | Yes | Redacted config; secrets represented as `***` |
 | POST | `/api/config` | Yes | Save config; response includes `reboot_required` |
 | GET | `/api/ota/status` | Yes | Includes state/progress/message/current_version |
-| POST | `/api/ota/upload` | Yes | Returns `501 not_implemented` |
+| POST | `/api/ota/upload` | Yes | Streamed binary upload (`application/octet-stream`), returns `reboot_required` |
 | POST | `/api/ota/url` | Yes | Requires HTTPS URL |
 | GET | `/api/logs` | Yes | Returns `{ "entries": [...] }` |
 | GET | `/api/support-bundle` | Yes | Returns support bundle JSON |
@@ -69,7 +70,7 @@ It is intended for serviceability and provisioning support, not premium UX.
 
 ## Honest Limitations
 
-- OTA multipart upload is not implemented (endpoint intentionally returns 501).
+- OTA upload endpoint expects raw binary body (not multipart form-data).
 - Detected meter identity is best-effort: it uses `manufacturer_id` + `device_id`
   when present in the observed frame layout, otherwise a stable signature prefix.
 - RF correctness/throughput remains hardware-dependent and must be validated on board.

@@ -33,6 +33,7 @@ but over AP (`WMBus-GW-Setup`) instead of STA.
 - Provisioning is exposed only when WiFi is not configured
 - Normal mode still exposes management APIs behind auth
 - Admin password should be set during first provisioning save (`auth.admin_password`)
+- If auth fields are changed later (`admin_password`, session timeout), API may return `relogin_required`
 - After provisioning completes, the AP is shut down
 
 ## Re-Provisioning

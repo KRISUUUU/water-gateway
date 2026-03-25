@@ -316,6 +316,13 @@
             return api("POST", "/api/config", orig);
         }).then((resp) => {
             if (resp && resp.ok) {
+                if (resp.relogin_required) {
+                    msg.textContent = "Configuration saved. Authentication changed, please log in again.";
+                    msg.className = "warning";
+                    msg.hidden = false;
+                    showLogin();
+                    return;
+                }
                 msg.textContent = resp.reboot_required
                     ? "Configuration saved. Reboot is required to apply runtime changes."
                     : "Configuration saved.";
@@ -426,8 +433,27 @@
     $("#ota-upload-btn").addEventListener("click", () => {
         const file = $("#ota-file").files[0];
         if (!file) return;
-        $("#ota-status").textContent =
-            "Local OTA upload endpoint is not implemented yet. Use HTTPS URL OTA.";
+        $("#ota-status").textContent = "Uploading firmware...";
+        fetch("/api/ota/upload", {
+            method: "POST",
+            headers: {
+                "Authorization": token ? ("Bearer " + token) : "",
+                "Content-Type": "application/octet-stream"
+            },
+            body: file
+        }).then((r) => r.text().then((text) => {
+            let data = {};
+            try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+            if (!r.ok) {
+                throw new Error(data.error || ("http_" + r.status));
+            }
+            return data;
+        })).then((d) => {
+            $("#ota-status").textContent = d.detail || "Upload complete. Reboot to activate.";
+            loadOtaStatus();
+        }).catch((err) => {
+            $("#ota-status").textContent = "Upload failed: " + ((err && err.message) || "unknown");
+        });
     });
 
     $("#ota-url-btn").addEventListener("click", () => {

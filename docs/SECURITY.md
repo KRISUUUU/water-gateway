@@ -32,7 +32,7 @@
 |---------|------------|---------|-------------|
 | Web panel (HTTP) | Port 80, all endpoints | Unauthorized access, CSRF, XSS, brute force | Auth required, session tokens, input validation, no inline JS eval |
 | MQTT client | Outbound connection | Credential theft, message injection | Credentials in NVS (not logged), optional TLS, validate broker cert |
-| OTA upload | `/api/ota/upload` | Malicious firmware, denial of service | Endpoint currently returns `501 not_implemented` |
+| OTA upload | `/api/ota/upload` | Malicious firmware, denial of service | Auth required, binary content-type checks, image-size checks, OTA validation + rollback |
 | OTA URL | `/api/ota/url` | MITM, malicious firmware | HTTPS with cert validation, auth required, image validation |
 | Config import | `/api/config` POST | Malformed config, resource exhaustion | Validation before persistence, size limits |
 | Config export | `/api/config` GET | Credential leakage | Secret fields redacted in response |
@@ -52,6 +52,7 @@
   - Failed login attempts are rate-limited (max 5 per minute)
   - If no admin password hash exists yet, first provisioning login accepts any non-empty password
   - Operator should set `auth.admin_password` immediately and reboot
+  - Password change endpoint requires current password when a password is already set
 
 #### T2: Credential Leakage via Logs/Export/UI
 - **Risk:** High (leaked WiFi/MQTT credentials compromise network)
@@ -132,6 +133,8 @@
 - Validated on every authenticated request by comparing with stored active token
 - Expired tokens are rejected; client must re-login
 - Only one active session at a time
+- Token comparison uses constant-time check to reduce timing side-channel risk
+- Auth state is mutex-protected in firmware to avoid race conditions under concurrent HTTP requests
 
 ## Optional Hardening (Documented, Not Default)
 

@@ -10,7 +10,7 @@ for water meter telegram reception.
 - Publishes raw telegrams and telemetry via MQTT
 - Maintains detected meters inventory and configurable watchlist (alias/note/enabled)
 - Provides a built-in web panel for diagnostics, configuration, and service
-- Supports OTA firmware updates (HTTPS URL with rollback; local upload endpoint exists but is not yet implemented)
+- Supports OTA firmware updates (HTTPS URL and direct binary upload endpoint with rollback support)
 - Stores config in NVS with validation, migration, and import/export
 - Integrates with Home Assistant and external decoders (e.g., wmbusmeters)
 
@@ -74,6 +74,7 @@ ctest --output-on-failure
 | [Operations](docs/OPERATIONS.md) | Operational guidance |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues |
 | [Limitations](docs/LIMITATIONS.md) | Known constraints |
+| [Release Readiness](docs/RELEASE_READINESS.md) | Pre-release and post-hardware checklists |
 
 ## Project Status
 
@@ -86,10 +87,10 @@ Core components are implemented but **not yet validated on real hardware**:
 - Detected meters + watchlist service with API/UI integration
 - Auth service with SHA-256 password hashing
 - HTTP server with auth middleware and REST API
-- OTA manager (URL-based OTA works; multipart upload endpoint is a stub)
+- OTA manager (URL-based OTA and streamed binary upload endpoint)
 - Web panel (static HTML/JS/CSS served from SPIFFS)
 - Diagnostics, metrics, health monitoring, watchdog, support bundle
-- 8 host test suites, CI pipeline
+- 9 host test suites, CI pipeline
 
 **Status:** Pre-hardware-validation. Host tests pass with a prepared host toolchain. Real RF reception, NVS persistence, WiFi/MQTT connectivity, and full ESP-IDF build validation still require local ESP-IDF environment verification and board testing.
 

@@ -23,7 +23,8 @@ tests/host/
 ├── test_auth_helpers.cpp
 ├── test_health_logic.cpp
 ├── test_wmbus_pipeline.cpp
-└── test_meter_registry.cpp
+├── test_meter_registry.cpp
+└── test_ota_manager.cpp
 ```
 
 Host tests include component source files directly and provide minimal stubs
@@ -60,6 +61,7 @@ ctest --output-on-failure
 | `test_health_logic.cpp` | `health_monitor` | State transitions: starting→healthy, healthy→warning, warning→error; counter increments on warnings/errors; recovery back to healthy |
 | `test_wmbus_pipeline.cpp` | `wmbus_minimal_pipeline` | `from_radio_frame` produces correct hex encoding; metadata fields (RSSI, LQI, CRC, length) are preserved; `bytes_to_hex` handles empty and max-length inputs |
 | `test_meter_registry.cpp` | `meter_registry` | Detected meter observation, watchlist upsert/remove, and telegram filtering (`watched`, `duplicates`, `crc_fail`) |
+| `test_ota_manager.cpp` | `ota_manager` | Upload lifecycle in host mode (`begin_upload` → `write_chunk` → `finalize_upload`) and final OTA state/progress |
 
 ### Fixture Data
 
@@ -86,7 +88,7 @@ The following cross-module tests are planned but not yet written:
 | NVS read/write | Requires ESP-IDF NVS partition | Flash to device; save config; reboot; verify config survives |
 | HTTP server and routing | Requires ESP-IDF httpd | Flash to device; run `curl` test script against endpoints |
 | SPIFFS file serving | Requires ESP-IDF VFS + SPIFFS | Run `idf.py build` (verify `build/storage.bin` is generated), flash device, verify `/`, `/index.html`, `/app.js`, `/styles.css` |
-| OTA partition operations | Requires OTA partition layout | Flash to device; upload firmware via web UI; verify new version boots; verify rollback |
+| OTA partition operations | Requires OTA partition layout | Flash to device; test `/api/ota/upload` and `/api/ota/url`; verify new version boots; verify rollback |
 | mDNS advertisement | Requires lwIP mDNS | Flash to device; verify `hostname.local` resolves |
 | SNTP time sync | Requires network and NTP server | Flash to device; verify system time is correct after sync |
 | Watchdog behavior | Requires hardware watchdog timer | Flash to device; intentionally hang a task; verify watchdog triggers reset |

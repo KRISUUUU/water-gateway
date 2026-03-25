@@ -8,7 +8,7 @@
 namespace ota_manager {
 
 class OtaManager {
-public:
+  public:
     static OtaManager& instance();
 
     common::Result<void> initialize();
@@ -27,7 +27,7 @@ public:
 
     OtaStatus status() const;
 
-private:
+  private:
     OtaManager() = default;
 
     void set_status(OtaState state, const char* msg, uint8_t progress = 0);
@@ -36,7 +36,8 @@ private:
     OtaStatus status_{};
 
 #ifndef HOST_TEST_BUILD
-    void* update_handle_ = nullptr; // esp_ota_handle_t
+    void reset_upload_state(bool abort_active = true);
+    void* update_handle_ = nullptr;    // esp_ota_handle_t
     void* update_partition_ = nullptr; // const esp_partition_t*
     size_t bytes_written_ = 0;
     size_t image_size_ = 0;

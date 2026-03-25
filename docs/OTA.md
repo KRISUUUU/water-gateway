@@ -3,7 +3,7 @@
 ## Overview
 
 The firmware currently exposes two OTA API paths:
-1. **Local upload endpoint** — `POST /api/ota/upload` exists but is intentionally not implemented yet (returns HTTP 501)
+1. **Direct binary upload** — `POST /api/ota/upload` accepts streamed firmware binary
 2. **URL OTA** — `POST /api/ota/url` starts OTA from an HTTPS URL
 
 Both methods use ESP-IDF's OTA APIs with rollback support.
@@ -22,15 +22,21 @@ into the newly written partition.
 
 ## Update Flow
 
-### Local Upload (not implemented yet)
+### Direct Binary Upload
 
-The upload endpoint is present for API contract stability, but currently returns:
+Upload flow:
 
-```json
-{"error":"not_implemented","detail":"multipart firmware upload not yet implemented"}
-```
+1. Send firmware as request body to `POST /api/ota/upload`
+2. Use header `Content-Type: application/octet-stream`
+3. Server streams chunks to OTA partition (`begin_upload` → `write_chunk` → `finalize_upload`)
+4. On success, response includes `reboot_required=true`
+5. Device should be rebooted to activate new partition
 
-There is no multipart streaming handler wired into HTTP yet.
+Notes:
+
+- Upload endpoint currently expects raw binary body (not multipart/form-data)
+- Upload is rejected when OTA is already in progress (`409`)
+- Oversized image is rejected (`413`)
 
 ### URL OTA
 
@@ -59,6 +65,7 @@ ESP-IDF provides automatic rollback when `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=
 - OTA is rejected if another OTA is already in progress
 - All OTA endpoints require authentication
 - OTA state (`idle`/`in_progress`/`validating`/`rebooting`/`failed`) is queryable via `GET /api/ota/status`
+- Upload content type must be binary (`application/octet-stream` or `application/x-binary`)
 
 ## OTA Status Reporting
 

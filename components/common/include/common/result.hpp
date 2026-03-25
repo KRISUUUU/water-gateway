@@ -1,8 +1,8 @@
 #pragma once
 
 #include "common/error.hpp"
-#include <utility>
 #include <new>
+#include <utility>
 
 namespace common {
 
@@ -16,9 +16,8 @@ namespace common {
 //   if (ok_result.is_ok()) { int val = ok_result.value(); }
 //   if (err_result.is_error()) { ErrorCode ec = err_result.error(); }
 
-template <typename T>
-class Result {
-public:
+template <typename T> class Result {
+  public:
     static Result ok(const T& value) {
         Result r;
         r.ok_ = true;
@@ -42,14 +41,13 @@ public:
 
     Result(const Result& other) : ok_(other.ok_), error_code_(other.error_code_) {
         if (ok_) {
-            new (&storage_) T(*reinterpret_cast<const T*>(&other.storage_));
+            new (ptr()) T(*other.ptr());
         }
     }
 
-    Result(Result&& other) noexcept
-        : ok_(other.ok_), error_code_(other.error_code_) {
+    Result(Result&& other) noexcept : ok_(other.ok_), error_code_(other.error_code_) {
         if (ok_) {
-            new (&storage_) T(std::move(*reinterpret_cast<T*>(&other.storage_)));
+            new (ptr()) T(std::move(*other.ptr()));
         }
     }
 
@@ -59,7 +57,7 @@ public:
             ok_ = other.ok_;
             error_code_ = other.error_code_;
             if (ok_) {
-                new (&storage_) T(*reinterpret_cast<const T*>(&other.storage_));
+                new (ptr()) T(*other.ptr());
             }
         }
         return *this;
@@ -71,47 +69,64 @@ public:
             ok_ = other.ok_;
             error_code_ = other.error_code_;
             if (ok_) {
-                new (&storage_)
-                    T(std::move(*reinterpret_cast<T*>(&other.storage_)));
+                new (ptr()) T(std::move(*other.ptr()));
             }
         }
         return *this;
     }
 
-    ~Result() { destroy(); }
+    ~Result() {
+        destroy();
+    }
 
-    bool is_ok() const { return ok_; }
-    bool is_error() const { return !ok_; }
+    bool is_ok() const {
+        return ok_;
+    }
+    bool is_error() const {
+        return !ok_;
+    }
 
-    const T& value() const { return *reinterpret_cast<const T*>(&storage_); }
-    T& value() { return *reinterpret_cast<T*>(&storage_); }
+    const T& value() const {
+        return *ptr();
+    }
+    T& value() {
+        return *ptr();
+    }
 
-    ErrorCode error() const { return error_code_; }
+    ErrorCode error() const {
+        return error_code_;
+    }
 
     // Returns value if ok, otherwise returns the provided default
     T value_or(const T& default_value) const {
         return ok_ ? value() : default_value;
     }
 
-private:
+  private:
     Result() : ok_(false), error_code_(ErrorCode::Unknown) {}
 
     void destroy() {
         if (ok_) {
-            reinterpret_cast<T*>(&storage_)->~T();
+            ptr()->~T();
         }
+    }
+
+    T* ptr() {
+        return std::launder(reinterpret_cast<T*>(storage_));
+    }
+    const T* ptr() const {
+        return std::launder(reinterpret_cast<const T*>(storage_));
     }
 
     bool ok_;
     ErrorCode error_code_;
-    typename std::aligned_storage<sizeof(T), alignof(T)>::type storage_;
+    alignas(T) unsigned char storage_[sizeof(T)];
 };
 
 // Specialization for void — used when an operation can succeed or fail
 // but produces no value on success.
-template <>
-class Result<void> {
-public:
+template <> class Result<void> {
+  public:
     static Result ok() {
         Result r;
         r.ok_ = true;
@@ -125,11 +140,17 @@ public:
         return r;
     }
 
-    bool is_ok() const { return ok_; }
-    bool is_error() const { return !ok_; }
-    ErrorCode error() const { return error_code_; }
+    bool is_ok() const {
+        return ok_;
+    }
+    bool is_error() const {
+        return !ok_;
+    }
+    ErrorCode error() const {
+        return error_code_;
+    }
 
-private:
+  private:
     Result() : ok_(false), error_code_(ErrorCode::Unknown) {}
 
     bool ok_;

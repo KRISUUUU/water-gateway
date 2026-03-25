@@ -79,7 +79,19 @@ If needed, rebuild and flash full image (`idf.py build && idf.py -p <PORT> flash
 2. **Wrong image** — Must be built for this specific ESP32 partition layout
 3. **Download interrupted** — URL OTA failed mid-download; retry
 4. **Rollback occurred** — New firmware failed health check; device reverted
-5. **Local upload attempted** — Multipart upload endpoint is not implemented (expected `501`)
+5. **Wrong upload content type** — `/api/ota/upload` expects binary body (`application/octet-stream`)
+6. **OTA already running** — Endpoint returns conflict (`409`)
+
+## Login Rate Limited
+
+**Symptoms:** `POST /api/auth/login` returns `429 rate_limited`.
+
+**Possible Causes:**
+
+1. Too many failed logins in a short window (5 failures / 60 seconds).
+2. Automation retry loop with wrong credentials.
+
+Use `retry_after_s` from API response before next attempt.
 
 ## High Memory Usage
 

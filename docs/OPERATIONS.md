@@ -50,18 +50,18 @@ Access `http://{hostname}.local/` for a visual overview.
 ### Updating Firmware
 
 1. Open web panel → OTA page
-2. Enter HTTPS URL and start URL OTA (`/api/ota/url`)
-3. Wait for reboot; device auto-verifies new firmware
-4. If verification fails, device rolls back to previous firmware
-
-Note: local multipart upload endpoint exists but is not implemented yet (`501`).
+2. Either upload local `.bin` (`/api/ota/upload`) or start HTTPS URL OTA (`/api/ota/url`)
+3. Wait for OTA completion status (`reboot_required=true`)
+4. Reboot device to activate new partition
+5. If verification fails after reboot, bootloader rolls back to previous firmware
 
 ### Changing Configuration
 
 1. Open web panel → Configuration page
 2. Modify fields, click Save
 3. Save response indicates reboot requirement
-4. Reboot from System page for predictable application of runtime changes
+4. If response indicates `relogin_required`, log in again before continuing
+5. Reboot from System page for predictable application of runtime changes
 
 ### Exporting Configuration
 
