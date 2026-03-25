@@ -11,6 +11,7 @@ idf_component_register(
         metrics_service
         health_monitor
         ota_manager
+        provisioning_manager
         radio_state_machine
         persistent_log_buffer
         support_bundle_service

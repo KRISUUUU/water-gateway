@@ -83,7 +83,7 @@ The following cross-module tests are planned but not yet written:
 | WiFi connection lifecycle | Requires ESP-IDF WiFi stack | Flash to device; verify connection to AP; verify reconnect after AP restart |
 | NVS read/write | Requires ESP-IDF NVS partition | Flash to device; save config; reboot; verify config survives |
 | HTTP server and routing | Requires ESP-IDF httpd | Flash to device; run `curl` test script against endpoints |
-| SPIFFS file serving | Requires ESP-IDF VFS + SPIFFS | Flash with web assets; verify pages load in browser |
+| SPIFFS file serving | Requires ESP-IDF VFS + SPIFFS | Run `idf.py build` (verify `build/storage.bin` is generated), flash device, verify `/`, `/index.html`, `/app.js`, `/styles.css` |
 | OTA partition operations | Requires OTA partition layout | Flash to device; upload firmware via web UI; verify new version boots; verify rollback |
 | mDNS advertisement | Requires lwIP mDNS | Flash to device; verify `hostname.local` resolves |
 | SNTP time sync | Requires network and NTP server | Flash to device; verify system time is correct after sync |

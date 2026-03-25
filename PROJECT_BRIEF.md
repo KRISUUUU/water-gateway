@@ -3,72 +3,68 @@
 ## Goal
 Build a production-minded ESP-IDF firmware for ESP32 + CC1101 as a Wireless M-Bus 868 MHz receiver/gateway for water meter style telegrams.
 
-## Current Project Phase
-This repository is no longer an empty scaffold.
-It is now in a **stabilization and pre-hardware-validation** phase.
+## Current Phase
+The project is now in a combined Phase B + C:
 
-That means the current priorities are:
-- make the repository buildable
-- make API/contracts internally consistent
-- reduce architecture drift
-- improve safety and correctness
-- align tests and CI with reality
-- prepare for first real hardware bring-up
+### Phase B — Working Technical Product
+The firmware should become a coherent technical gateway product:
+- first boot provisioning works
+- config persistence works
+- normal mode startup works
+- Wi-Fi/MQTT/HTTP/auth flows are coherent
+- diagnostics and OTA status are meaningful
+- build/test/docs stay aligned
+
+### Phase C — Usable Service/Web Product
+The firmware should become usable through its built-in web panel:
+- static web assets load correctly
+- provisioning page works
+- dashboard/status page works
+- configuration page works
+- diagnostics page works
+- logs page works
+- OTA page works
+- the UX is simple, honest, and service-oriented
 
 ## Architecture
 Variant B:
-- ESP32 + CC1101 receives radio frames and publishes raw telegrams + metadata + telemetry.
+- ESP32 + CC1101 receives raw radio frames and publishes raw telegrams + metadata + telemetry.
 - Heavy meter-specific decoding remains external by default.
 - Firmware focuses on RF reception, transport, diagnostics, OTA, configuration, and serviceability.
 
-## Core Features (Target)
-- Wireless M-Bus raw frame reception
-- RF metadata collection
-- MQTT publishing
-- built-in web panel
-- OTA upload + HTTPS OTA + rollback
-- first-boot provisioning
-- auth-protected service UI
-- diagnostics and metrics
-- support bundle export
-- clean integration with HA / MQTT / external decoders
-
 ## Current Reality
-Parts of the repository are already implemented, but not all parts are fully verified.
-The codebase should currently be treated as:
-- promising
-- partially integrated
-- requiring build verification
-- requiring hardware validation
-- requiring architecture cleanup in some areas
+The repository:
+- builds successfully
+- boots successfully on ESP32
+- provisioning AP starts
+- base HTTP server works
+- hardware RF validation is still incomplete
+- product/service usability is not yet fully complete
 
 ## Non-goals Right Now
-At this stage, do NOT prioritize:
-- new product UX features
-- “detected meters” UX
-- watchlist UX
-- Home Assistant polish
-- large web UI expansion
-- feature growth for its own sake
+Do NOT prioritize yet:
+- detected meters UI
+- watchlist UI
+- advanced Home Assistant integration polish
+- full premium UX
+- large feature expansion
 
-Those can come later, after stabilization and hardware bring-up.
-
-## Quality Expectations
-- modular design
-- clear contracts
-- strong reliability thinking
-- secure defaults
-- testable non-hardware logic
-- honest docs
-- maintainability over years
-
-## Success for This Phase
-The current phase is successful when:
-- host tests pass
-- ESP-IDF build passes
-- major API mismatches are gone
-- `app_core` is cleaner
+## Success Criteria For This Phase
+This phase is successful when:
+- provisioning works end-to-end
+- normal mode works end-to-end
+- web assets are served correctly
+- web panel is usable and honest
+- diagnostics are meaningful
+- config/auth/OTA flows are coherent
 - docs match implementation
-- OTA/auth/config flows are honest and safe
-- board bring-up steps are clear
-- the repo is ready for first real CC1101 + ESP32 validation
+- the repo is ready for the next step once hardware is available again
+
+## What Comes After This Phase
+Later, after hardware validation and core usability are done, the project can move into a premium phase:
+- detected meters
+- watchlist
+- HA polish
+- richer UX
+- OTA upload completion
+- deeper diagnostics and product refinement

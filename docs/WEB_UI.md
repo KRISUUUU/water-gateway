@@ -2,102 +2,67 @@
 
 ## Overview
 
-The built-in web panel provides service, diagnostics, and configuration access
-for the gateway. It is a single-page application built with vanilla HTML, CSS,
-and JavaScript — no frameworks, no build step, no npm dependencies.
+The web panel is a simple single-page app (`web/index.html`, `web/app.js`, `web/styles.css`)
+served from SPIFFS over HTTP.
+
+It is intended for serviceability and provisioning support, not premium UX.
 
 ## Access
 
-- **URL:** `http://{device_ip}/` or `http://{hostname}.local/`
-- **Port:** 80 (HTTP)
-- **Authentication:** Required for all API access (login form on first visit)
+- URL: `http://{device_ip}/` (provisioning AP: `http://192.168.4.1/`)
+- Port: `80`
+- Authentication: required for all `/api/*` endpoints except login
 
-## Pages
+## Available Pages
 
-### Dashboard
-- Device health state (healthy/warning/error)
-- Uptime, firmware version, IP address
-- Key counters: frames received, frames published, MQTT publishes
-- WiFi RSSI, MQTT connection state, radio state
+- Dashboard: health + runtime metrics + WiFi/MQTT/radio summary from `/api/status`
+- Live Telegrams: currently placeholder (`/api/telegrams` returns empty list by design)
+- RF Diagnostics: radio/RSM counters from `/api/diagnostics/radio`
+- MQTT Status: MQTT state/counters from `/api/diagnostics/mqtt`
+- Configuration: reads redacted config from `/api/config`, posts updates to `/api/config`
+- OTA: shows OTA status, supports URL OTA trigger; local upload is explicitly unavailable
+- System: reboot, factory reset, support bundle download
+- Logs: recent buffered logs from `/api/logs`
 
-### Live Telegrams
-- Table of recently received frames (last 50)
-- Columns: timestamp, raw hex (truncated), RSSI, LQI, CRC status, length
-- Auto-refreshes every 5 seconds
-- Click to expand full hex
+## API Endpoints Used by UI
 
-### RF Diagnostics
-- Radio state (idle/RX/error)
-- Frame reception counters
-- CRC pass/fail counts
-- FIFO overflow count
-- Radio reset/recovery count
-- RSSI range of recent frames
-
-### MQTT Status
-- Connection state
-- Broker host:port
-- Publish counters (success/failure)
-- Reconnect count
-- Last publish timestamp
-
-### Configuration
-- Form-based editor for all config sections
-- Secret fields shown as `***` (can be updated by entering new value)
-- Validate button (client-side + server-side)
-- Save button (applies and persists)
-- Export/Import buttons (JSON)
-
-### OTA
-- Local upload: file picker + upload button + progress bar
-- URL OTA: URL input + trigger button
-- Current firmware version display
-- OTA status (idle/in_progress/failed/success)
-- Rollback status after reboot
-
-### System
-- Reboot button
-- Factory reset button (with confirmation)
-- Support bundle download button
-- Device identity info (MAC, hostname, firmware)
-
-### Logs
-- Recent log lines from persistent buffer (last 200)
-- Severity filtering (error/warning/info/debug)
-- Auto-refresh toggle
-
-## API Endpoints
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/api/auth/login` | No | Login, returns session token |
-| POST | `/api/auth/logout` | Yes | Invalidate session |
-| GET | `/api/status` | Yes | Dashboard data |
-| GET | `/api/telegrams` | Yes | Recent frames |
-| GET | `/api/diagnostics/radio` | Yes | RF diagnostics |
+| Method | Path | Auth | Notes |
+| ------ | ---- | ---- | ----- |
+| POST | `/api/auth/login` | No | Returns bearer token |
+| POST | `/api/auth/logout` | Yes | Invalidates current session |
+| GET | `/api/status` | Yes | Mode + health + metrics + WiFi/MQTT/radio summary |
+| GET | `/api/telegrams` | Yes | Returns `{"telegrams":[]}` currently |
+| GET | `/api/diagnostics/radio` | Yes | RSM + detailed diagnostics snapshot |
 | GET | `/api/diagnostics/mqtt` | Yes | MQTT diagnostics |
-| GET | `/api/config` | Yes | Current config (redacted) |
-| POST | `/api/config` | Yes | Update config |
-| POST | `/api/config/export` | Yes | Export config JSON |
-| POST | `/api/config/import` | Yes | Import config JSON |
-| GET | `/api/ota/status` | Yes | OTA state |
-| POST | `/api/ota/upload` | Yes | Upload firmware binary |
-| POST | `/api/ota/url` | Yes | Trigger URL-based OTA |
-| GET | `/api/logs` | Yes | Log buffer contents |
-| GET | `/api/support-bundle` | Yes | Download support bundle |
-| POST | `/api/system/reboot` | Yes | Trigger reboot |
-| POST | `/api/system/factory-reset` | Yes | Factory reset |
+| GET | `/api/config` | Yes | Redacted config; secrets represented as `***` |
+| POST | `/api/config` | Yes | Save config; response includes `reboot_required` |
+| GET | `/api/ota/status` | Yes | Includes state/progress/message/current_version |
+| POST | `/api/ota/upload` | Yes | Returns `501 not_implemented` |
+| POST | `/api/ota/url` | Yes | Requires HTTPS URL |
+| GET | `/api/logs` | Yes | Returns `{ "entries": [...] }` |
+| GET | `/api/support-bundle` | Yes | Returns support bundle JSON |
+| POST | `/api/system/reboot` | Yes | Reboot device |
+| POST | `/api/system/factory-reset` | Yes | Reset config + reboot |
 
-## Asset Delivery
+## Provisioning Notes
 
-Static files (`index.html`, `app.js`, `styles.css`) are stored on the SPIFFS
-partition and served by the HTTP server. The SPIFFS image is built during the
-firmware build and flashed alongside the application.
+- First boot with empty WiFi config runs AP mode and serves the same UI stack.
+- If no admin password hash is configured, login accepts any non-empty password.
+- Set `auth.admin_password` in Configuration and save to establish a real admin password hash.
+- After save, reboot is required to apply runtime configuration changes predictably.
 
-## Design Constraints
+## Static Asset Delivery
 
-- Total asset size < 50 KB (SPIFFS has 1.375 MB but we aim for fast load)
-- No external CDN dependencies (fully self-contained)
-- Works on mobile browsers (responsive CSS)
-- No WebSocket (polling-based updates to keep server simple)
-- Refresh intervals: 5s for telegrams, 10s for dashboard, 30s for diagnostics
+- SPIFFS image is generated from `web/` via `spiffs_create_partition_image(storage web FLASH_IN_PROJECT)`.
+- HTTP static handler resolves:
+  - `/` -> `/storage/index.html`
+  - `/index.html` -> `/storage/index.html`
+  - `/app.js` -> `/storage/app.js`
+  - `/styles.css` -> `/storage/styles.css`
+- Build output includes `build/storage.bin`, and `idf.py flash` writes it to `storage` partition.
+
+## Honest Limitations
+
+- OTA multipart upload is not implemented (endpoint intentionally returns 501).
+- Live telegram list in UI is still placeholder until runtime cache/API is added.
+- RF correctness/throughput remains hardware-dependent and must be validated on board.

@@ -15,7 +15,17 @@
         }
         return fetch(path, opts).then((r) => {
             if (r.status === 401) { showLogin(); throw new Error("unauthorized"); }
-            return r.json();
+            return r.text().then((text) => {
+                let data = {};
+                try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+                if (!r.ok) {
+                    const err = new Error(data.error || ("http_" + r.status));
+                    err.status = r.status;
+                    err.data = data;
+                    throw err;
+                }
+                return data;
+            });
         });
     }
 
@@ -94,15 +104,21 @@
     // Dashboard
     function loadDashboard() {
         api("GET", "/api/status").then((d) => {
-            $("#d-health").textContent = d.health || "--";
-            $("#d-uptime").textContent = formatUptime(d.uptime_s);
+            const health = d.health || {};
+            const metrics = d.metrics || {};
+            const wifi = d.wifi || {};
+            const mqtt = d.mqtt || {};
+            const radio = d.radio || {};
+
+            $("#d-health").textContent = health.state || "--";
+            $("#d-uptime").textContent = formatUptime(metrics.uptime_s);
             $("#d-fw").textContent = d.firmware_version || "--";
-            $("#d-ip").textContent = d.ip_address || "--";
-            $("#d-frames").textContent = d.frames_received ?? "--";
-            $("#d-mqttpub").textContent = d.mqtt_publishes ?? "--";
-            $("#d-rssi").textContent = d.wifi_rssi_dbm ? d.wifi_rssi_dbm + " dBm" : "--";
-            $("#d-heap").textContent = d.free_heap_bytes ? Math.round(d.free_heap_bytes / 1024) + " KB" : "--";
-            setHealthColor($("#d-health"), d.health);
+            $("#d-ip").textContent = wifi.ip_address || "--";
+            $("#d-frames").textContent = radio.frames_received ?? "--";
+            $("#d-mqttpub").textContent = mqtt.publish_count ?? "--";
+            $("#d-rssi").textContent = (wifi.rssi_dbm || wifi.rssi_dbm === 0) ? (wifi.rssi_dbm + " dBm") : "--";
+            $("#d-heap").textContent = metrics.free_heap_bytes ? Math.round(metrics.free_heap_bytes / 1024) + " KB" : "--";
+            setHealthColor($("#d-health"), (health.state || "").toLowerCase());
         }).catch(() => {});
     }
 
@@ -123,7 +139,7 @@
     // Telegrams
     function loadTelegrams() {
         api("GET", "/api/telegrams").then((data) => {
-            const arr = data.frames || [];
+            const arr = data.telegrams || data.frames || [];
             const body = $("#tg-body");
             body.innerHTML = "";
             $("#tg-empty").hidden = arr.length > 0;
@@ -146,15 +162,20 @@
         api("GET", "/api/diagnostics/radio").then((d) => {
             const c = $("#rf-stats");
             c.innerHTML = "";
+            const rsm = d.rsm || {};
+            const diag = d.diagnostics || {};
+            const counters = diag.radio_counters || {};
             const fields = [
-                ["Radio State", d.radio_state],
-                ["Frames Received", d.frames_received],
-                ["CRC OK", d.frames_crc_ok],
-                ["CRC Fail", d.frames_crc_fail],
-                ["FIFO Overflows", d.fifo_overflows],
-                ["Radio Resets", d.radio_resets],
-                ["Recoveries", d.radio_recoveries],
-                ["SPI Errors", d.spi_errors],
+                ["RSM State", rsm.state],
+                ["Consecutive Errors", rsm.consecutive_errors],
+                ["Radio State", diag.radio_state],
+                ["Frames Received", counters.frames_received],
+                ["CRC OK", counters.frames_crc_ok],
+                ["CRC Fail", counters.frames_crc_fail],
+                ["FIFO Overflows", counters.fifo_overflows],
+                ["Radio Resets", counters.radio_resets],
+                ["Recoveries", counters.radio_recoveries],
+                ["SPI Errors", counters.spi_errors],
             ];
             fields.forEach(([k, v]) => {
                 const div = document.createElement("div");
@@ -206,6 +227,10 @@
         card.style.marginBottom = "12px";
         let html = "<h3>" + title + "</h3>";
         for (const [k, v] of Object.entries(obj)) {
+            if (k === "password_set") {
+                html += '<label>' + k + '<input type="text" value="' + (v ? "yes" : "no") + '" disabled></label>';
+                continue;
+            }
             const type = typeof v === "boolean" ? "checkbox" :
                          typeof v === "number" ? "number" : "text";
             const id = "cfg-" + title.toLowerCase() + "-" + k;
@@ -226,16 +251,32 @@
             collectConfigValues(orig);
             return api("POST", "/api/config", orig);
         }).then((resp) => {
-            msg.textContent = resp.valid ? "Saved" : "Validation failed: " + (resp.issues || []).map((i) => i.message).join(", ");
-            msg.className = resp.valid ? "success" : "error";
+            if (resp && resp.ok) {
+                msg.textContent = resp.reboot_required
+                    ? "Configuration saved. Reboot is required to apply runtime changes."
+                    : "Configuration saved.";
+                msg.className = "success";
+            } else {
+                const issues = (resp && resp.issues) ? resp.issues : [];
+                const details = issues.map((i) => i.field + ": " + i.message).join(", ");
+                msg.textContent = details ? ("Validation failed: " + details) : "Validation failed";
+                msg.className = "error";
+            }
             msg.hidden = false;
-        }).catch(() => { msg.textContent = "Save failed"; msg.className = "error"; msg.hidden = false; });
+        }).catch((err) => {
+            const issues = err && err.data && err.data.issues ? err.data.issues : [];
+            const details = issues.map((i) => i.field + ": " + i.message).join(", ");
+            msg.textContent = details ? ("Validation failed: " + details) : "Save failed";
+            msg.className = "error";
+            msg.hidden = false;
+        });
     });
 
     function collectConfigValues(cfg) {
         for (const section of ["device", "wifi", "mqtt", "radio", "auth", "logging"]) {
             if (!cfg[section]) continue;
             for (const k of Object.keys(cfg[section])) {
+                if (k === "password_set") continue;
                 const el = $("#cfg-" + section + "-" + k);
                 if (!el) continue;
                 if (el.type === "checkbox") cfg[section][k] = el.checked;
@@ -262,19 +303,16 @@
         api("GET", "/api/ota/status").then((d) => {
             $("#ota-status").textContent = "Status: " + (d.state || "idle") +
                 (d.progress_pct ? " (" + d.progress_pct + "%)" : "") +
-                (d.message ? " — " + d.message : "");
+                (d.message ? " — " + d.message : "") +
+                (d.current_version ? (" — version " + d.current_version) : "");
         }).catch(() => {});
     }
 
     $("#ota-upload-btn").addEventListener("click", () => {
         const file = $("#ota-file").files[0];
         if (!file) return;
-        const progress = $(".progress");
-        progress.hidden = false;
-        apiRaw("POST", "/api/ota/upload", file).then((r) => r.json()).then((d) => {
-            $("#ota-bar").style.width = "100%";
-            $("#ota-status").textContent = d.message || "Upload complete";
-        }).catch(() => { $("#ota-status").textContent = "Upload failed"; });
+        $("#ota-status").textContent =
+            "Local OTA upload endpoint is not implemented yet. Use HTTPS URL OTA.";
     });
 
     $("#ota-url-btn").addEventListener("click", () => {
@@ -310,11 +348,13 @@
     // Logs
     function loadLogs() {
         api("GET", "/api/logs").then((data) => {
-            const lines = data.lines || [];
+            const lines = data.entries || data.lines || [];
             const filter = $("#log-filter").value;
             const filtered = filter ? lines.filter((l) => l.severity === filter) : lines;
             $("#log-output").textContent = filtered.map((l) =>
-                "[" + (l.severity || "?").toUpperCase().padEnd(7) + "] " + (l.message || "")
+                "[" + (l.severity || "?").toUpperCase().padEnd(7) + "] " +
+                (l.timestamp_us ? (new Date(Math.floor(l.timestamp_us / 1000)).toISOString() + " ") : "") +
+                (l.message || "")
             ).join("\n") || "No logs.";
         }).catch(() => {});
     }

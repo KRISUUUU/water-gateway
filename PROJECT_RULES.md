@@ -1,80 +1,82 @@
 ﻿# PROJECT_RULES.md
 
-## 1. Scope Discipline
-This repository is currently in a stabilization and pre-hardware-validation phase.
-Before adding significant new features, prioritize:
-- buildability
-- API consistency
-- architecture consistency
-- safety/sanity
-- documentation honesty
-- test/CI realism
+## 1. Current Project Phase
+The repository is currently beyond bootstrap and early stabilization.
+The current phase is:
+- technical product completion
+- service/web usability completion
+- honest pre-hardware productization
 
-Do not start feature expansion while the repository is still internally inconsistent.
+Before adding premium features, prioritize:
+- provisioning end-to-end
+- normal-mode end-to-end
+- usable web panel
+- clean diagnostics
+- truthful OTA/config/auth behavior
+- build/test/docs consistency
 
-## 2. Architecture Rules
+## 2. Scope Discipline
+Do not start feature expansion while core product flows are incomplete.
+Specifically, do NOT prioritize yet:
+- detected meters UX
+- watchlist UX
+- advanced Home Assistant polish
+- extra protocol/product features
+- decorative frontend work
+
+## 3. Architecture Rules
 - Keep strict separation between RF, MQTT, HTTP/UI, auth, OTA, config, diagnostics, and storage.
 - Do not create god-modules.
-- `app_core` must remain an orchestrator, not a business-logic dump.
-- Do not mix heavy logic into ISR.
-- Keep public interfaces small and explicit.
-- Prefer clean boundaries over convenience.
-- Avoid hidden coupling.
+- `app_core` must remain an orchestrator.
+- Runtime logic may be split into focused files, but responsibilities must stay clear.
+- Board-specific wiring must remain outside orchestration logic.
 
-## 3. Responsibility Boundaries
-- RF and CC1101 behavior belongs in radio/pipeline layers.
-- MQTT topic and payload logic belongs in MQTT-related modules.
-- HTTP request handling belongs in API/HTTP modules.
-- Auth/session logic belongs in auth modules.
-- Config ownership belongs in config modules.
-- OTA lifecycle belongs in OTA modules.
-- Board-specific pin mapping must not live in orchestration logic.
+## 4. Provisioning/Product Rules
+Provisioning must be genuinely usable:
+- AP starts
+- web UI is reachable
+- config submission works
+- config is validated
+- config is persisted
+- device behavior after save is explicit
 
-## 4. Code Quality
-- Clear naming only.
-- No magic numbers without justification.
-- Comments should explain intent, constraints, or non-obvious behavior.
-- No vague TODOs.
-- If a placeholder is necessary, explicitly label it as placeholder and describe what remains.
+No fake provisioning UX is allowed.
 
-## 5. Reliability
-- Handle failures explicitly.
-- Design for Wi-Fi reconnects, MQTT reconnects, radio recovery, OTA recovery, and partial failures.
-- Track counters for failures and recoveries.
-- Prefer bounded buffers and controlled queues.
-- No silent failure paths.
+## 5. Web/UI Rules
+- Static assets must actually be packaged and served correctly.
+- `/` must resolve correctly.
+- Missing assets must log clearly.
+- UI should be simple, robust, and service-oriented.
+- No overdesigned frontend.
+- No fake buttons for unavailable features.
 
-## 6. Security
+## 6. Normal Mode Rules
+Normal mode must be coherent:
+- Wi-Fi config present -> normal mode path
+- HTTP/API remains reachable
+- auth remains coherent
+- MQTT lifecycle is visible
+- failures degrade clearly and safely
+
+## 7. OTA Rules
+- Do not pretend OTA upload works if it does not.
+- URL OTA must be honest and clearly documented.
+- OTA state must be consistent in code, API, and docs.
+
+## 8. Security Rules
 - Never log secrets.
 - Redact secrets in logs, UI, config export, and support bundle.
 - Protect admin endpoints.
 - Validate all external input.
-- Treat OTA and config import/update as sensitive operations.
-- Prefer safe defaults.
-- Do not let redacted `"***"` values overwrite real secrets.
+- Keep config redaction and secret overwrite behavior safe.
 
-## 7. Configuration
-- All config must be versioned.
-- Config version is owned by the config system, not external clients.
-- All config changes must be validated.
-- Support migrations between versions.
-- Separate user config from runtime state where practical.
-
-## 8. Testing
-- Non-hardware logic should be host-testable when practical.
-- New logic should include tests or explicit test notes.
-- If something is not testable, explain why and how to test it manually or with HIL.
-- CI must reflect actual reality, not aspirational status.
-
-## 9. Documentation
-- Keep docs aligned with implementation.
-- Update docs when contracts or schemas change.
-- Document limitations honestly.
-- Do not overclaim readiness.
-- If a feature is partial or stubbed, docs must say so clearly.
+## 9. Testing and Docs
+- Keep host tests passing.
+- Keep ESP-IDF build passing.
+- Docs must match code reality.
+- If hardware validation is missing, say so clearly.
 
 ## 10. Change Discipline
-- Do not silently change architecture.
-- Do not break contracts without explicit explanation.
-- Refactors must explain benefits and affected dependencies.
-- Small safe patches are preferred over giant rewrites.
+- Prefer small safe patches over sweeping rewrites.
+- Do not silently change architecture or contracts.
+- Refactors must improve clarity, not just move code around.

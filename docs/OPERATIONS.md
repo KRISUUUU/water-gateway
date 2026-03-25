@@ -3,6 +3,7 @@
 ## Normal Operation
 
 After provisioning, the device operates autonomously:
+
 1. Connects to configured WiFi network
 2. Synchronizes time via NTP
 3. Connects to MQTT broker
@@ -21,6 +22,7 @@ The Last Will ensures the status shows offline if the device disconnects unexpec
 ### Telemetry Topic
 
 Subscribe to `wmbus-gw/{id}/telemetry` for periodic metrics:
+
 - `uptime_s`, `free_heap_bytes`, `frames_received`, `mqtt_publishes`
 - If `frames_received` stops incrementing, the radio may have an issue
 - If `mqtt_failures` is climbing, check broker connectivity
@@ -28,6 +30,7 @@ Subscribe to `wmbus-gw/{id}/telemetry` for periodic metrics:
 ### Events Topic
 
 Subscribe to `wmbus-gw/{id}/events` for discrete alerts:
+
 - `radio_error`, `wifi_disconnected`, `mqtt_disconnected`, `ota_*`, `health_degraded`
 
 ### Web Panel Dashboard
@@ -37,26 +40,34 @@ Access `http://{hostname}.local/` for a visual overview.
 ## Common Operational Tasks
 
 ### Updating Firmware
+
 1. Open web panel → OTA page
-2. Upload new `.bin` file, or enter HTTPS URL
+2. Enter HTTPS URL and start URL OTA (`/api/ota/url`)
 3. Wait for reboot; device auto-verifies new firmware
 4. If verification fails, device rolls back to previous firmware
 
+Note: local multipart upload endpoint exists but is not implemented yet (`501`).
+
 ### Changing Configuration
+
 1. Open web panel → Configuration page
 2. Modify fields, click Save
-3. Some changes (WiFi, MQTT) trigger reconnection automatically
+3. Save response indicates reboot requirement
+4. Reboot from System page for predictable application of runtime changes
 
 ### Exporting Configuration
+
 1. Open web panel → Configuration page → Export
 2. Save JSON file (secrets are redacted)
 
 ### Downloading Support Bundle
+
 1. Open web panel → System page → Download Support Bundle
 2. JSON file includes diagnostics, metrics, config (redacted), and recent logs
 3. Useful for remote troubleshooting
 
 ### Factory Reset
+
 1. Open web panel → System page → Factory Reset
 2. Confirm the action
 3. Device reboots into provisioning mode
@@ -65,6 +76,7 @@ Access `http://{hostname}.local/` for a visual overview.
 
 The firmware does not assume specific LED hardware. If LEDs are connected,
 a future GPIO indicator module can signal:
+
 - Solid: normal operation
 - Slow blink: provisioning mode
 - Fast blink: error state

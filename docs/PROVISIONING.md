@@ -17,8 +17,10 @@ can be completed from the web UI/API over AP.
 6. API handlers + static web handler are registered
 7. User connects to AP, opens `http://192.168.4.1/`
 8. User authenticates (`POST /api/auth/login`; first boot accepts any non-empty password)
-9. User saves config (`POST /api/config`) and reboots (`POST /api/system/reboot`)
-10. Device boots into normal mode (with WiFi STA)
+9. User saves config (`POST /api/config`), including `auth.admin_password` when setting first admin password
+10. API response indicates `reboot_required`
+11. User reboots (`POST /api/system/reboot`)
+12. Device boots into normal mode (with WiFi STA)
 
 ## Provisioning Interface
 
@@ -30,7 +32,7 @@ but over AP (`WMBus-GW-Setup`) instead of STA.
 - The AP is open (no WPA) for ease of initial setup
 - Provisioning is exposed only when WiFi is not configured
 - Normal mode still exposes management APIs behind auth
-- Admin password should be set during first provisioning save
+- Admin password should be set during first provisioning save (`auth.admin_password`)
 - After provisioning completes, the AP is shut down
 
 ## Re-Provisioning

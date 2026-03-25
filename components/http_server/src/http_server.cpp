@@ -15,7 +15,7 @@
 #include "esp_log.h"
 
 static const char* TAG = "http_srv";
-static const char* kWebRoot = "/storage/web";
+static const char* kWebRoot = "/storage";
 
 static std::string uri_path_only(const char* uri) {
     if (!uri) {
@@ -67,6 +67,7 @@ static const char* content_type_for_path(const char* path) {
 
 static esp_err_t static_spiffs_handler(httpd_req_t* req) {
     std::string rel = uri_path_only(req->uri);
+    ESP_LOGI(TAG, "Static request URI: %s", req->uri ? req->uri : "(null)");
     if (rel.empty() || rel[0] != '/') {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad path");
         return ESP_FAIL;
@@ -88,12 +89,15 @@ static esp_err_t static_spiffs_handler(httpd_req_t* req) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Path too long");
         return ESP_FAIL;
     }
+    ESP_LOGI(TAG, "Resolved static path: %s", fs_path);
 
     FILE* f = std::fopen(fs_path, "rb");
     if (!f) {
+        ESP_LOGW(TAG, "Static file open failed: %s", fs_path);
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
         return ESP_FAIL;
     }
+    ESP_LOGI(TAG, "Static file open OK: %s", fs_path);
 
     std::fseek(f, 0, SEEK_END);
     const long sz = std::ftell(f);

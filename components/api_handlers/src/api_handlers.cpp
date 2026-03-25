@@ -12,8 +12,11 @@
 #include "mqtt_service/mqtt_service.hpp"
 #include "ota_manager/ota_manager.hpp"
 #include "persistent_log_buffer/persistent_log_buffer.hpp"
+#include "provisioning_manager/provisioning_manager.hpp"
+#include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
 #include "support_bundle_service/support_bundle_service.hpp"
+#include "wifi_manager/wifi_manager.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -92,6 +95,9 @@ esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
             break;
         case 413:
             status = "413 Payload Too Large";
+            break;
+        case 429:
+            status = "429 Too Many Requests";
             break;
         case 500:
             status = "500 Internal Server Error";
@@ -183,6 +189,40 @@ const char* rsm_state_name(radio_state_machine::RsmState s) {
     }
 }
 
+const char* wifi_state_name(wifi_manager::WifiState s) {
+    using wifi_manager::WifiState;
+    switch (s) {
+        case WifiState::Uninitialized:
+            return "uninitialized";
+        case WifiState::Disconnected:
+            return "disconnected";
+        case WifiState::Connecting:
+            return "connecting";
+        case WifiState::Connected:
+            return "connected";
+        case WifiState::ApMode:
+            return "ap_mode";
+        default:
+            return "unknown";
+    }
+}
+
+const char* radio_state_name(radio_cc1101::RadioState s) {
+    using radio_cc1101::RadioState;
+    switch (s) {
+        case RadioState::Uninitialized:
+            return "uninitialized";
+        case RadioState::Idle:
+            return "idle";
+        case RadioState::Receiving:
+            return "receiving";
+        case RadioState::Error:
+            return "error";
+        default:
+            return "unknown";
+    }
+}
+
 const char* ota_state_name(ota_manager::OtaState s) {
     using ota_manager::OtaState;
     switch (s) {
@@ -234,7 +274,8 @@ std::string config_to_json_redacted(const config_store::AppConfig& c) {
       << "\"level\":" << static_cast<int>(c.logging.level)
       << "},"
       << "\"auth\":{"
-      << "\"admin_password_hash\":\"" << config_store::kRedactedValue << "\","
+      << "\"admin_password\":\"" << config_store::kRedactedValue << "\","
+      << "\"password_set\":" << (c.auth.has_password() ? "true" : "false") << ","
       << "\"session_timeout_s\":" << c.auth.session_timeout_s
       << "}"
       << "}";
@@ -354,6 +395,17 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
 
     const cJSON* auth = cJSON_GetObjectItemCaseSensitive(root, "auth");
     if (auth && cJSON_IsObject(auth)) {
+        const cJSON* admin_password = cJSON_GetObjectItemCaseSensitive(auth, "admin_password");
+        if (admin_password && cJSON_IsString(admin_password) && admin_password->valuestring &&
+            std::strcmp(admin_password->valuestring, config_store::kRedactedValue) != 0 &&
+            admin_password->valuestring[0] != '\0') {
+            auto hash_result = auth_service::AuthService::hash_password(admin_password->valuestring);
+            if (hash_result.is_ok()) {
+                std::strncpy(cfg.auth.admin_password_hash, hash_result.value().c_str(),
+                             sizeof(cfg.auth.admin_password_hash) - 1);
+                cfg.auth.admin_password_hash[sizeof(cfg.auth.admin_password_hash) - 1] = '\0';
+            }
+        }
         const cJSON* st = cJSON_GetObjectItemCaseSensitive(auth, "session_timeout_s");
         if (st && cJSON_IsNumber(st)) {
             cfg.auth.session_timeout_s = static_cast<uint32_t>(st->valuedouble);
@@ -375,6 +427,9 @@ esp_err_t handle_auth_login(httpd_req_t* req) {
     auto result = auth_service::AuthService::instance().login(password);
     cJSON_Delete(root);
     if (result.is_error()) {
+        if (result.error() == common::ErrorCode::AuthRateLimited) {
+            return send_json(req, 429, "{\"error\":\"rate_limited\"}");
+        }
         return send_json(req, 401, "{\"error\":\"login_failed\"}");
     }
     const auth_service::SessionInfo& s = result.value();
@@ -413,6 +468,13 @@ esp_err_t handle_status(httpd_req_t* req) {
     }
     const auto& health = health_res.value();
     const auto& metrics = metrics_res.value();
+    const auto cfg = config_store::ConfigStore::instance().config();
+    const auto wifi = wifi_manager::WifiManager::instance().status();
+    const auto mqtt = mqtt_service::MqttService::instance().status();
+    const auto& radio = radio_cc1101::RadioCc1101::instance();
+    const auto& rc = radio.counters();
+    const auto ota = ota_manager::OtaManager::instance().status();
+    const char* mode = cfg.wifi.is_configured() ? "normal" : "provisioning";
     std::ostringstream o;
     o << "{\"health\":{"
       << "\"state\":\""
@@ -428,7 +490,31 @@ esp_err_t handle_status(httpd_req_t* req) {
       << "\"free_heap_bytes\":" << metrics.free_heap_bytes << ","
       << "\"min_free_heap_bytes\":" << metrics.min_free_heap_bytes << ","
       << "\"largest_free_block\":" << metrics.largest_free_block
-      << "}}";
+      << "},"
+      << "\"mode\":\"" << mode << "\","
+      << "\"firmware_version\":\"" << json_escape(ota.current_version) << "\","
+      << "\"wifi\":{"
+      << "\"state\":\"" << wifi_state_name(wifi.state) << "\","
+      << "\"ip_address\":\"" << json_escape(wifi.ip_address) << "\","
+      << "\"rssi_dbm\":" << static_cast<int>(wifi.rssi_dbm) << ","
+      << "\"ssid\":\"" << json_escape(wifi.ssid) << "\","
+      << "\"reconnect_count\":" << wifi.reconnect_count
+      << "},"
+      << "\"mqtt\":{"
+      << "\"state\":\"" << mqtt_state_name(mqtt.state) << "\","
+      << "\"broker_uri\":\"" << json_escape(mqtt.broker_uri) << "\","
+      << "\"publish_count\":" << mqtt.publish_count << ","
+      << "\"publish_failures\":" << mqtt.publish_failures << ","
+      << "\"reconnect_count\":" << mqtt.reconnect_count
+      << "},"
+      << "\"radio\":{"
+      << "\"state\":\"" << radio_state_name(radio.state()) << "\","
+      << "\"frames_received\":" << rc.frames_received << ","
+      << "\"frames_crc_ok\":" << rc.frames_crc_ok << ","
+      << "\"frames_crc_fail\":" << rc.frames_crc_fail << ","
+      << "\"fifo_overflows\":" << rc.fifo_overflows
+      << "}"
+      << "}";
     const std::string json = o.str();
     return send_json(req, 200, json.c_str());
 }
@@ -538,7 +624,21 @@ esp_err_t handle_config_post(httpd_req_t* req) {
         cJSON_free(printed);
         return e;
     }
-    return send_json(req, 200, "{\"ok\":true}");
+
+    bool provisioning_completed = false;
+    auto& prov = provisioning_manager::ProvisioningManager::instance();
+    if (prov.is_active() && cfg.wifi.is_configured()) {
+        auto complete_result = prov.complete();
+        provisioning_completed = complete_result.is_ok();
+    }
+
+    std::ostringstream ok;
+    ok << "{\"ok\":true,"
+       << "\"reboot_required\":true,"
+       << "\"provisioning_completed\":" << (provisioning_completed ? "true" : "false")
+       << "}";
+    const std::string ok_body = ok.str();
+    return send_json(req, 200, ok_body.c_str());
 }
 
 esp_err_t handle_ota_status(httpd_req_t* req) {
@@ -550,7 +650,8 @@ esp_err_t handle_ota_status(httpd_req_t* req) {
     std::ostringstream o;
     o << "{\"state\":\"" << ota_state_name(st.state) << "\","
       << "\"message\":\"" << json_escape(st.message) << "\","
-      << "\"progress_pct\":" << static_cast<int>(st.progress_pct)
+      << "\"progress_pct\":" << static_cast<int>(st.progress_pct) << ","
+      << "\"current_version\":\"" << json_escape(st.current_version) << "\""
       << "}";
     const std::string json = o.str();
     return send_json(req, 200, json.c_str());

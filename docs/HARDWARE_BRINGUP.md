@@ -84,7 +84,7 @@ Provisioning mode (WiFi not configured):
 4. `[BOOT] Provisioning: starting AP + provisioning manager`
 5. `WiFi AP started, SSID: WMBus-GW-Setup`
 6. `HTTP server listening on port 80`
-7. `Provisioning mode active. Connect to WMBus-GW-Setup AP.`
+7. `Provisioning mode active. Connect to WMBus-GW-Setup AP and open http://192.168.4.1/`
 
 ## First Failure Triage
 
