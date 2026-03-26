@@ -173,59 +173,63 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         flush_rx_fifo();
         return common::Result<RawRadioFrame>::error(common::ErrorCode::InvalidArgument);
     }
-    if (pkt_len > (registers::FIFO_SIZE - 3)) {
-        // Current polling-only RX path is not able to safely drain long packets.
-        // Drop explicitly instead of publishing truncated/corrupted payload.
-        counters_.frames_dropped_too_long++;
-#ifndef HOST_TEST_BUILD
-        ESP_LOGW(TAG, "Dropping frame length=%u (polling RX limit=%u payload bytes)",
-                 static_cast<unsigned int>(pkt_len),
-                 static_cast<unsigned int>(registers::FIFO_SIZE - 3));
-#endif
-        flush_rx_fifo();
-        spi_strobe(registers::SRX);
-        return common::Result<RawRadioFrame>::error(common::ErrorCode::NotSupported);
-    }
 
-    // The L-field is the first byte of the frame
+    // L-field + pkt_len payload bytes + 2 appended status bytes arrive in the RX FIFO.
+    // Drain in chunks (FIFO is 64 bytes); long frames require multiple reads with bounded wait.
     frame.data[0] = pkt_len;
-    frame.length = pkt_len + 1; // +1 for the L-field itself
+    frame.length = static_cast<uint16_t>(pkt_len + 1);
 
-    // Wait briefly until full [payload + status] becomes available.
-    uint16_t remaining_needed = static_cast<uint16_t>(pkt_len + 2);
-    uint16_t available_after_len = static_cast<uint16_t>(num_bytes - 1);
-    for (int i = 0; available_after_len < remaining_needed && i < 5; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(1));
-        uint8_t rb = spi_read_register(registers::RXBYTES | registers::READ_BURST);
-        available_after_len = static_cast<uint16_t>(rb & 0x7F);
-        if ((rb & 0x80) != 0) {
+    const uint16_t total_after_l = static_cast<uint16_t>(pkt_len + 2);
+    uint16_t received = 0;
+    uint8_t status[2]{};
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(200);
+
+    while (received < total_after_l) {
+        uint8_t rxb = spi_read_register(registers::RXBYTES | registers::READ_BURST);
+        uint8_t avail = rxb & 0x7F;
+        if ((rxb & 0x80) != 0) {
             counters_.fifo_overflows++;
             flush_rx_fifo();
             spi_strobe(registers::SRX);
             state_ = RadioState::Error;
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
         }
-    }
-    if (available_after_len < remaining_needed) {
-        counters_.frames_incomplete++;
+        if (avail == 0) {
+            if (xTaskGetTickCount() >= deadline) {
+                counters_.frames_incomplete++;
 #ifndef HOST_TEST_BUILD
-        ESP_LOGW(TAG, "Dropping incomplete frame length=%u available=%u needed=%u",
-                 static_cast<unsigned int>(pkt_len), static_cast<unsigned int>(available_after_len),
-                 static_cast<unsigned int>(remaining_needed));
+                ESP_LOGW(TAG, "RX drain timeout need=%u got=%u pkt_len=%u",
+                         static_cast<unsigned int>(total_after_l),
+                         static_cast<unsigned int>(received),
+                         static_cast<unsigned int>(pkt_len));
 #endif
-        flush_rx_fifo();
-        spi_strobe(registers::SRX);
-        return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
+                flush_rx_fifo();
+                spi_strobe(registers::SRX);
+                return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+        }
+        const uint16_t need = static_cast<uint16_t>(total_after_l - received);
+        uint16_t take = need;
+        if (avail < take) {
+            take = avail;
+        }
+        if (take > 64) {
+            take = 64;
+        }
+        uint8_t chunk[64];
+        spi_read_burst(registers::FIFO_RX | registers::READ_BURST, chunk, take);
+        for (uint16_t i = 0; i < take; ++i) {
+            const uint16_t idx = static_cast<uint16_t>(received + i);
+            if (idx < pkt_len) {
+                frame.data[1 + idx] = chunk[i];
+            } else {
+                status[idx - pkt_len] = chunk[i];
+            }
+        }
+        received = static_cast<uint16_t>(received + take);
     }
-
-    // Read remaining payload bytes.
-    if (pkt_len > 0) {
-        spi_read_burst(registers::FIFO_RX | registers::READ_BURST, &frame.data[1], pkt_len);
-    }
-
-    // Read appended status bytes (RSSI, LQI|CRC_OK)
-    uint8_t status[2];
-    spi_read_burst(registers::FIFO_RX | registers::READ_BURST, status, 2);
 
     frame.rssi_dbm = convert_rssi(status[0]);
     frame.lqi = status[1] & 0x7F;

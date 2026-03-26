@@ -70,8 +70,8 @@ class RadioCc1101 {
     // Return to idle
     common::Result<void> go_idle();
 
-    // Attempt to read a frame from the RX FIFO.
-    // Returns error if no data available or FIFO error.
+    // Read one WMBus T-mode frame from the RX FIFO. Long frames are drained in <=64 B bursts
+    // with a bounded wait (no single-FIFO assumption); timeout flushes FIFO on stall.
     common::Result<RawRadioFrame> read_frame();
 
     // Flush RX FIFO (used during error recovery)

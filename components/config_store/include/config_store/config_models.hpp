@@ -93,12 +93,13 @@ struct LoggingConfig {
 };
 
 struct AuthConfig {
-    char admin_password_hash[97]; // "salt_hex:hash_hex" SECRET
+    // Format "salt_hex(32) + ':'(1) + hash_hex(64)" = 97 chars + '\0'
+    char admin_password_hash[98]; // SECRET
     uint32_t session_timeout_s;
 
     static AuthConfig make_default() {
         AuthConfig c{};
-        c.admin_password_hash[0] = '\0';
+        std::memset(c.admin_password_hash, 0, sizeof(c.admin_password_hash));
         c.session_timeout_s = 3600;
         return c;
     }

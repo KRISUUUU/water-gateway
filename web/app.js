@@ -6,6 +6,8 @@
     let cacheStatus = null;
     let cacheWatchlist = [];
     let refreshTimer = null;
+    let heavyRefreshTimer = null;
+    const dashboardCache = { duplicateCount: 0, detected: 0, watchlistCount: 0 };
     let bootstrapInfo = null;
 
     const $ = (sel) => document.querySelector(sel);
@@ -81,6 +83,10 @@
         if (refreshTimer) {
             clearInterval(refreshTimer);
             refreshTimer = null;
+        }
+        if (heavyRefreshTimer) {
+            clearInterval(heavyRefreshTimer);
+            heavyRefreshTimer = null;
         }
     }
 
@@ -476,6 +482,10 @@
                     0
                 );
 
+                dashboardCache.duplicateCount = duplicateCount;
+                dashboardCache.detected = detected;
+                dashboardCache.watchlistCount = watchCount;
+
                 const statusGrid = $("#dashboard-status-grid");
                 clearChildren(statusGrid);
                 statusGrid.appendChild(
@@ -513,6 +523,86 @@
                 metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
             })
             .catch(() => {});
+    }
+
+    /** Light dashboard refresh: /api/status only; keeps last meter/watchlist/duplicate totals from full load. */
+    function loadDashboardLight() {
+        api("GET", "/api/status")
+            .then((status) => {
+                cacheStatus = status;
+                applyModeUi(status.mode);
+
+                const health = status.health || {};
+                const metrics = status.metrics || {};
+                const wifi = status.wifi || {};
+                const mqtt = status.mqtt || {};
+                const radio = status.radio || {};
+                const duplicateCount = dashboardCache.duplicateCount;
+                const detected = dashboardCache.detected;
+                const watchCount = dashboardCache.watchlistCount;
+
+                const statusGrid = $("#dashboard-status-grid");
+                clearChildren(statusGrid);
+                statusGrid.appendChild(
+                    statCard("Health", text(health.state), badgeClassByState(health.state))
+                );
+                statusGrid.appendChild(
+                    statCard("Wi-Fi", text(wifi.state), badgeClassByState(wifi.state))
+                );
+                statusGrid.appendChild(
+                    statCard("MQTT", text(mqtt.state), badgeClassByState(mqtt.state))
+                );
+                statusGrid.appendChild(
+                    statCard("Radio", text(radio.state), badgeClassByState(radio.state))
+                );
+                statusGrid.appendChild(statCard("Mode", status.mode || "--"));
+                statusGrid.appendChild(statCard("Firmware", status.firmware_version || "--"));
+
+                const metricGrid = $("#dashboard-metrics-grid");
+                clearChildren(metricGrid);
+                metricGrid.appendChild(statCard("Uptime", formatUptime(metrics.uptime_s)));
+                metricGrid.appendChild(statCard("Frames Received", radio.frames_received || 0));
+                metricGrid.appendChild(statCard("CRC Fail", radio.frames_crc_fail || 0));
+                metricGrid.appendChild(statCard("Duplicates", duplicateCount));
+                metricGrid.appendChild(statCard("Incomplete Frames", radio.frames_incomplete || 0));
+                metricGrid.appendChild(
+                    statCard("Dropped Too Long", radio.frames_dropped_too_long || 0)
+                );
+                metricGrid.appendChild(statCard("MQTT Publish Failures", mqtt.publish_failures || 0));
+                metricGrid.appendChild(statCard("Detected Meters", detected));
+                metricGrid.appendChild(statCard("Watchlist", watchCount));
+                metricGrid.appendChild(statCard("Wi-Fi RSSI", text(wifi.rssi_dbm, "--") + " dBm"));
+                metricGrid.appendChild(
+                    statCard("Free Heap", Math.round((metrics.free_heap_bytes || 0) / 1024) + " KB")
+                );
+                metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
+            })
+            .catch(() => {});
+    }
+
+    function refreshStatusOnly() {
+        if (currentPage === "dashboard") {
+            loadDashboardLight();
+            return;
+        }
+        api("GET", "/api/status")
+            .then((status) => {
+                cacheStatus = status;
+                applyModeUi(status.mode);
+            })
+            .catch(() => {});
+    }
+
+    function refreshHeavyIfNeeded() {
+        if (currentPage === "telegrams") {
+            loadTelegrams();
+        } else if (currentPage === "meters") {
+            loadDetectedMeters();
+        } else if (currentPage === "watchlist") {
+            loadWatchlist();
+        } else if (currentPage === "dashboard") {
+            loadDashboard();
+        }
     }
 
     function watchAliasMap() {
@@ -884,12 +974,13 @@
     }
 
     function startRefresh() {
-        if (refreshTimer) {
-            clearInterval(refreshTimer);
-        }
+        stopRefreshTimer();
         refreshTimer = setInterval(() => {
-            loadPage(currentPage);
+            refreshStatusOnly();
         }, 10000);
+        heavyRefreshTimer = setInterval(() => {
+            refreshHeavyIfNeeded();
+        }, 60000);
     }
 
     function bindEvents() {

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
@@ -210,17 +211,18 @@ bool AuthService::verify_password(const char* password, const char* stored_hash)
     size_t pwd_len = std::strlen(password);
     size_t total_len = salt_byte_len + pwd_len;
 
-    uint8_t* input = new uint8_t[total_len];
+    std::vector<uint8_t> input;
+    input.reserve(total_len);
 
     for (size_t i = 0; i < salt_byte_len; ++i) {
         unsigned byte_val = 0;
         std::sscanf(salt_hex + i * 2, "%2x", &byte_val);
-        input[i] = static_cast<uint8_t>(byte_val);
+        input.push_back(static_cast<uint8_t>(byte_val));
     }
-    std::memcpy(input + salt_byte_len, password, pwd_len);
+    input.insert(input.end(), reinterpret_cast<const uint8_t*>(password),
+                 reinterpret_cast<const uint8_t*>(password) + pwd_len);
 
-    std::string computed_hash = sha256_hex(input, total_len);
-    delete[] input;
+    std::string computed_hash = sha256_hex(input.data(), input.size());
 
     return computed_hash == expected_hash;
 }

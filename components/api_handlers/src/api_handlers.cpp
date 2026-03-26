@@ -38,6 +38,50 @@ static const char* TAG = "api_handlers";
 
 namespace {
 
+void assign_admin_password_hash(config_store::AuthConfig& auth, const char* hash_cstr) {
+    if (!hash_cstr) {
+        auth.admin_password_hash[0] = '\0';
+        return;
+    }
+    std::strncpy(auth.admin_password_hash, hash_cstr, sizeof(auth.admin_password_hash) - 1);
+    auth.admin_password_hash[sizeof(auth.admin_password_hash) - 1] = '\0';
+}
+
+bool is_hex_string(const std::string& s) {
+    for (unsigned char c : s) {
+        if (std::isxdigit(c) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void json_escape_append(std::string& out, const std::string& s) {
+    for (char ch : s) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c == '"' || c == '\\') {
+            out.push_back('\\');
+            out.push_back(static_cast<char>(c));
+        } else if (c < 0x20) {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned int>(c));
+            out += buf;
+        } else {
+            out.push_back(static_cast<char>(c));
+        }
+    }
+}
+
+esp_err_t send_json_chunk_row(httpd_req_t* req, std::string& row) {
+    if (row.empty()) {
+        return ESP_OK;
+    }
+    const esp_err_t e =
+        httpd_resp_send_chunk(req, row.data(), static_cast<ssize_t>(row.size()));
+    row.clear();
+    return e;
+}
+
 esp_err_t send_json(httpd_req_t* req, int status_code, const char* body);
 bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len);
 void apply_config_json(const cJSON* root, config_store::AppConfig& cfg);
@@ -551,9 +595,7 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
             auto hash_result =
                 auth_service::AuthService::hash_password(admin_password->valuestring);
             if (hash_result.is_ok()) {
-                std::strncpy(cfg.auth.admin_password_hash, hash_result.value().c_str(),
-                             sizeof(cfg.auth.admin_password_hash) - 1);
-                cfg.auth.admin_password_hash[sizeof(cfg.auth.admin_password_hash) - 1] = '\0';
+                assign_admin_password_hash(cfg.auth, hash_result.value().c_str());
             }
         }
         const cJSON* st = cJSON_GetObjectItemCaseSensitive(auth, "session_timeout_s");
@@ -654,9 +696,7 @@ esp_err_t handle_auth_password(httpd_req_t* req) {
     cJSON_Delete(root);
 
     config_store::AppConfig updated = cfg;
-    std::strncpy(updated.auth.admin_password_hash, hash_res.value().c_str(),
-                 sizeof(updated.auth.admin_password_hash) - 1);
-    updated.auth.admin_password_hash[sizeof(updated.auth.admin_password_hash) - 1] = '\0';
+    assign_admin_password_hash(updated.auth, hash_res.value().c_str());
 
     auto save = config_store::ConfigStore::instance().save(updated);
     if (save.is_error()) {
@@ -761,31 +801,58 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
     }
 
     const auto telegrams = meter_registry::MeterRegistry::instance().recent_telegrams(filter);
-    JsonPtr root = make_json_object();
-    if (!root) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_status(req, "200 OK");
+
+    esp_err_t e = httpd_resp_send_chunk(req, "{\"telegrams\":[", HTTPD_RESP_USE_STRLEN);
+    if (e != ESP_OK) {
+        return e;
     }
-    cJSON* arr = cJSON_AddArrayToObject(root.get(), "telegrams");
-    if (!arr) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
-    }
+
+    bool first = true;
+    std::string row;
     for (const auto& t : telegrams) {
-        cJSON* item = cJSON_CreateObject();
-        if (!item) {
-            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        row.clear();
+        row.reserve(256 + t.raw_hex.size() + t.meter_key.size());
+        if (!first) {
+            row.push_back(',');
         }
-        cJSON_AddNumberToObject(item, "timestamp_ms", static_cast<double>(t.timestamp_ms));
-        cJSON_AddStringToObject(item, "raw_hex", t.raw_hex.c_str());
-        cJSON_AddNumberToObject(item, "frame_length", static_cast<double>(t.frame_length));
-        cJSON_AddNumberToObject(item, "rssi_dbm", static_cast<double>(t.rssi_dbm));
-        cJSON_AddNumberToObject(item, "lqi", static_cast<double>(t.lqi));
-        cJSON_AddBoolToObject(item, "crc_ok", t.crc_ok);
-        cJSON_AddBoolToObject(item, "duplicate", t.duplicate);
-        cJSON_AddStringToObject(item, "meter_key", t.meter_key.c_str());
-        cJSON_AddBoolToObject(item, "watched", t.watched);
-        cJSON_AddItemToArray(arr, item);
+        first = false;
+        row += "{\"timestamp_ms\":";
+        row += std::to_string(static_cast<long long>(t.timestamp_ms));
+        row += ",\"raw_hex\":\"";
+        if (is_hex_string(t.raw_hex)) {
+            row += t.raw_hex;
+        } else {
+            json_escape_append(row, t.raw_hex);
+        }
+        row += "\",\"frame_length\":";
+        row += std::to_string(static_cast<unsigned int>(t.frame_length));
+        row += ",\"rssi_dbm\":";
+        row += std::to_string(static_cast<int>(t.rssi_dbm));
+        row += ",\"lqi\":";
+        row += std::to_string(static_cast<unsigned int>(t.lqi));
+        row += ",\"crc_ok\":";
+        row += t.crc_ok ? "true" : "false";
+        row += ",\"duplicate\":";
+        row += t.duplicate ? "true" : "false";
+        row += ",\"meter_key\":\"";
+        json_escape_append(row, t.meter_key);
+        row += "\",\"watched\":";
+        row += t.watched ? "true" : "false";
+        row += '}';
+        e = send_json_chunk_row(req, row);
+        if (e != ESP_OK) {
+            return e;
+        }
     }
-    return send_json_root(req, 200, root);
+
+    e = httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+    if (e != ESP_OK) {
+        return e;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 esp_err_t handle_meters_detected(httpd_req_t* req) {
@@ -795,14 +862,17 @@ esp_err_t handle_meters_detected(httpd_req_t* req) {
     }
     const auto meters = meter_registry::MeterRegistry::instance().detected_meters();
     const std::string filter = query_param(req->uri, "filter");
-    JsonPtr root = make_json_object();
-    if (!root) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_status(req, "200 OK");
+
+    esp_err_t e = httpd_resp_send_chunk(req, "{\"meters\":[", HTTPD_RESP_USE_STRLEN);
+    if (e != ESP_OK) {
+        return e;
     }
-    cJSON* arr = cJSON_AddArrayToObject(root.get(), "meters");
-    if (!arr) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
-    }
+
+    bool first = true;
+    std::string row;
     for (const auto& m : meters) {
         if (filter == "watched" && !m.watched) {
             continue;
@@ -810,28 +880,54 @@ esp_err_t handle_meters_detected(httpd_req_t* req) {
         if (filter == "unknown" && m.watched) {
             continue;
         }
-        cJSON* item = cJSON_CreateObject();
-        if (!item) {
-            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+        row.clear();
+        row.reserve(256 + m.key.size() + m.alias.size() + m.note.size());
+        if (!first) {
+            row.push_back(',');
         }
-        cJSON_AddStringToObject(item, "key", m.key.c_str());
-        cJSON_AddNumberToObject(item, "manufacturer_id", static_cast<double>(m.manufacturer_id));
-        cJSON_AddNumberToObject(item, "device_id", static_cast<double>(m.device_id));
-        cJSON_AddNumberToObject(item, "first_seen_ms", static_cast<double>(m.first_seen_ms));
-        cJSON_AddNumberToObject(item, "last_seen_ms", static_cast<double>(m.last_seen_ms));
-        cJSON_AddNumberToObject(item, "seen_count", static_cast<double>(m.seen_count));
-        cJSON_AddNumberToObject(item, "last_rssi_dbm", static_cast<double>(m.last_rssi_dbm));
-        cJSON_AddNumberToObject(item, "last_lqi", static_cast<double>(m.last_lqi));
-        cJSON_AddBoolToObject(item, "last_crc_ok", m.last_crc_ok);
-        cJSON_AddNumberToObject(item, "duplicate_count", static_cast<double>(m.duplicate_count));
-        cJSON_AddNumberToObject(item, "crc_fail_count", static_cast<double>(m.crc_fail_count));
-        cJSON_AddBoolToObject(item, "watched", m.watched);
-        cJSON_AddBoolToObject(item, "watch_enabled", m.watch_enabled);
-        cJSON_AddStringToObject(item, "alias", m.alias.c_str());
-        cJSON_AddStringToObject(item, "note", m.note.c_str());
-        cJSON_AddItemToArray(arr, item);
+        first = false;
+        row += "{\"key\":\"";
+        json_escape_append(row, m.key);
+        row += "\",\"manufacturer_id\":";
+        row += std::to_string(static_cast<unsigned int>(m.manufacturer_id));
+        row += ",\"device_id\":";
+        row += std::to_string(static_cast<unsigned long long>(m.device_id));
+        row += ",\"first_seen_ms\":";
+        row += std::to_string(static_cast<long long>(m.first_seen_ms));
+        row += ",\"last_seen_ms\":";
+        row += std::to_string(static_cast<long long>(m.last_seen_ms));
+        row += ",\"seen_count\":";
+        row += std::to_string(static_cast<unsigned long long>(m.seen_count));
+        row += ",\"last_rssi_dbm\":";
+        row += std::to_string(static_cast<int>(m.last_rssi_dbm));
+        row += ",\"last_lqi\":";
+        row += std::to_string(static_cast<unsigned int>(m.last_lqi));
+        row += ",\"last_crc_ok\":";
+        row += m.last_crc_ok ? "true" : "false";
+        row += ",\"duplicate_count\":";
+        row += std::to_string(static_cast<unsigned long long>(m.duplicate_count));
+        row += ",\"crc_fail_count\":";
+        row += std::to_string(static_cast<unsigned long long>(m.crc_fail_count));
+        row += ",\"watched\":";
+        row += m.watched ? "true" : "false";
+        row += ",\"watch_enabled\":";
+        row += m.watch_enabled ? "true" : "false";
+        row += ",\"alias\":\"";
+        json_escape_append(row, m.alias);
+        row += "\",\"note\":\"";
+        json_escape_append(row, m.note);
+        row += "\"}";
+        e = send_json_chunk_row(req, row);
+        if (e != ESP_OK) {
+            return e;
+        }
     }
-    return send_json_root(req, 200, root);
+
+    e = httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+    if (e != ESP_OK) {
+        return e;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 esp_err_t handle_watchlist_get(httpd_req_t* req) {
@@ -840,26 +936,44 @@ esp_err_t handle_watchlist_get(httpd_req_t* req) {
         return g;
     }
     const auto entries = meter_registry::MeterRegistry::instance().watchlist();
-    JsonPtr root = make_json_object();
-    if (!root) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_status(req, "200 OK");
+
+    esp_err_t e = httpd_resp_send_chunk(req, "{\"watchlist\":[", HTTPD_RESP_USE_STRLEN);
+    if (e != ESP_OK) {
+        return e;
     }
-    cJSON* arr = cJSON_AddArrayToObject(root.get(), "watchlist");
-    if (!arr) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
-    }
-    for (const auto& e : entries) {
-        cJSON* item = cJSON_CreateObject();
-        if (!item) {
-            return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+
+    bool first = true;
+    std::string row;
+    for (const auto& ent : entries) {
+        row.clear();
+        row.reserve(128 + ent.key.size() + ent.alias.size() + ent.note.size());
+        if (!first) {
+            row.push_back(',');
         }
-        cJSON_AddStringToObject(item, "key", e.key.c_str());
-        cJSON_AddBoolToObject(item, "enabled", e.enabled);
-        cJSON_AddStringToObject(item, "alias", e.alias.c_str());
-        cJSON_AddStringToObject(item, "note", e.note.c_str());
-        cJSON_AddItemToArray(arr, item);
+        first = false;
+        row += "{\"key\":\"";
+        json_escape_append(row, ent.key);
+        row += "\",\"enabled\":";
+        row += ent.enabled ? "true" : "false";
+        row += ",\"alias\":\"";
+        json_escape_append(row, ent.alias);
+        row += "\",\"note\":\"";
+        json_escape_append(row, ent.note);
+        row += "\"}";
+        e = send_json_chunk_row(req, row);
+        if (e != ESP_OK) {
+            return e;
+        }
     }
-    return send_json_root(req, 200, root);
+
+    e = httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+    if (e != ESP_OK) {
+        return e;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 esp_err_t handle_watchlist_post(httpd_req_t* req) {
