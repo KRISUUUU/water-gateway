@@ -14,7 +14,6 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
 #include "telegram_router/telegram_router.hpp"
-#include "watchdog_service/watchdog_service.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 
@@ -136,10 +135,8 @@ static void mqtt_task(void* /*param*/) {
 }
 
 static void health_task(void* /*param*/) {
-    watchdog_service::WatchdogService::instance().register_task();
+    // Low-frequency telemetry (30s cadence) must not subscribe to TWDT: default timeout is 5s.
     while (true) {
-        watchdog_service::WatchdogService::instance().feed();
-
         auto& wifi = wifi_manager::WifiManager::instance();
         auto& mqtt = mqtt_service::MqttService::instance();
         auto& health = health_monitor::HealthMonitor::instance();

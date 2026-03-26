@@ -7,11 +7,6 @@
     let cacheWatchlist = [];
     let refreshTimer = null;
     let bootstrapInfo = null;
-    const STARTUP_STATE = {
-        FIRST_BOOT_PROVISIONING: "first_boot_provisioning",
-        NORMAL_UNAUTHENTICATED: "normal_unauthenticated",
-        NORMAL_AUTHENTICATED: "normal_authenticated",
-    };
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -82,6 +77,53 @@
         }
     }
 
+    function stopRefreshTimer() {
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
+    }
+
+    /** Sign-in only: session invalid, logout, or API 401. Never shows Initial Setup. */
+    function showSessionExpiredSignIn() {
+        stopRefreshTimer();
+        token = "";
+        localStorage.removeItem("wg_token");
+        $("#app-shell").hidden = true;
+        $("#login-page").hidden = false;
+        setHiddenIfPresent("#auth-startup-msg", true);
+        setHiddenIfPresent("#login-form", false);
+        setHiddenIfPresent("#setup-form", true);
+        $("#login-subtitle").textContent = "Sign in to manage your device.";
+        const err = $("#login-error");
+        if (err) {
+            err.hidden = true;
+            err.textContent = "";
+        }
+    }
+
+    /** Cold start with no token after bootstrap (not first-boot provisioning). */
+    function showStartupUnauthenticated(boot) {
+        stopRefreshTimer();
+        token = "";
+        localStorage.removeItem("wg_token");
+        $("#app-shell").hidden = true;
+        $("#login-page").hidden = false;
+        setHiddenIfPresent("#login-form", false);
+        setHiddenIfPresent("#setup-form", true);
+        if (boot && boot.bootstrap_failed) {
+            const startupMsg = $("#auth-startup-msg");
+            if (startupMsg) {
+                startupMsg.hidden = false;
+                startupMsg.textContent =
+                    "Unable to read bootstrap state. Showing sign in fallback.";
+            }
+        } else {
+            setHiddenIfPresent("#auth-startup-msg", true);
+        }
+        $("#login-subtitle").textContent = "Sign in to manage your device.";
+    }
+
     function badgeClassByState(value) {
         const v = String(value || "").toLowerCase();
         if (v.includes("ok") || v.includes("connected") || v.includes("healthy") || v === "up") {
@@ -135,7 +177,7 @@
         }
         return fetch(path, opts).then((r) => {
             if (r.status === 401) {
-                showLogin();
+                showSessionExpiredSignIn();
                 throw new Error("unauthorized");
             }
             return r.text().then((txt) => {
@@ -154,22 +196,6 @@
                 return data;
             });
         });
-    }
-
-    function showLogin() {
-        if (refreshTimer) {
-            clearInterval(refreshTimer);
-            refreshTimer = null;
-        }
-        token = "";
-        localStorage.removeItem("wg_token");
-        $("#app-shell").hidden = true;
-        $("#login-page").hidden = false;
-        if (isFirstBootProvisioning()) {
-            showSetupScreen();
-        } else {
-            showSignInScreen();
-        }
     }
 
     function showSignInScreen() {
@@ -877,7 +903,7 @@
 
         $("#btn-logout").addEventListener("click", () => {
             api("POST", "/api/auth/logout").catch(() => {});
-            showLogin();
+            showSessionExpiredSignIn();
         });
 
         $("#login-form").addEventListener("submit", (e) => {
@@ -948,7 +974,7 @@
                 .then((resp) => {
                     if (resp.relogin_required) {
                         setMsg(msg, "warning", "Saved. Authentication changed, please log in again.");
-                        showLogin();
+                        showSessionExpiredSignIn();
                         return;
                     }
                     if (resp.reboot_required) {
@@ -1142,42 +1168,32 @@
     setHiddenIfPresent("#setup-form", true);
 
     bootstrap().then((boot) => {
-        let startupState = STARTUP_STATE.NORMAL_UNAUTHENTICATED;
-        if (boot.provisioning && !boot.password_set) {
-            startupState = STARTUP_STATE.FIRST_BOOT_PROVISIONING;
-        } else if (token) {
-            startupState = STARTUP_STATE.NORMAL_AUTHENTICATED;
-        }
+        bootstrapInfo = boot;
+        const firstBoot = !!(boot.provisioning && !boot.password_set);
+        const stored = (localStorage.getItem("wg_token") || "").trim();
 
-        if (startupState === STARTUP_STATE.FIRST_BOOT_PROVISIONING) {
+        if (firstBoot) {
             forceFirstBootSetup();
             return;
         }
 
-        if (startupState === STARTUP_STATE.NORMAL_UNAUTHENTICATED) {
-            if (boot.bootstrap_failed) {
-                const startupMsg = $("#auth-startup-msg");
-                if (startupMsg) {
-                    startupMsg.hidden = false;
-                    startupMsg.textContent =
-                        "Unable to read bootstrap state. Showing sign in fallback.";
-                }
-            }
-            showLogin();
+        if (!stored) {
+            showStartupUnauthenticated(boot);
             return;
         }
 
+        token = stored;
         api("GET", "/api/status")
-            .then((status) => checkFirstBootByLiveConfig(status).then((firstBoot) => ({ status, firstBoot })))
-            .then((result) => {
-                if (result.firstBoot) {
-                    forceFirstBootSetup();
-                    return;
-                }
-                cacheStatus = result.status;
-                applyModeUi(result.status.mode);
+            .then((status) => {
+                cacheStatus = status;
+                applyModeUi(status.mode);
                 showApp();
             })
-            .catch(() => showLogin());
+            .catch((err) => {
+                if (err && err.message === "unauthorized") {
+                    return;
+                }
+                showSessionExpiredSignIn();
+            });
     });
 })();
