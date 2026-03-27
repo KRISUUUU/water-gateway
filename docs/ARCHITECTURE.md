@@ -25,11 +25,13 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-The ESP32 + CC1101 acts as a **Wireless M-Bus 868 MHz RF gateway**. It receives
-raw telegrams over the air, attaches metadata (RSSI, LQI, timestamp, CRC status),
-performs deduplication, and publishes outbound via MQTT. A built-in web panel
-provides service/diagnostics access. Heavy vendor-specific decoding is delegated
-to external systems.
+The ESP32 + CC1101 acts as a **Wireless M-Bus 868 MHz RF gateway**. The CC1101
+RX path captures packets (with hardware sync `SYNC1`/`SYNC0` = `0x54`/`0x3D` in
+the T-mode register set). The **wmbus_minimal_pipeline** decodes **Mode-T 3-of-6**
+symbols, verifies **EN 13757-4** link-layer CRC, and only then builds a
+`WmbusFrame` of **decoded link-layer octets**. Invalid captures are dropped before
+dedup, MQTT, or the API. A built-in web panel exposes diagnostics and
+configuration. Application-layer meter decoding remains external.
 
 ## 2. Language Choice: C++
 
@@ -92,9 +94,10 @@ to external systems.
 
 | Module | Responsibility |
 |--------|---------------|
-| `wmbus_minimal_pipeline` | Raw frame → WmbusFrame with metadata (RSSI, LQI, CRC, timestamp, hex) |
-| `dedup_service` | Sliding-window duplicate detection by frame content hash |
-| `telegram_router` | Route decisions: publish raw, suppress duplicate, flag bad CRC |
+| `wmbus_minimal_pipeline` | From `RawRadioFrame`: 3-of-6 decode (rtl_433 codeword table), L-field consistency check, EN 13757 DLL CRC chain; output `WmbusFrame` with decoded link-layer `raw_bytes`, `metadata.crc_ok=true` on success |
+| `dedup_service` | Sliding-window duplicate detection on `dedup_key()` (byte content of decoded frame) |
+| `telegram_router` | After dedup: publish raw to MQTT, suppress duplicate, or optionally publish warning event (CRC path reserved for frames with `metadata.crc_ok==false`; pipeline success sets `crc_ok` true) |
+| `meter_registry` | Detected meters, watchlist (SPIFFS), recent telegrams for API/UI |
 
 ### Communication Layer
 
@@ -158,7 +161,7 @@ Layer 2 (Config):          config_store
 Layer 3 (Platform):        wifi_manager, ntp_service, mdns_service, provisioning_manager
                             ↑
 Layer 4a (Radio):          radio_cc1101, radio_state_machine
-Layer 4b (Pipeline):       wmbus_minimal_pipeline, dedup_service, telegram_router
+Layer 4b (Pipeline):       wmbus_minimal_pipeline, dedup_service, telegram_router, meter_registry
 Layer 4c (Comms):          mqtt_service (mqtt_topics, mqtt_payloads)
 Layer 4d (Auth):           auth_service
                             ↑
@@ -189,14 +192,15 @@ Layer 7 (Entry):           main/app_main.cpp
 | `wmbus_minimal_pipeline` | `common`, `radio_cc1101` |
 | `dedup_service` | `common` |
 | `telegram_router` | `common`, `dedup_service`, `wmbus_minimal_pipeline` |
+| `meter_registry` | `common`, `storage_service`, `wmbus_minimal_pipeline` |
 | `mqtt_service` | `common`, `event_bus`, `config_store`, `json` |
 | `auth_service` | `common`, `config_store` |
 | `http_server` | `common`, `auth_service` |
-| `api_handlers` | `common`, `http_server`, `auth_service`, `config_store`, `mqtt_service`, `diagnostics_service`, `metrics_service`, `health_monitor`, `ota_manager`, `radio_state_machine`, `persistent_log_buffer`, `support_bundle_service`, `json` |
+| `api_handlers` | `common`, `http_server`, `auth_service`, `config_store`, `mqtt_service`, `diagnostics_service`, `metrics_service`, `health_monitor`, `ota_manager`, `provisioning_manager`, `radio_state_machine`, `meter_registry`, `persistent_log_buffer`, `support_bundle_service`, `json` |
 | `ota_manager` | `common`, `event_bus` |
 | `diagnostics_service` | `common`, `radio_cc1101`, `mqtt_service`, `wifi_manager`, `metrics_service`, `health_monitor`, `json` |
 | `metrics_service` | `common` |
-| `health_monitor` | `common`, `esp_timer` |
+| `health_monitor` | `common`, `esp_timer` (mutex protects snapshot; `esp_timer` for uptime in `snapshot()`) |
 | `watchdog_service` | `common` |
 | `persistent_log_buffer` | `common` |
 | `support_bundle_service` | `common`, `diagnostics_service`, `metrics_service`, `health_monitor`, `config_store`, `persistent_log_buffer`, `meter_registry`, `ota_manager`, `json` |
@@ -235,8 +239,17 @@ Radio RX is highest because FIFO overflow means lost frames. Pipeline is next be
 | `frame_queue` | `RawRadioFrame` | 16 | `radio_rx_task` | `pipeline_task` |
 | `mqtt_outbox` | `MqttOutboxItem` | 32 | `pipeline_task`, `health_task` | `mqtt_task` |
 
-`RawRadioFrame`: ~280 bytes max (raw bytes array + length + RSSI + LQI + CRC status).
-`MqttOutboxItem`: Fixed-size struct with `char topic[128]` + `char payload[640]` (passed by value through the queue, no heap allocation).
+`RawRadioFrame`: up to `MAX_DATA_SIZE` (290) bytes in `data[]`, plus `length`, RSSI, LQI, and CC1101 append-status **hardware** CRC flag (`crc_ok` — independent of DLL verification in the pipeline).
+`MqttOutboxItem`: Fixed-size struct with `char topic[128]` + `char payload[896]` (passed by value through the queue, no heap allocation).
+
+### Concurrency (selected)
+
+| Component | Mechanism | Notes |
+|-----------|-----------|--------|
+| `config_store` | FreeRTOS mutex (`xSemaphoreCreateMutex`) | Serializes load/save and in-memory access |
+| `mqtt_service` | `std::mutex` around `esp_mqtt_client` handle + broker URI string; `std::atomic` for connection state and counters | `publish()` locks briefly so `disconnect()` cannot destroy the client mid-call |
+| `wifi_manager` | `std::mutex` for IP/SSID strings; `std::atomic` for `WifiState`, RSSI, backoff | Reconnect uses a one-shot FreeRTOS timer |
+| `health_monitor` | `std::mutex` around internal snapshot | `snapshot()` copies under lock |
 
 ### Event Bus (Notifications)
 
@@ -272,39 +285,41 @@ because the interface is similar (publish/subscribe with type + optional data).
 ### Primary Path: Radio Frame → MQTT
 
 ```
-CC1101 FIFO
-    │ SPI read (radio_rx_task, Core 1)
+CC1101 RX FIFO
+    │ SPI read (radio_rx_task, Core 1); bounded drain for long packets
     ▼
-RawRadioFrame { bytes[290], len, rssi, lqi, crc_ok }
-    │ xQueueSend(frame_queue)
+RawRadioFrame { data[len], rssi, lqi, crc_ok_hw }
+    │ xQueueSend(frame_queue) — on overflow: radio.note_frame_queue_full()
     ▼
 pipeline_task (Core 0)
     │
-    ├─ WmbusPipeline::from_radio_frame()
-    │   → WmbusFrame { raw_bytes (canonical), metadata { rssi, lqi, crc_ok, timestamp, frame_len } }
-    │   → raw_hex is derived only for API/MQTT/UI payloads
+    ├─ WmbusPipeline::from_radio_frame(raw, ts, rx_count)
+    │   • Requires even length: each pair of bytes = two 3-of-6 symbols (mask 0x3F)
+    │   • Decodes to link-layer octets; checks L == decoded.size()-1
+    │   • Verifies EN 13757 DLL CRC (first block CRC over bytes 0..9, CRC at 10..11;
+    │     optional continuation blocks per implementation in wmbus_pipeline.cpp)
+    │   • On failure: Result::error → frame discarded (no MQTT, no registry)
+    │   • On success: WmbusFrame { raw_bytes = decoded link layer, metadata.crc_ok = true }
     │
-    ├─ TelegramRouter::route()
-    │   ├─ DedupService::seen_recently(dedup_key(raw_bytes), timestamp)?
-    │   │   → yes: RouteDecision::SUPPRESS_DUPLICATE
-    │   │   → no:  DedupService::remember(dedup_key(raw_bytes), timestamp)
-    │   │          RouteDecision::PUBLISH_RAW
-    │   └─ !crc_ok? → additionally flag for event publish
+    ├─ TelegramRouter::route(frame)
+    │   ├─ DedupService on dedup_key() (full decoded byte string)
+    │   │   → duplicate: suppress publish
+    │   │   → new: remember, then publish (and rare event path if crc_ok false)
     │
-    ├─ if PUBLISH_RAW:
-    │   → build MqttOutboxItem { topic=RAW_FRAME, payload=json }
-    │   → xQueueSend(mqtt_outbox)
+    ├─ MeterRegistry::observe_frame(frame, duplicate)
     │
-    └─ update diagnostics counters
-        (frames_received++, frames_published++ or frames_duplicate++)
+    ├─ if publish_raw:
+    │   → enqueue_mqtt(RAW_FRAME, payload_raw_frame(...)) — on failure drops counted/logged
+    │
+    └─ if publish_event: enqueue_mqtt(EVENTS, ...)
 
 mqtt_task (Core 0)
     │ xQueueReceive(mqtt_outbox)
     ▼
-    esp_mqtt_client_publish(topic, payload, qos=0)
-    │
-    └─ update counters (mqtt_publishes++ or mqtt_failures++)
+    MqttService::publish (if connected)
 ```
+
+**Hex for API/MQTT:** `WmbusFrame::raw_hex()` is derived from `raw_bytes` (decoded link layer), not from raw 3-of-6 symbols.
 
 ### Secondary Path: Periodic Telemetry
 
@@ -392,7 +407,7 @@ struct AppConfig {
     } logging;
 
     struct Auth {
-        char admin_password_hash[97]; // "salt_hex:hash_hex" SHA-256 (SECRET)
+        char admin_password_hash[98]; // "salt_hex:hash_hex" SHA-256 (SECRET); size matches `AuthConfig` in code
         uint32_t session_timeout_s;   // Session expiry, default 3600
     } auth;
 };
@@ -422,20 +437,18 @@ Migration functions are chained: `migrate_v1_to_v2()`, `migrate_v2_to_v3()`, etc
 
 ### Topic Hierarchy
 
-All topics are prefixed with `{prefix}/{device_id}/` where:
-- `prefix` defaults to `wmbus-gw` (configurable)
-- `device_id` defaults to last 6 hex chars of MAC address
+Topics use `{prefix}/{hostname}/…` where `prefix` is `mqtt.prefix` and `hostname` is `device.hostname` from config (see `mqtt_service::topic_*` and `runtime_tasks.cpp`). This is **not** automatically the MAC address; choose a unique hostname per device for broker routing.
 
 | Topic | QoS | Retain | Purpose |
 |-------|-----|--------|---------|
-| `{prefix}/{id}/status` | 0 | true | Online/offline status, firmware version |
-| `{prefix}/{id}/telemetry` | 0 | false | Periodic metrics (heap, uptime, counters) |
-| `{prefix}/{id}/events` | 0 | false | Discrete events (radio error, OTA, config change) |
-| `{prefix}/{id}/rf/raw` | 0 | false | Raw received telegram with metadata |
+| `{prefix}/{hostname}/status` | 0 | true | Online/offline status, firmware version |
+| `{prefix}/{hostname}/telemetry` | 0 | false | Periodic metrics (heap, uptime, counters) |
+| `{prefix}/{hostname}/events` | 0 | false | Discrete events (radio error, OTA, config change) |
+| `{prefix}/{hostname}/rf/raw` | 0 | false | Decoded link-layer telegram + metadata |
 
 ### Last Will and Testament
 
-- **Topic:** `{prefix}/{id}/status`
+- **Topic:** `{prefix}/{hostname}/status`
 - **Payload:** `{"online": false}`
 - **QoS:** 0, **Retain:** true
 
@@ -563,14 +576,18 @@ Transitions are caller-driven (not automatic):
 
 ### Support Bundle
 
-JSON document containing:
-- Diagnostics snapshot (radio, MQTT, WiFi counters and state)
-- Metrics snapshot (uptime, heap)
-- Health snapshot
-- Config (with secrets redacted)
-- Recent log lines from persistent buffer
+Generated by `support_bundle_service::generate_bundle_json()` as a single JSON object:
 
-*Not yet implemented: device identity block, last N events, reset reason history.*
+- `format`, `format_version`
+- `diagnostics` — embedded diagnostics snapshot (from `DiagnosticsService::to_json`)
+- `metrics` — uptime, heap, min heap, largest free block
+- `health` — state, warning/error counts, last messages, uptime
+- `config` — full config with secrets replaced by `***` (or an error object if config not loaded)
+- `logs` — array of recent `persistent_log_buffer` entries (`timestamp_us`, `severity`, `message`)
+- `meters` — detected and watchlist entry counts
+- `ota` — OTA manager state, progress, message, current version
+
+There is **no** separate top-level “reset reason history” array; reset reason may only appear inside nested diagnostics if that snapshot includes it.
 
 ## 13. Security Strategy
 
@@ -622,7 +639,9 @@ Tests that run on the development machine without ESP-IDF or hardware:
 | `test_mqtt_payloads.cpp` | JSON payload structure, field presence, escaping |
 | `test_auth_helpers.cpp` | Password hash verification, token generation/validation |
 | `test_health_logic.cpp` | State transitions, counter increments |
-| `test_wmbus_pipeline.cpp` | Frame conversion, hex encoding, metadata extraction |
+| `test_wmbus_pipeline.cpp` | 3-of-6 + DLL CRC acceptance/rejection, hex helpers, `l_field` / identity |
+| `test_meter_registry.cpp` | Detected meters, watchlist, telegram filters |
+| `test_ota_manager.cpp` | OTA manager lifecycle in host stub mode |
 
 ### What Cannot Be Host-Tested
 
@@ -668,6 +687,7 @@ water-gateway/
 │
 ├── components/
 │   ├── common/                     # Shared types, errors, Result<T>
+│   ├── board_config/               # Default CC1101 pins / SPI bus
 │   ├── event_bus/                  # Publish/subscribe event system
 │   ├── config_store/               # Versioned NVS config
 │   ├── storage_service/            # SPIFFS abstraction
@@ -680,6 +700,7 @@ water-gateway/
 │   ├── wmbus_minimal_pipeline/     # Frame → metadata pipeline
 │   ├── dedup_service/              # Duplicate detection
 │   ├── telegram_router/            # Route decisions
+│   ├── meter_registry/             # Detected meters, watchlist, telegram buffer
 │   ├── mqtt_service/               # MQTT client + topics + payloads
 │   ├── auth_service/               # Authentication + sessions
 │   ├── http_server/                # HTTP server wrapper
@@ -723,7 +744,9 @@ water-gateway/
 │   │   ├── test_mqtt_payloads.cpp
 │   │   ├── test_auth_helpers.cpp
 │   │   ├── test_health_logic.cpp
-│   │   └── test_wmbus_pipeline.cpp
+│   │   ├── test_wmbus_pipeline.cpp
+│   │   ├── test_meter_registry.cpp
+│   │   └── test_ota_manager.cpp
 │   └── fixtures/
 │       ├── README.md
 │       └── sample_frames.json
@@ -749,11 +772,12 @@ water-gateway/
 
 ### Known Limitations
 
-1. **No Wireless M-Bus decryption.** AES-128 decryption of meter data is out of scope (external decoder responsibility).
-2. **T-mode only initially.** C-mode and S-mode support are future extensions.
-3. **No HTTPS for web panel.** ESP32 HTTP server with TLS is resource-heavy; local network assumed.
-4. **4MB flash constraint.** 1.5MB per OTA partition limits firmware size.
-5. **Single CC1101.** No multi-radio or diversity reception.
+1. **No Wireless M-Bus application-layer decryption.** AES inside meter PDUs is out of scope; decoders consume `raw_hex` from MQTT/API.
+2. **T-mode only.** C-mode / S-mode not implemented.
+3. **No HTTPS for web panel by default.** TLS on httpd is optional product work.
+4. **Flash partition size** caps firmware (see `partitions.csv`).
+5. **Single CC1101.**
+6. **RF ↔ pipeline contract** — `WmbusPipeline` assumes an even-length 3-of-6 **symbol** stream in `RawRadioFrame`. If the CC1101 RX path delivers a different byte layout, frames will fail decode/CRC until the driver matches the pipeline (see `docs/LIMITATIONS.md`).
 
 ### Risks
 

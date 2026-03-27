@@ -2,160 +2,119 @@
 
 ## Overview
 
-The web panel is a modern single-page control panel (`web/index.html`,
-`web/app.js`, `web/styles.css`) served from SPIFFS over HTTP.
+The web panel is a single-page control panel (`web/index.html`, `web/app.js`,
+`web/styles.css`) served from SPIFFS over HTTP port 80.
 
 It is designed for day-to-day gateway operation, provisioning, and serviceability,
-while remaining lightweight and embedded-friendly (no heavy frontend framework).
+without a heavy frontend framework.
 
 ## Access
 
 - URL: `http://{device_ip}/` (provisioning AP: `http://192.168.4.1/`)
 - Port: `80`
-- Authentication: required for management endpoints; unauthenticated bootstrap/login endpoints are used only for startup/auth flow
+- Authentication: required for management APIs; `/api/bootstrap` and `/api/auth/login` are unauthenticated for startup flow
 
 ## Navigation and Pages
 
-The panel uses a persistent navigation shell:
+The shell uses a sidebar on desktop and a collapsible menu on small screens.
 
-- Desktop: left sidebar
-- Mobile: top bar with collapsible menu
-
-Main sections:
-
-- Dashboard
-- Live Telegrams
-- Detected Meters
-- Watchlist
-- Diagnostics
-- Logs
-- OTA
-- Settings
-- Support
-- Factory Reset
+Sections: Dashboard, Live Telegrams, Detected Meters, Watchlist, Diagnostics,
+Logs, OTA, Settings, Support, Factory Reset.
 
 ### Dashboard
 
-- Health + mode + firmware summary
-- WiFi/MQTT/radio status badges
-- Counters: frames, CRC fail, duplicates (best-effort), incomplete, dropped-too-long,
-  publish failures
-- Detected/watchlist counts
-- Quick actions (jump to meters/OTA/support, reboot shortcut)
+- Mode, health, firmware, Wi‑Fi / MQTT / radio badges
+- Counters: frames received, CRC fail (radio hardware counter), duplicates, incomplete, dropped-too-long, MQTT failures, heap, RSSI
+- Detected meters and watchlist counts
+- Quick links (meters, OTA, support) and reboot shortcut
+
+**Refresh:** While the dashboard is open, `/api/status` is polled on a short interval; full meter/watchlist refresh uses a slower interval.
 
 ### Live Telegrams
 
-- Recent frame table with metadata (timestamp, key, alias, raw hex, RSSI/LQI, CRC,
-  duplicate/watched flags, length)
-- Filters: `all`, `watched`, `unknown`, `duplicates`, `crc_fail`,
-  `problematic` (best-effort, mapped to CRC-fail scope)
-- Row actions: copy raw frame, jump to watchlist editor
+- Table: timestamp, meter key, alias, raw hex, length, RSSI, LQI, CRC OK, duplicate, watched
+- Filters: `all`, `watched`, `unknown`, `duplicates`, `crc_fail`, `problematic` (maps to CRC-fail oriented server filter where applicable)
+- **Sort:** Rows are sorted by `timestamp_ms` descending (newest first) after each load
+- Row actions: **Copy** (copies hex; button shows “Copied!” and is disabled briefly), **Add Watch** / **Edit Watch**
 
 ### Detected Meters
 
-- Inventory view with identity and signal/traffic counters
-- Filters + search (`alias`/`key`)
-- Action to add/edit watchlist entry
+- Inventory with filters and search (alias / key)
+- Actions to open watchlist editor with key prefilled
 
 ### Watchlist
 
-- Form-based edit (`key`, `alias`, `note`, `enabled`) + list table
-- Click row to prefill form for edits
+- Form: `key`, `alias`, `note`, `enabled`
+- Table rows click to load the form
 
 ### Diagnostics
 
-- Grouped cards for radio, MQTT, system health/memory, OTA state
-- Structured key/value display (not raw JSON dump)
+- Radio, MQTT, system, OTA snapshot cards (structured key/value)
 
 ### Logs
 
-- Severity filter + refresh
-- Readable log stream rendering
+- Severity filter and refresh; lines from `persistent_log_buffer`
 
 ### OTA
 
-- Current OTA state/progress/message/version
-- Binary upload trigger
-- URL OTA trigger (HTTPS only)
+- Status, upload, URL trigger
 
 ### Settings
 
-- Sectioned config editor (Device/WiFi/MQTT/Radio/Auth/Logging)
-- Validation/success/relogin/reboot messaging
-- Used after onboarding and in normal operations
+- Sectioned config editor with save, export, validation messages (`reboot_required`, `relogin_required`)
 
-### Initial Setup (Provisioning First Boot)
+### Initial Setup (provisioning first boot)
 
-- Shown when `/api/bootstrap` reports `provisioning=true` and `password_set=false`
-- Replaces normal sign-in prompt on first boot
-- Collects minimum onboarding fields:
-  - WiFi SSID
-  - WiFi password
-  - admin password
-- Optional fields:
-  - device name/hostname
-  - MQTT section (enabled via toggle)
-- On success, UI shows explicit reboot/apply guidance
+- Shown when bootstrap reports provisioning with no password set
+- Collects Wi‑Fi, admin password, optional MQTT and device identity
 
 ### Support
 
-- Support bundle download
-- Compact runtime summary
+- Support bundle download and short runtime summary
 
 ### Factory Reset
 
-- Dedicated danger zone with clear warning
-- Separate reboot-only and full factory-reset actions
+- Destructive reset with confirmation
 
 ## API Endpoints Used by UI
 
 | Method | Path | Auth | Notes |
 | ------ | ---- | ---- | ----- |
-| GET | `/api/bootstrap` | No | Returns `{ mode, provisioning, password_set }` for startup UX routing |
-| POST | `/api/auth/login` | No | Returns bearer token |
-| POST | `/api/auth/logout` | Yes | Invalidates current session |
-| POST | `/api/auth/password` | Yes | Change admin password (requires current password when already set) |
-| GET | `/api/status` | Yes | Mode + health + metrics + WiFi/MQTT/radio summary |
-| GET | `/api/telegrams` | Yes | Recent telegrams; optional `?filter=watched\|unknown\|duplicates\|crc_fail` |
-| GET | `/api/meters/detected` | Yes | Detected meter model; optional `?filter=watched\|unknown` |
-| GET | `/api/watchlist` | Yes | Watchlist entries |
-| POST | `/api/watchlist` | Yes | Upsert watchlist entry (`key`, `alias`, `note`, `enabled`) |
-| POST | `/api/watchlist/delete` | Yes | Remove watchlist entry (`key`) |
-| GET | `/api/diagnostics/radio` | Yes | RSM + detailed diagnostics snapshot |
-| GET | `/api/diagnostics/mqtt` | Yes | MQTT diagnostics |
-| GET | `/api/config` | Yes | Redacted config; secrets represented as `***` |
-| POST | `/api/config` | Yes | Save config; response includes `reboot_required` |
-| GET | `/api/ota/status` | Yes | Includes state/progress/message/current_version |
-| POST | `/api/ota/upload` | Yes | Streamed binary upload (`application/octet-stream`), returns `reboot_required` |
-| POST | `/api/ota/url` | Yes | Requires HTTPS URL |
-| GET | `/api/logs` | Yes | Returns `{ "entries": [...] }` |
-| GET | `/api/support-bundle` | Yes | Returns support bundle JSON |
-| POST | `/api/system/reboot` | Yes | Reboot device |
-| POST | `/api/system/factory-reset` | Yes | Reset config + reboot |
+| GET | `/api/bootstrap` | No | `{ mode, provisioning, password_set }` |
+| POST | `/api/auth/login` | No | Bearer token |
+| POST | `/api/auth/logout` | Yes | |
+| POST | `/api/auth/password` | Yes | Change password |
+| GET | `/api/status` | Yes | Aggregated status |
+| GET | `/api/telegrams` | Yes | `?filter=` optional |
+| GET | `/api/meters/detected` | Yes | `?filter=` optional |
+| GET | `/api/watchlist` | Yes | |
+| POST | `/api/watchlist` | Yes | Upsert |
+| POST | `/api/watchlist/delete` | Yes | Delete by key |
+| GET | `/api/diagnostics/radio` | Yes | |
+| GET | `/api/diagnostics/mqtt` | Yes | |
+| GET | `/api/config` | Yes | Redacted |
+| POST | `/api/config` | Yes | Save |
+| GET | `/api/ota/status` | Yes | |
+| POST | `/api/ota/upload` | Yes | Binary body |
+| POST | `/api/ota/url` | Yes | HTTPS URL JSON |
+| GET | `/api/logs` | Yes | |
+| GET | `/api/support-bundle` | Yes | JSON download |
+| POST | `/api/system/reboot` | Yes | |
+| POST | `/api/system/factory-reset` | Yes | |
 
-## Provisioning Notes
+## Status Badge Behavior
 
-- First boot with empty WiFi config runs AP mode and serves the same UI stack.
-- UI startup calls `/api/bootstrap` to choose between:
-  - Initial Setup (first boot, no admin hash)
-  - Normal Sign In (already configured auth)
-- Backend compatibility note: if no admin hash exists, login accepts any non-empty password.
-- UI intentionally avoids exposing that behavior as a generic login step on first boot.
-- After initial setup save, reboot is required before normal operations.
+Status strings are classified for badge color with **disconnect-related** states
+handled before generic “connected” / “ok” matching, so labels like **Disconnected**
+are not shown as green due to substring matching.
 
 ## Static Asset Delivery
 
-- SPIFFS image is generated from `web/` via `spiffs_create_partition_image(storage web FLASH_IN_PROJECT)`.
-- HTTP static handler resolves:
-  - `/` -> `/storage/index.html`
-  - `/index.html` -> `/storage/index.html`
-  - `/app.js` -> `/storage/app.js`
-  - `/styles.css` -> `/storage/styles.css`
-- Build output includes `build/storage.bin`, and `idf.py flash` writes it to `storage` partition.
+SPIFFS image is generated from `web/` in the ESP-IDF project. Flash the `storage`
+partition so `index.html`, `app.js`, and `styles.css` are available.
 
 ## Honest Limitations
 
-- OTA upload endpoint expects raw binary body (not multipart form-data).
-- Detected meter identity is best-effort: it uses `manufacturer_id` + `device_id`
-  when present in the observed frame layout, otherwise a stable signature prefix.
-- RF correctness/throughput remains hardware-dependent and must be validated on board.
+- OTA upload expects raw binary body, not multipart.
+- Meter identity is derived from decoded link-layer fields; see architecture docs.
+- RF performance depends on hardware and antenna.

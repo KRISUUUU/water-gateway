@@ -2,99 +2,73 @@
 
 ## Normal Operation
 
-After provisioning, the device operates autonomously:
+After provisioning, the device:
 
-1. Connects to configured WiFi network
-2. Synchronizes time via NTP
-3. Connects to MQTT broker
-4. Initializes CC1101 radio in RX mode
-5. Receives WMBus frames, deduplicates, and publishes via MQTT
-6. Serves web panel on port 80
-7. Publishes periodic telemetry (every 30s)
+1. Connects Wi‑Fi STA (or shows provisioning AP if unconfigured)
+2. Syncs time via SNTP when connected
+3. Connects to MQTT if enabled and configured
+4. Initializes CC1101 and the radio state machine; RX task polls for frames
+5. Pipeline task decodes 3-of-6, verifies DLL CRC, deduplicates, routes to MQTT, updates `meter_registry`
+6. Serves the web panel on port 80
+7. Publishes telemetry about every **30 seconds** when MQTT is connected (`health_task`)
 
 ## Monitoring
 
-### MQTT Status Topic
+### MQTT status topic
 
-Subscribe to `wmbus-gw/{id}/status` (retained) to monitor online/offline state.
-The Last Will ensures the status shows offline if the device disconnects unexpectedly.
+Retained `{prefix}/{hostname}/status` shows online/offline (Last Will covers abrupt disconnect). Use the configured `device.hostname` as the middle path segment.
 
-### Telemetry Topic
+### Telemetry topic
 
-Subscribe to `wmbus-gw/{id}/telemetry` for periodic metrics:
+`{prefix}/{hostname}/telemetry` includes `uptime_s`, heap, Wi‑Fi RSSI, MQTT/radio state strings,
+`frames_received`, publish and duplicate counters, **radio** `frames_crc_fail`
+(CC1101 hardware/status counter), and MQTT publish counters.
 
-- `uptime_s`, `free_heap_bytes`, `frames_received`, `mqtt_publishes`
-- If `frames_received` stops incrementing, the radio may have an issue
-- If `mqtt_failures` is climbing, check broker connectivity
-- Track `frames_incomplete` / `frames_dropped_too_long` in radio diagnostics to detect FIFO pressure
+Use `frames_received` vs published/duplicate counts to spot drops or dedup behavior.
 
-### Events Topic
+### Events topic
 
-Subscribe to `wmbus-gw/{id}/events` for discrete alerts:
+Discrete alerts (radio recovery, OTA, etc.) when emitted by firmware.
 
-- `radio_error`, `wifi_disconnected`, `mqtt_disconnected`, `ota_*`, `health_degraded`
+### Web dashboard
 
-### Web Panel Dashboard
+Visual overview: health, mode, firmware, key counters, badges.
 
-Access `http://{hostname}.local/` for a visual overview with status badges,
-key counters, and quick actions.
+**Badge semantics:** “Disconnected” / error states are not styled as healthy green (see `docs/WEB_UI.md`).
 
-### Live Telegrams / Detected Meters / Watchlist
+### Live Telegrams / meters / watchlist
 
-- Use the **Live Telegrams** page to inspect recent frames with filters:
-  `all`, `watched`, `unknown`, `duplicates`, `crc_fail`, `problematic` (best-effort).
-- Use **Detected Meters** to review observed transmitter identities and counters.
-- Use **Detected Meters** actions to add visible meters directly to watchlist flow.
-- Use **Watchlist** to assign alias/note and mark important meters as enabled.
-- Meter identity is best-effort and based on observed frame fields/signature.
+- **Live Telegrams:** Newest frames first (sorted by `timestamp_ms`). Filters narrow the API result.
+- **Detected Meters:** Observed identities and traffic counters.
+- **Watchlist:** Alias, note, enabled flag for important meters.
 
 ## Common Operational Tasks
 
-### Updating Firmware
+### Firmware update
 
-1. Open web panel → OTA page
-2. Either upload local `.bin` (`/api/ota/upload`) or start HTTPS URL OTA (`/api/ota/url`)
-3. Wait for OTA completion status (`reboot_required=true`)
-4. Reboot device to activate new partition
-5. If verification fails after reboot, bootloader rolls back to previous firmware
+1. Web → OTA: upload `.bin` or start HTTPS URL OTA
+2. Wait for success / `reboot_required`
+3. Reboot if required
+4. On failure, rollback may restore the previous partition
 
-### Changing Configuration
+### Configuration change
 
-1. Open web panel → Settings page
-2. Modify fields, click Save
-3. Save response indicates reboot requirement
-4. If response indicates `relogin_required`, log in again before continuing
-5. Reboot from System page for predictable application of runtime changes
+Settings → save. Some changes require reboot; auth changes may require re-login (`relogin_required`).
 
-### Exporting Configuration
+### Support bundle
 
-1. Open web panel → Settings page → Export
-2. Save JSON file (secrets are redacted)
+Support page → download JSON. Contains diagnostics, metrics, health, redacted config, logs, meter counts, OTA state (see `support_bundle_service`).
 
-### Downloading Support Bundle
+### Factory reset
 
-1. Open web panel → Support page → Download Support Bundle
-2. JSON file includes diagnostics, metrics, config (redacted), recent logs, and meter/watchlist counts
-3. Useful for remote troubleshooting
+Factory Reset page → confirm. Erases config and reboots into provisioning-style behavior when Wi‑Fi is cleared.
 
-### Factory Reset
+## Security Reminders
 
-1. Open web panel → Factory Reset page
-2. Confirm the action
-3. Device reboots into provisioning mode
+- Change default / initial passwords promptly
+- Use MQTT TLS when crossing untrusted networks
+- Keep firmware updated
 
-## LED Indicators (If Available)
+## Logs
 
-The firmware does not assume specific LED hardware. If LEDs are connected,
-a future GPIO indicator module can signal:
-
-- Solid: normal operation
-- Slow blink: provisioning mode
-- Fast blink: error state
-
-## Power Considerations
-
-- The device should be powered via stable USB or regulated 3.3V supply
-- Brown-out detection is enabled by default in ESP-IDF
-- Unexpected power loss may cause NVS write corruption in rare cases;
-  the config store uses atomic NVS operations to minimize this risk
+`/api/logs` exposes the in-RAM buffer; entries are lost on reboot.

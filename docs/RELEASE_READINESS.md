@@ -2,56 +2,47 @@
 
 ## Scope
 
-This checklist is for the final pre-release phase after software hardening is complete.
-It separates what can be validated now from what still requires real hardware.
+Pre-release verification after software changes; hardware-specific items are separate.
 
 ## Pre-Hardware Checklist
 
-- [ ] Host tests pass (`ctest --output-on-failure` in `tests/host/build-gcc`)
-- [ ] ESP-IDF build passes (`idf.py build`)
-- [ ] Static web assets generated and flashed (`build/storage.bin`)
-- [ ] OTA endpoints coherent:
-  - [ ] `POST /api/ota/upload` (binary upload)
-  - [ ] `POST /api/ota/url` (HTTPS URL OTA)
-  - [ ] `GET /api/ota/status` (state/progress/message)
-- [ ] Auth endpoints coherent:
-  - [ ] `POST /api/auth/login`
-  - [ ] `POST /api/auth/logout`
-  - [ ] `POST /api/auth/password`
-- [ ] Docs aligned with current behavior
+- [ ] Host tests pass: `cd tests/host && mkdir -p build && cd build && cmake .. && cmake --build . && ctest --output-on-failure`
+- [ ] ESP-IDF build passes: `idf.py build`
+- [ ] Web assets included in SPIFFS image (`storage` partition flashed)
+- [ ] OTA endpoints exercised in a safe environment:
+  - [ ] `POST /api/ota/upload` (binary body)
+  - [ ] `POST /api/ota/url` (HTTPS URL)
+  - [ ] `GET /api/ota/status`
+- [ ] Auth endpoints: login, logout, password change
+- [ ] Documentation matches current code (`README.md`, `docs/*.md`)
 
-## Post-Hardware Bring-Up Checklist
+## Post-Hardware Bring-Up
 
-Run `docs/HARDWARE_BRINGUP.md` end-to-end, then verify:
+Follow `docs/HARDWARE_BRINGUP.md`, then:
 
-- [ ] Live telegrams page receives real RF traffic
-- [ ] Detected meters and watchlist map correctly to observed traffic
-- [ ] MQTT `rf/raw` payload contains `raw_hex`, `meter_key`, and RF metadata
-- [ ] Diagnostics counters are coherent with on-air activity
+- [ ] Live Telegrams shows frames when meters transmit (or test transmitter)
+- [ ] Detected meters / watchlist behave as expected
+- [ ] MQTT `rf/raw` payloads include `raw_hex`, metadata, and `meter_key`
+- [ ] Telemetry counters move consistently with RF activity
 
-## 24-48h Soak Checklist
+## Soak (24–48h)
 
-Collect and review trends every 1-2h:
+Sample periodically:
 
-- [ ] `fifo_overflows`
-- [ ] `radio_resets`
-- [ ] `mqtt_failures`
-- [ ] `free_heap_bytes` and `min_free_heap_bytes`
-- [ ] watchdog/reset stability
-- [ ] no crash loops / unexpected reboots
+- [ ] `fifo_overflows`, `frames_incomplete`, `frames_dropped_too_long`
+- [ ] `mqtt_publish_failures`, radio recoveries
+- [ ] `free_heap_bytes`, `min_free_heap_bytes`
+- [ ] Unexpected reboots or watchdog triggers
 
-## OTA Rollback Validation Checklist
+## OTA Rollback
 
-- [ ] Upload known-good image and verify successful boot
-- [ ] Trigger controlled fail-before-mark-valid scenario
-- [ ] Verify bootloader rollback to previous slot
-- [ ] Confirm OTA state and logs reflect failure path honestly
-- [ ] Confirm support bundle captures OTA state and failure context
+- [ ] Flash known-good build via OTA
+- [ ] Induce failed boot path if testing rollback (controlled scenario)
+- [ ] Confirm previous slot boots and OTA state in UI/diagnostics is coherent
 
-## Release Candidate Checklist
+## Release Candidate
 
-- [ ] Docs freeze (README + operations/security/ota/testing/troubleshooting)
-- [ ] Version bump and changelog/release notes
-- [ ] Final binary size check against OTA partition margin
-- [ ] CI green on main workflows (host tests, format check, ESP-IDF build)
-- [ ] Tag release candidate after all above checks pass
+- [ ] Docs and version strings ready
+- [ ] Binary size within OTA partition margin
+- [ ] CI green (host tests + format + firmware build)
+- [ ] Tag / release notes

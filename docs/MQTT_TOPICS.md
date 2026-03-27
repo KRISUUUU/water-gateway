@@ -2,16 +2,16 @@
 
 ## Topic Hierarchy
 
-All topics follow: `{prefix}/{device_id}/{path}`
+All topics follow: `{prefix}/{device_slug}/{path}`
 
-- **prefix**: Configurable, default `wmbus-gw`
-- **device_id**: Derived from ESP32 MAC address (last 3 bytes, hex), e.g. `a1b2c3`
+- **prefix**: `AppConfig.mqtt.prefix`, default `wmbus-gw`
+- **device_slug**: `AppConfig.device.hostname` (default `wmbus-gw`) — this is the **configured hostname**, not the Wi‑Fi MAC. Topic builders take `(prefix, hostname)` in `mqtt_topics.cpp`; `runtime_tasks.cpp` passes `cfg.device.hostname`.
 
-Example with defaults: `wmbus-gw/a1b2c3/status`
+Example: with default prefix and hostname: `wmbus-gw/wmbus-gw/status` (operators often change hostname to keep segments unique on a broker).
 
 ## Topics
 
-### `{prefix}/{id}/status`
+### `{prefix}/{hostname}/status`
 
 Device online/offline status. Used for Home Assistant availability.
 
@@ -41,13 +41,13 @@ Device online/offline status. Used for Home Assistant availability.
 }
 ```
 
-### `{prefix}/{id}/telemetry`
+### `{prefix}/{hostname}/telemetry`
 
 Periodic system metrics for monitoring and alerting.
 
 - **QoS:** 0
 - **Retain:** false
-- **Publish frequency:** Every 30 seconds (configurable)
+- **Publish frequency:** About every 30 seconds when MQTT is connected (see `health_task` in `app_core`)
 
 #### Payload
 
@@ -69,30 +69,32 @@ Periodic system metrics for monitoring and alerting.
 }
 ```
 
-### `{prefix}/{id}/events`
+`frames_crc_fail` comes from **radio** counters (CC1101 RX status / hardware-related accounting). It is not the same as DLL validation inside `WmbusPipeline`.
+
+### `{prefix}/{hostname}/events`
 
 Discrete system events for alerting and audit.
 
 - **QoS:** 0
 - **Retain:** false
-- **Publish frequency:** On event occurrence
+- **Publish frequency:** When the firmware publishes an event (e.g. radio warning from router)
 
 #### Payload
 
 ```json
 {
-  "event": "radio_error",
+  "event": "radio_event",
   "severity": "warning",
-  "message": "FIFO overflow detected, radio reset triggered",
+  "message": "Received frame with CRC failure",
   "timestamp": "2025-01-15T12:00:05Z"
 }
 ```
 
-#### Event Types
+#### Event Types (intended taxonomy)
 
 | `event` Value | Severity | Description |
 |---------------|----------|-------------|
-| `boot` | `info` | Device booted (includes reset reason) |
+| `boot` | `info` | Device booted |
 | `wifi_connected` | `info` | WiFi connection established |
 | `wifi_disconnected` | `warning` | WiFi connection lost |
 | `mqtt_connected` | `info` | MQTT broker connection established |
@@ -106,27 +108,30 @@ Discrete system events for alerting and audit.
 | `health_degraded` | `warning` | Health state moved to warning or error |
 | `health_recovered` | `info` | Health state recovered to healthy |
 
-### `{prefix}/{id}/rf/raw`
+Actual emitted `event` strings depend on `mqtt_service::payload_event` call sites.
 
-Raw received WMBus telegram with RF metadata. This is the primary data output
-for external decoders (wmbusmeters, Home Assistant, custom consumers).
+### `{prefix}/{hostname}/rf/raw`
+
+Decoded Wireless M-Bus **link-layer** octets (uppercase hex) plus RF metadata. This is the primary output for external decoders (wmbusmeters, Home Assistant, custom consumers).
 
 - **QoS:** 0
 - **Retain:** false
-- **Publish frequency:** On each unique (non-duplicate) frame reception
+- **Publish frequency:** On each **routed** non-duplicate publish (see `telegram_router`)
+
+Only frames that pass `WmbusPipeline::from_radio_frame` (3-of-6 + DLL CRC + L-field length) are published here today.
 
 #### Payload
 
 ```json
 {
-  "raw_hex": "2C4493157856341201078C2027900F002C25B30A000021...",
-  "frame_length": 44,
+  "raw_hex": "0B4493157856341234123EBF",
+  "frame_length": 12,
   "rssi_dbm": -65,
   "lqi": 45,
   "crc_ok": true,
   "manufacturer_id": 5523,
-  "device_id": 305419896,
-  "meter_key": "mfg:1593-id:12345678",
+  "device_id": 2018915346,
+  "meter_key": "mfg:1593-id:78563412",
   "timestamp": "2025-01-15T12:00:01Z",
   "rx_count": 4524
 }
@@ -136,43 +141,38 @@ for external decoders (wmbusmeters, Home Assistant, custom consumers).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `raw_hex` | string | Complete received frame as uppercase hex string |
-| `frame_length` | integer | Number of raw bytes |
-| `rssi_dbm` | integer | Received signal strength in dBm |
-| `lqi` | integer | Link Quality Indicator (CC1101-specific, 0-127) |
-| `crc_ok` | boolean | Whether CC1101 hardware CRC check passed |
-| `manufacturer_id` | integer | Observed WMBus manufacturer field from current frame parsing |
-| `device_id` | integer | Observed WMBus device ID field from current frame parsing |
-| `meter_key` | string | Stable gateway identity key (`mfg:....-id:....` or `sig:...`) |
-| `timestamp` | string | ISO 8601 UTC timestamp of reception |
-| `rx_count` | integer | Monotonic frame reception counter (useful for detecting gaps) |
+| `raw_hex` | string | Uppercase hex of **decoded link-layer bytes** (L-field first), not raw 3-of-6 symbols |
+| `frame_length` | integer | Count of decoded link-layer bytes in `raw_hex` |
+| `rssi_dbm` | integer | RSSI in dBm (from CC1101 conversion) |
+| `lqi` | integer | Link quality (CC1101 status byte, 0–127) |
+| `crc_ok` | boolean | **DLL verification succeeded** in `WmbusPipeline` (`true` for published frames in the current code path) |
+| `manufacturer_id` | integer | Parsed from decoded frame (little-endian field) |
+| `device_id` | integer | Parsed from decoded frame |
+| `meter_key` | string | `identity_key()` from `WmbusFrame` |
+| `timestamp` | string | ISO 8601 UTC reception time (NTP-backed when available) |
+| `rx_count` | integer | Monotonic counter from pipeline task |
 
 ## Contract Stability
 
 ### Versioning Policy
 
-- Fields in published payloads are **additive only**. Existing fields are never
-  removed or renamed without a major version bump.
-- New fields may be added to any payload at any time. Consumers must tolerate
-  unknown fields.
-- The `raw_hex` field in `rf/raw` is the primary contract. External decoders
-  should depend only on this field being present and correct.
+- Published fields are **additive** when possible.
+- Consumers should tolerate unknown JSON keys.
+- `raw_hex` is the primary payload for external decoding.
 
 ### Breaking Changes
 
-If a breaking change to topic structure or payload format is necessary:
+If a breaking change is required:
 
-1. Document the change in this file and in release notes
-2. Bump the firmware major version
-3. Add a `payload_version` field to affected topics during transition
-4. Maintain backward compatibility for at least one major version where practical
+1. Document in this file and release notes
+2. Bump firmware major version
+3. Consider a `payload_version` field during transition
 
 ## Home Assistant Integration
 
 ### Auto-Discovery (Future)
 
-MQTT auto-discovery for Home Assistant is planned as a future enhancement.
-For now, manual YAML configuration is required.
+Planned enhancement; manual YAML is typical today.
 
 ### Manual Configuration Example
 
@@ -180,37 +180,37 @@ For now, manual YAML configuration is required.
 mqtt:
   sensor:
     - name: "WMBus Gateway Status"
-      state_topic: "wmbus-gw/a1b2c3/status"
+      state_topic: "wmbus-gw/<YOUR_HOSTNAME>/status"
       value_template: "{{ 'Online' if value_json.online else 'Offline' }}"
-      json_attributes_topic: "wmbus-gw/a1b2c3/status"
+      json_attributes_topic: "wmbus-gw/<YOUR_HOSTNAME>/status"
       availability:
-        - topic: "wmbus-gw/a1b2c3/status"
+        - topic: "wmbus-gw/<YOUR_HOSTNAME>/status"
           value_template: "{{ 'online' if value_json.online else 'offline' }}"
 
     - name: "WMBus Gateway Uptime"
-      state_topic: "wmbus-gw/a1b2c3/telemetry"
+      state_topic: "wmbus-gw/<YOUR_HOSTNAME>/telemetry"
       value_template: "{{ value_json.uptime_s }}"
       unit_of_measurement: "s"
       device_class: "duration"
 
     - name: "WMBus Frames Received"
-      state_topic: "wmbus-gw/a1b2c3/telemetry"
+      state_topic: "wmbus-gw/<YOUR_HOSTNAME>/telemetry"
       value_template: "{{ value_json.frames_received }}"
       state_class: "total_increasing"
 ```
 
+Replace `<YOUR_HOSTNAME>` with the device’s configured `device.hostname` (default `wmbus-gw`).
+
 ### wmbusmeters Integration
 
-The `rf/raw` topic provides the raw hex telegram that wmbusmeters can process.
-Configure wmbusmeters to subscribe to `wmbus-gw/+/rf/raw` and parse the
-`raw_hex` field. The additional `meter_key` field can be used for routing,
-watchlists, and entity naming in Home Assistant automations.
+Subscribe to `wmbus-gw/+/rf/raw` (or your prefix) and pass `raw_hex` into your decoder pipeline.
+`meter_key` helps correlate rows with the gateway’s Detected Meters / watchlist.
 
 ## Topic Summary Table
 
 | Topic | Direction | QoS | Retain | Frequency |
 |-------|-----------|-----|--------|-----------|
-| `{p}/{id}/status` | Gateway → Broker | 0 | true | On connect / state change |
-| `{p}/{id}/telemetry` | Gateway → Broker | 0 | false | Every 30s |
-| `{p}/{id}/events` | Gateway → Broker | 0 | false | On event |
-| `{p}/{id}/rf/raw` | Gateway → Broker | 0 | false | Per unique frame |
+| `{p}/{hostname}/status` | Gateway → Broker | 0 | true | On connect / change |
+| `{p}/{hostname}/telemetry` | Gateway → Broker | 0 | false | ~30s |
+| `{p}/{hostname}/events` | Gateway → Broker | 0 | false | On event |
+| `{p}/{hostname}/rf/raw` | Gateway → Broker | 0 | false | Per routed frame |

@@ -2,114 +2,53 @@
 
 ## Scope
 
-This checklist is for the first real ESP32 + CC1101 validation run.
-It focuses on proving build/boot/radio transport basics, not feature expansion.
+First ESP32 + CC1101 board validation: boot, network, radio transport, and
+pipeline acceptance of real over-the-air traffic.
 
 ## Board Assumptions
 
-- ESP32 dev board with 4 MB flash
-- CC1101 module at 868 MHz
-- Current default pin profile (`board_config`):
-  - MOSI=23
-  - MISO=19
-  - SCK=18
-  - CS=5
-  - GDO0=4
-  - GDO2=2
-- 3.3V power only, common GND between ESP32 and CC1101
-- Connected 868 MHz antenna
-
-If your board uses different pins, update `components/board_config/src/board_config.cpp`
-before flashing.
+- ESP32 module with sufficient flash for the partition table
+- CC1101 at 868 MHz, 3.3 V I/O, common ground with ESP32
+- Default pins from `board_config` (override in `components/board_config/` if needed):
+  - MOSI=23, MISO=19, SCK=18, CS=5, GDO0=4, GDO2=2
+- 868 MHz antenna connected
 
 ## Bring-Up Sequence
 
-1. **Environment**
-   - Activate ESP-IDF v5.2 environment.
-   - Build firmware: `idf.py build`.
-2. **Flash + Monitor**
-   - Flash: `idf.py -p <PORT> flash`.
-   - Open logs: `idf.py -p <PORT> monitor`.
-3. **Foundation Checks**
-   - Confirm startup reaches "Foundations initialized".
-   - Confirm config is loaded or defaults are persisted.
-4. **Mode Check**
-   - If WiFi is empty, confirm provisioning mode starts and HTTP server responds.
-   - If WiFi is configured, confirm normal runtime starts.
-5. **Network Checks (Normal Runtime)**
-   - Verify WiFi connection and DHCP IP in logs.
-   - Verify MQTT connect/disconnect state transitions in logs.
-6. **Radio Checks**
-   - Verify CC1101 init log with chip ID.
-   - Verify RX task is running (no immediate radio error loop).
-   - Verify frame counters change when known WMBus traffic is present.
-   - Observe `frames_incomplete` / `frames_dropped_too_long` counters under heavy traffic.
-7. **API Checks**
-   - Login: `POST /api/auth/login`.
-   - Query health/config/diagnostics endpoints with bearer token.
-   - Confirm `/api/ota/upload` accepts binary upload and returns `reboot_required`.
-   - Confirm `/api/ota/url` rejects non-HTTPS URLs.
-8. **Stability Checks (15-30 min)**
-   - No crash/reboot loop.
-   - Health state is coherent with WiFi/MQTT conditions.
-   - Watchdog feed path remains active.
+1. **Toolchain** — ESP-IDF v5.x environment active (`export.sh`).
+2. **Build** — `idf.py build`.
+3. **Flash** — `idf.py -p <PORT> flash` including application and `storage` (SPIFFS).
+4. **Monitor** — `idf.py -p <PORT> monitor`; confirm boot reaches app init without panic.
+5. **Provisioning vs normal** — Empty Wi‑Fi → AP mode; configured → STA.
+6. **Network** — In STA mode: DHCP IP, NTP sync, MQTT connect if configured.
+7. **Radio**
+   - Logs: CC1101 init, chip ID, RX task running
+   - Counters: `frames_received` should move when T-mode traffic is present
+   - If `frames_received` increases but UI/MQTT stay empty, see `docs/TROUBLESHOOTING.md` (pipeline rejects: 3-of-6 / L-field / DLL CRC)
+8. **Web** — Login, Dashboard, Live Telegrams (newest first), Diagnostics.
+9. **MQTT** — Subscribe to `…/telemetry` and `…/rf/raw`; confirm payloads.
 
-## Expected First Boot Log Sequence
+## RF / Pipeline Expectations
 
-Normal mode (WiFi configured):
+Firmware applies **SYNC1/SYNC0** (`0x54`/`0x3D`) in the T-mode register block.
+The **application pipeline** decodes **3-of-6** and verifies **EN 13757-4** DLL CRC
+before exposing a telegram. CC1101 append-status **CRC** bits are separate and
+appear in radio diagnostics as `frames_crc_ok` / `frames_crc_fail`.
 
-1. `=== WMBus Gateway Starting ===`
-2. `[BOOT] Foundations: event bus`
-3. `[BOOT] Foundations: storage`
-4. `[BOOT] Foundations: meter registry`
-5. `[BOOT] Foundations: config`
-6. `Foundations initialized`
-7. `Startup mode selected: normal`
-8. `[BOOT] Normal mode: WiFi init + STA start`
-9. `[BOOT] Normal mode: NTP init`
-10. `[BOOT] Normal mode: mDNS init` (currently expected to run in no-op mode)
-11. `[BOOT] Normal mode: MQTT init`
-12. `[BOOT] Normal mode: auth init`
-13. `[BOOT] Normal mode: HTTP init + handler registration`
-14. `[BOOT] Normal mode: OTA init + boot-valid`
-15. `[BOOT] Normal mode: watchdog init`
-16. `Board CC1101 pins: MOSI=... MISO=... SCK=... CS=... GDO0=... GDO2=...`
-17. `CC1101 PARTNUM=... VERSION=...`
-18. `Runtime tasks created (...)`
-19. `Normal runtime started`
+## API Smoke Tests
 
-Provisioning mode (WiFi not configured):
+```bash
+# After login, replace TOKEN and HOST
+curl -s -H "Authorization: Bearer TOKEN" http://HOST/api/status
+curl -s -H "Authorization: Bearer TOKEN" http://HOST/api/diagnostics/radio
+```
 
-1. `=== WMBus Gateway Starting ===`
-2. Foundations logs as above
-3. `Startup mode selected: provisioning`
-4. `[BOOT] Provisioning: starting AP + provisioning manager`
-5. `WiFi AP started, SSID: WMBus-GW-Setup`
-6. `HTTP server listening on port 80`
-7. `Provisioning mode active. Connect to WMBus-GW-Setup AP and open http://192.168.4.1/`
+## OTA Smoke Test
 
-## First Failure Triage
+Use the web UI or `curl` to upload a known-good build; confirm reboot and version.
 
-- **No boot / reset loop:** check power integrity, flash size config, and partition table.
-- **No CC1101 ID:** verify SPI wiring and CS polarity, then inspect logic analyzer traces.
-- **WiFi unstable:** verify antenna/PSU and AP RSSI.
-- **MQTT unstable:** verify broker reachability, credentials, and ACLs.
-- **No frames:** verify frequency/antenna/nearby transmitter and check CRC/fifo counters.
-- **Long frame drops:** inspect `frames_dropped_too_long` and `frames_incomplete`; current polling RX is conservative and may drop oversized/incomplete captures.
-- **No HTTP/API:** verify `HTTP server listening on port 80` exists in logs, then check auth login endpoint first.
+## When Things Fail
 
-## Fastest Triage Paths
-
-- **No-radio:** look for `Board CC1101 pins...` and `CC1101 PARTNUM...`; if missing/failing, fix wiring/pins before protocol debugging.
-- **No-wifi:** check if mode is `provisioning` vs `normal`; in normal mode validate STA credentials and AP reachability.
-- **No-mqtt:** verify WiFi got IP first, then broker URI/port/TLS settings and broker-side ACL/auth.
-- **No-http:** if boot reached HTTP stage but no server log, treat as startup failure; if server log exists, test `/api/auth/login` before other endpoints.
-
-## Exit Criteria For First Bring-Up
-
-- Firmware boots and stays stable for at least 15 minutes.
-- WiFi and MQTT lifecycle events behave as expected.
-- CC1101 initializes and receives at least one frame in live RF conditions.
-- Live Telegrams and Detected Meters pages show coherent entries for received traffic.
-- API auth + diagnostics endpoints work.
-- Known RF limitations are confirmed (`frames_dropped_too_long` behavior in polling mode).
+- **No SPI traffic** — Wiring, CS, voltage
+- **No frames** — Antenna, frequency, no compatible transmitters nearby
+- **Frames received but zero telegrams** — PHY/FIFO format vs `WmbusPipeline` expectations (`docs/LIMITATIONS.md`)

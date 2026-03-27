@@ -39,7 +39,7 @@
 | Support bundle | `/api/support-bundle` | Credential leakage | Secrets redacted, auth required |
 | Serial/UART | Physical console | Full device access | Out of scope for firmware mitigation; document physical security |
 | NVS storage | Flash read (physical) | Credential extraction | Optional NVS encryption (documented, not default) |
-| RF interface | 868 MHz radio | Spoofed/replayed frames | Not mitigated at gateway level (gateway is a receiver; external decoders handle validation) |
+| RF interface | 868 MHz radio | Spoofed/replayed frames | Receiver only; firmware drops non–3-of-6 and failed DLL CRC frames before publishing; application security still depends on external decoders and meter keys |
 
 ### Threat Analysis
 

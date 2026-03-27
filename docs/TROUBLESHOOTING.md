@@ -2,128 +2,125 @@
 
 ## No Frames Received
 
-**Symptoms:** `frames_received` counter stays at 0, no messages on `rf/raw` topic.
+**Symptoms:** `frames_received` stays 0, MQTT `rf/raw` is silent, Live Telegrams empty.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **CC1101 not connected or SPI wiring wrong** — Check SPI connections (MOSI, MISO, SCK, CS, GDO0). Verify CC1101 responds by reading chip part number register (0x30 should return 0x00 for CC1101).
-2. **Wrong frequency** — Default is 868.950 MHz (T-mode). Verify meters in range use this frequency. Some meters use C-mode or different T-mode variants.
-3. **Antenna missing or poor** — CC1101 needs an appropriate 868 MHz antenna. A wire cut to ~86mm (quarter-wave) is a minimum.
-4. **Radio in error state** — Check web panel RF Diagnostics page. If radio state is "error", check `fifo_overflows` and `radio_resets` counters.
+1. **CC1101 wiring or SPI** — Verify MOSI/MISO/SCK/CS and power. Chip ID read (PARTNUM) should match the driver’s expectation for CC1101.
+2. **Frequency / mode** — Default RF register block is T-mode 868.95 MHz. Meters out of band will not be seen.
+3. **Antenna** — Use a suitable 868 MHz antenna or minimal quarter-wave wire (~86 mm).
+4. **Radio error state** — RF Diagnostics: high `fifo_overflows`, `radio_resets`, or RSM not in receiving state.
+5. **Pipeline vs RF format** — If `frames_received` increments but **nothing** appears in MQTT or Live Telegrams, `WmbusPipeline::from_radio_frame` may be rejecting every capture (3-of-6 decode failure, L-field length mismatch, or DLL CRC failure). Compare with `docs/LIMITATIONS.md` (FIFO vs 3-of-6 contract). Host tests use a synthetic encoded stream; on-device the FIFO must supply the same symbol pairing model.
 
 ## Long Frame / FIFO Drops
 
-**Symptoms:** `frames_received` increases slowly while `frames_dropped_too_long` or
-`frames_incomplete` counters rise.
+**Symptoms:** `frames_received` increases slowly while `frames_dropped_too_long` or `frames_incomplete` increases.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. Current polling RX path cannot safely drain all long frames without GDO-threshold interrupts.
-2. Bursty RF traffic causing FIFO pressure and partial captures.
-3. Incorrect CC1101 mode/config for local RF environment.
+1. Polling drain cannot keep up with long packets or bursts.
+2. RF environment or CC1101 settings not matching local traffic.
+3. FIFO overflow — see `fifo_overflows`.
 
-Use this as an RF validation signal, not as a UI/API bug. Full mitigation requires
-hardware-validated interrupt-driven FIFO draining.
+Use counters as an RF health signal; improving throughput may require interrupt-driven RX or tuning.
 
 ## Live Telegrams Shows Empty
 
-**Symptoms:** Dashboard counters increase, but Live Telegrams page stays empty.
+**Symptoms:** Dashboard counters move, but the Live Telegrams table is empty.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **Wrong filter selected** — Switch filter to `all` (`watched`/`unknown`/`duplicates`/`crc_fail`/`problematic` can be empty).
-2. **Session expired** — Refresh page and log in again.
-3. **No recent traffic window** — List is a bounded recent cache and can be empty after reboot/start.
+1. **Filter** — Set filter to `all`; other filters can hide everything.
+2. **Session** — 401: log in again.
+3. **Recent buffer** — After reboot, history starts empty until new frames arrive.
+4. **Pipeline drops** — If frames are received at RF level but **all** fail decode/CRC, the telegram buffer may stay empty while `frames_received` still increases.
 
 ## Watchlist / Detected Meters Issues
 
-**Symptoms:** Meter appears in telegrams but not as expected in watchlist UX.
+**Symptoms:** Telegram shows a meter key that does not match watchlist expectations.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **Identity format mismatch** — Use exact key from Detected Meters page (`mfg:....-id:....` or `sig:...`).
-2. **Watchlist disabled** — Entry exists but `enabled=false`.
-3. **Identity fallback changed** — For undecodable frames fallback is signature-based and can differ with frame preamble/content.
+1. **Key format** — Use the exact key from Detected Meters (`mfg:...-id:...` or `sig:...`).
+2. **Watchlist disabled** — Entry exists but `enabled` is false.
+3. **Identity fallback** — Signature-based keys follow decoded frame bytes; different noise before sync can change fallbacks (frames failing the pipeline should not appear in the UI).
 
 ## WiFi Connection Issues
 
-**Symptoms:** Device fails to connect, frequent reconnects.
+**Symptoms:** STA does not connect or reconnects often.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **Wrong credentials** — Re-provision or update via serial console
-2. **Weak signal** — Move device closer to AP, or check WiFi RSSI in telemetry
-3. **AP compatibility** — ESP32 supports 2.4 GHz only (no 5 GHz)
+1. Wrong SSID/password — Re-provision or change config.
+2. Weak signal — Check RSSI in status or telemetry.
+3. **2.4 GHz only** — ESP32 does not use 5 GHz WiFi.
 
 ## MQTT Connection Issues
 
-**Symptoms:** `mqtt_state` shows "disconnected", `mqtt_reconnects` climbing.
+**Symptoms:** Status shows MQTT disconnected; `mqtt_publish_failures` or reconnects climb.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **Wrong broker address/port** — Verify config matches broker
-2. **Authentication failure** — Verify MQTT username/password
-3. **Broker unreachable** — Check network routing from device to broker
-4. **Client ID conflict** — Two devices with same client ID cause disconnects
+1. Broker host/port wrong — Match `config_store` MQTT section.
+2. Auth failure — Username/password.
+3. Network unreachable — Routing from device to broker.
+4. **Client ID conflict** — Two clients with the same ID force disconnects.
 
 ## Web Panel Not Loading
 
-**Symptoms:** Browser shows connection refused or blank page.
+**Symptoms:** Connection refused or blank page.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **Device not connected to WiFi** — Cannot reach device IP
-2. **SPIFFS not flashed** — Web assets may not be on the flash partition; reflash
-3. **Wrong IP/hostname** — Use `wmbus-gw.local` or check router for assigned IP
-4. **Static path mismatch** — Check HTTP logs for:
-   - requested URI
-   - resolved file path
-   - file open failure (`404`)
-
-If needed, rebuild and flash full image (`idf.py build && idf.py -p <PORT> flash`) so
-`storage.bin` is written with `index.html`, `app.js`, and `styles.css`.
+1. Device not on the network — Wrong IP or WiFi down.
+2. **SPIFFS** — Web assets missing: rebuild and flash so `storage` partition contains `index.html`, `app.js`, `styles.css`.
+3. Wrong URL — Try `http://<ip>/` or `http://<hostname>.local/`.
 
 ## OTA Failed
 
-**Symptoms:** OTA status shows "failed" or device doesn't boot new firmware.
+**Symptoms:** OTA status failed or device boots old firmware.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **Image too large** — Must be < 1.5 MB (partition size)
-2. **Wrong image** — Must be built for this specific ESP32 partition layout
-3. **Download interrupted** — URL OTA failed mid-download; retry
-4. **Rollback occurred** — New firmware failed health check; device reverted
-5. **Wrong upload content type** — `/api/ota/upload` expects binary body (`application/octet-stream`)
-6. **OTA already running** — Endpoint returns conflict (`409`)
+1. Image too large for OTA partition.
+2. Wrong binary (partition layout).
+3. URL download interrupted — Retry.
+4. New image failed health check — Bootloader rollback.
+5. **409** — OTA already in progress.
+6. Upload must be raw body (`application/octet-stream`), not multipart.
 
 ## Login Rate Limited
 
-**Symptoms:** `POST /api/auth/login` returns `429 rate_limited`.
+**Symptoms:** `POST /api/auth/login` returns `429`.
 
-**Possible Causes:**
+**Cause:** Too many failed attempts in the window (implementation: 5 failures per 60 seconds).
 
-1. Too many failed logins in a short window (5 failures / 60 seconds).
-2. Automation retry loop with wrong credentials.
-
-Use `retry_after_s` from API response before next attempt.
+**Fix:** Wait `retry_after_s` from the JSON body before retrying.
 
 ## High Memory Usage
 
-**Symptoms:** `free_heap_bytes` drops below 50KB, potential crashes.
+**Symptoms:** `free_heap_bytes` very low.
 
-**Possible Causes:**
+**Possible causes:**
 
-1. **MQTT backlog** — If broker is unreachable, outbox may grow; bounded at 32 items
-2. **Many concurrent HTTP requests** — Web panel open in multiple tabs
-3. **Memory leak** — Check `min_free_heap_bytes` trend over time
+1. MQTT backlog — Outbox is bounded (32 items); drops are logged when full.
+2. Many HTTP clients — Reduce concurrent requests.
+3. Leak — Watch `min_free_heap_bytes` over time.
+
+## UI: Status Shows “Disconnected” as Green
+
+**Fixed behavior:** The dashboard badge logic treats error/disconnect states before “healthy” states so **Disconnected** is not classified as green because of the substring **connected**. If you still see wrong colors, hard-refresh the browser to load the current `app.js`.
 
 ## Support Bundle
 
-For remote troubleshooting, download the support bundle from Support page.
-It contains:
+Download from the Support page (authenticated). The JSON bundle includes:
 
-- Device identity and firmware version
-- Health state and all diagnostic counters
-- Configuration (secrets redacted)
-- Recent log lines
-- Reset reason history
+- `diagnostics` (embedded diagnostics snapshot)
+- `metrics` (heap, uptime, largest block)
+- `health` (state, counts, last warning/error messages)
+- `config` (redacted secrets)
+- `logs` (recent entries from `persistent_log_buffer`)
+- `meters` (detected and watchlist counts)
+- `ota` (OTA manager state)
+
+It does **not** include a dedicated reset-reason history table; reset reason may appear in `diagnostics` only if the diagnostics snapshot aggregates it.
