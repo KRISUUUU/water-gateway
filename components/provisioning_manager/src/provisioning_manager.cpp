@@ -46,8 +46,10 @@ common::Result<void> ProvisioningManager::start() {
     char ap_password[9]; // 8 hex chars + null
     std::snprintf(ap_password, sizeof(ap_password), "%02X%02X%02X%02X",
                   mac[2], mac[3], mac[4], mac[5]);
-    // Print to UART only. Not forwarded to PersistentLogBuffer or any remote channel.
-    ESP_LOGI(TAG, "Provisioning AP password (UART only): %s", ap_password);
+    // Use printf() rather than ESP_LOGI so the password is not captured by any
+    // esp_log_set_vprintf() hook (e.g. remote syslog, in-memory log sinks).
+    // Output goes directly to UART via the underlying _write syscall.
+    printf("[prov_mgr] Provisioning AP password (UART only): %s\n", ap_password);
     auto result = wifi.start_ap("WMBus-GW-Setup", ap_password);
 #else
     auto result = wifi.start_ap("WMBus-GW-Setup");

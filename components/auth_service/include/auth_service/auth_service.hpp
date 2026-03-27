@@ -40,11 +40,16 @@ class AuthService {
     // Check if a token is valid (not expired, matches active session).
     bool validate_session(const char* token);
 
-    // Hash a password with a new random salt. Returns "salt:hash" format.
-    // Used during provisioning to set initial password.
+    // Hash a plaintext password using PBKDF2-HMAC-SHA256 (kPbkdf2Iterations iterations).
+    // Returns the stored-hash string in format "pbkdf2$<iter>$<salt_hex>$<dk_hex>".
+    // This is the only format produced for new passwords.
     static common::Result<std::string> hash_password(const char* password);
 
-    // Verify a plaintext password against a "salt:hash" stored hash.
+    // Verify a plaintext password against a stored hash.
+    // Accepts two formats:
+    //   - PBKDF2 (current):  "pbkdf2$<iter>$<salt_hex>$<dk_hex>"
+    //   - Legacy SHA-256:    "<salt_hex(32)>:<sha256_hex(64)>"
+    // The legacy path is kept for backward compatibility with config v1 hashes.
     static bool verify_password(const char* password, const char* stored_hash);
 
     bool has_active_session() const {

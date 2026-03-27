@@ -5,7 +5,9 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <string>
+#include <vector>
 
 using namespace auth_service;
 
@@ -20,19 +22,67 @@ static void test_hash_password() {
     printf("  PASS: hash_password produces PBKDF2 format (len=%zu)\n", hash.length());
 }
 
+// ---------------------------------------------------------------------------
+// Legacy SHA-256 hash helpers (mirror of the old hash_password() algorithm)
+// Used only for generating known-good legacy test vectors.
+// Must stay in sync with auth_service.cpp verify_sha256() interpretation.
+// ---------------------------------------------------------------------------
+
+// Deterministic fake SHA-256: identical to the HOST_TEST_BUILD stub in auth_service.cpp.
+static std::string legacy_sha256_hex(const uint8_t* data, size_t len) {
+    uint8_t hash[32] = {};
+    uint32_t h = 0x811c9dc5;
+    for (size_t i = 0; i < len; ++i) {
+        h ^= data[i];
+        h *= 0x01000193;
+    }
+    for (int i = 0; i < 32; ++i) {
+        hash[i] = static_cast<uint8_t>((h >> ((i % 4) * 8)) ^ (i * 37));
+        h = h * 1103515245 + 12345;
+    }
+    char hex[65] = {};
+    for (int i = 0; i < 32; ++i) {
+        std::sprintf(hex + i * 2, "%02x", hash[i]);
+    }
+    return std::string(hex);
+}
+
+// Build a legacy "salt_hex(32):sha256_hex(64)" hash for the given salt and password.
+static std::string make_legacy_hash(const char* salt_hex32, const char* password) {
+    uint8_t salt_bytes[16] = {};
+    for (int i = 0; i < 16; ++i) {
+        unsigned v = 0;
+        std::sscanf(salt_hex32 + i * 2, "%2x", &v);
+        salt_bytes[i] = static_cast<uint8_t>(v);
+    }
+    size_t pwd_len = std::strlen(password);
+    std::vector<uint8_t> input(salt_bytes, salt_bytes + 16);
+    input.insert(input.end(), reinterpret_cast<const uint8_t*>(password),
+                 reinterpret_cast<const uint8_t*>(password) + pwd_len);
+    return std::string(salt_hex32) + ":" + legacy_sha256_hex(input.data(), input.size());
+}
+
 static void test_hash_password_legacy_still_verifies() {
-    // Simulate a legacy SHA-256 hash stored from old firmware.
-    // Format: "salt_hex(32):hash_hex(64)" produced by old hash_password().
-    // Use a known-good legacy hash: salt = 32 zeros hex, hash = sha256(16-zero-bytes+"test")
-    // We verify that verify_password() falls through to legacy path correctly.
-    // Generate one the old way via hash_password stub-like manual construction is complex,
-    // so instead: verify that a freshly-generated PBKDF2 hash verifies correctly,
-    // and that a legacy-format string (wrong colon format) is rejected cleanly.
-    const char* legacy_like = "0000000000000000000000000000000a:badhashbadhashbadhashbadhashbadhashbadhashbadhashbadhashbadhashbad";
-    bool result = AuthService::verify_password("test", legacy_like);
-    // The hash won't match since it's fabricated, but parsing must not crash.
-    assert(!result);
-    printf("  PASS: legacy SHA-256 format parses without crash\n");
+    // Build a real legacy SHA-256 hash using the same deterministic stub that
+    // auth_service verify_sha256() uses internally (HOST_TEST_BUILD path).
+    // Fixed salt: 16 zero bytes → salt_hex = "00000000000000000000000000000000"
+    const char* salt_hex = "00000000000000000000000000000000";
+    const char* password = "legacypassword";
+    std::string legacy_hash = make_legacy_hash(salt_hex, password);
+
+    // Confirm format looks like a legacy hash
+    assert(legacy_hash.length() == 97);
+    assert(legacy_hash[32] == ':');
+
+    // verify_password() must accept the correct password via legacy path
+    bool ok = AuthService::verify_password(password, legacy_hash.c_str());
+    assert(ok);
+
+    // verify_password() must reject a wrong password via legacy path
+    bool reject = AuthService::verify_password("wrongpassword", legacy_hash.c_str());
+    assert(!reject);
+
+    printf("  PASS: legacy SHA-256 hash verifies correct password and rejects wrong one\n");
 }
 
 static void test_verify_correct_password() {

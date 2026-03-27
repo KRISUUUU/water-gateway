@@ -49,13 +49,17 @@ common::Result<AppConfig> migrate_v1_blob(const uint8_t* blob, size_t blob_size)
     std::memcpy(&v2.radio, &v1.radio, sizeof(v2.radio));
     std::memcpy(&v2.logging, &v1.logging, sizeof(v2.logging));
 
-    // auth.admin_password_hash is intentionally NOT copied: the field grew from
-    // [98] to [128] and the new format (PBKDF2) is incompatible with the old hash
-    // format stored in V1. The user must set a new password after upgrade.
-    // (SHA-256 hashes stored in V1 can still be verified by the auth service
-    // via legacy-format detection, but they are not migrated here to avoid
-    // silently preserving weaker hashes across the security boundary.)
-    std::memset(v2.auth.admin_password_hash, 0, sizeof(v2.auth.admin_password_hash));
+    // Preserve the existing password hash (V1 legacy SHA-256 or empty).
+    // The old format ("salt_hex:hash_hex") fits in the new [128] field since it
+    // is at most 97 chars. verify_password() accepts both legacy SHA-256 and the
+    // new PBKDF2 format, so existing passwords continue to work after upgrade.
+    // Users who want to upgrade to PBKDF2 should change their password via the
+    // web panel — a new hash will then be stored in PBKDF2 format automatically.
+    static_assert(sizeof(v1.auth.admin_password_hash) < sizeof(v2.auth.admin_password_hash),
+                  "V1 hash field must be smaller than V2 to safely copy into it");
+    std::memcpy(v2.auth.admin_password_hash, v1.auth.admin_password_hash,
+                sizeof(v1.auth.admin_password_hash));
+    v2.auth.admin_password_hash[sizeof(v1.auth.admin_password_hash)] = '\0';
     v2.auth.session_timeout_s = v1.auth.session_timeout_s;
 
     return common::Result<AppConfig>::ok(v2);
@@ -84,13 +88,12 @@ static common::Result<AppConfig> migrate_v0_to_v1(const AppConfig& old) {
 }
 
 // Version 1 → Version 2: admin_password_hash field grew from [98] to [128].
-// The in-memory V1 blob is handled separately via migrate_v1_blob() (raw bytes).
-// This in-struct path is used when a V1 AppConfig is already in RAM (e.g. test).
+// Both migration paths (raw blob via migrate_v1_blob and in-struct here) preserve
+// the existing hash so the user does not lose access after firmware upgrade.
+// Legacy SHA-256 hashes remain valid via verify_password()'s legacy path.
 static common::Result<AppConfig> migrate_v1_to_v2(const AppConfig& old) {
     AppConfig migrated = old;
     migrated.version = 2;
-    // admin_password_hash content is preserved as-is; the field is now 128 bytes
-    // but old hashes (<= 97 chars) still fit and are verified by the legacy path.
     return common::Result<AppConfig>::ok(migrated);
 }
 
