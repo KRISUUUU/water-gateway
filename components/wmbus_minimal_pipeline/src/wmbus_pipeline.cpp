@@ -6,12 +6,113 @@
 namespace wmbus_minimal_pipeline {
 
 namespace {
+
+// EN 13757-4 Mode-T 3-of-6: map 6-bit codeword (0..63) to high nibble 0xN0 or 0xFF if invalid.
+// Table from rtl_433 src/devices/m_bus.c (Wireless M-Bus EN 13757-4).
+uint8_t decode_3of6_symbol(uint8_t six_bits) {
+    const uint8_t b = static_cast<uint8_t>(six_bits & 0x3FU);
+    switch (b) {
+    case 22:
+        return 0x00U;
+    case 13:
+        return 0x01U;
+    case 14:
+        return 0x02U;
+    case 11:
+        return 0x03U;
+    case 28:
+        return 0x04U;
+    case 25:
+        return 0x05U;
+    case 26:
+        return 0x06U;
+    case 19:
+        return 0x07U;
+    case 44:
+        return 0x08U;
+    case 37:
+        return 0x09U;
+    case 38:
+        return 0x0AU;
+    case 35:
+        return 0x0BU;
+    case 52:
+        return 0x0CU;
+    case 49:
+        return 0x0DU;
+    case 50:
+        return 0x0EU;
+    case 41:
+        return 0x0FU;
+    default:
+        return 0xFFU;
+    }
+}
+
+// rtl_433 bit_util.c crc16() with polynomial 0x3D65, init 0; Wireless M-Bus compares ~remainder.
+uint16_t crc16_en13757_block(const uint8_t* message, size_t n_bytes) {
+    uint16_t remainder = 0;
+    for (size_t byte = 0; byte < n_bytes; ++byte) {
+        remainder ^= static_cast<uint16_t>(message[byte]) << 8U;
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            if (remainder & 0x8000U) {
+                remainder = static_cast<uint16_t>((remainder << 1) ^ 0x3D65U);
+            } else {
+                remainder = static_cast<uint16_t>(remainder << 1);
+            }
+        }
+    }
+    return static_cast<uint16_t>(~remainder);
+}
+
+// CRC stored big-endian at message[n_bytes] (MSB) and message[n_bytes+1] (LSB).
+bool crc_match_at(const uint8_t* message, size_t n_bytes) {
+    const uint16_t calc = crc16_en13757_block(message, n_bytes);
+    const uint16_t recv =
+        (static_cast<uint16_t>(message[n_bytes]) << 8U) | static_cast<uint16_t>(message[n_bytes + 1]);
+    return calc == recv;
+}
+
+bool verify_dll_crc_chain(const uint8_t* d, size_t len) {
+    if (len < 12U) {
+        return false;
+    }
+    if (!crc_match_at(d, 10U)) {
+        return false;
+    }
+
+    size_t pos = 12U;
+    while (pos < len) {
+        const size_t rem = len - pos;
+        if (rem < 2U) {
+            return false;
+        }
+        if (rem >= 18U) {
+            if (!crc_match_at(d + pos, 16U)) {
+                return false;
+            }
+            pos += 18U;
+        } else {
+            const size_t dlen = rem - 2U;
+            if (dlen == 0U || dlen > 16U) {
+                return false;
+            }
+            if (!crc_match_at(d + pos, dlen)) {
+                return false;
+            }
+            pos += rem;
+        }
+    }
+    return true;
+}
+
 uint8_t byte_at(const std::vector<uint8_t>& bytes, size_t idx) {
     if (idx >= bytes.size()) {
         return 0;
     }
     return bytes[idx];
 }
+
 } // namespace
 
 std::string WmbusFrame::raw_hex() const {
@@ -78,14 +179,43 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     if (raw.length > radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
         return common::Result<WmbusFrame>::error(common::ErrorCode::InvalidArgument);
     }
+    if ((raw.length % 2U) != 0U) {
+        return common::Result<WmbusFrame>::error(common::ErrorCode::FormatInvalid);
+    }
+
+    const size_t out_len = raw.length / 2U;
+    std::vector<uint8_t> decoded;
+    decoded.resize(out_len);
+
+    for (size_t i = 0; i < out_len; ++i) {
+        const uint8_t hi = decode_3of6_symbol(raw.data[i * 2U]);
+        const uint8_t lo = decode_3of6_symbol(raw.data[i * 2U + 1U]);
+        if (hi > 0x0FU || lo > 0x0FU) {
+            return common::Result<WmbusFrame>::error(common::ErrorCode::FormatInvalid);
+        }
+        decoded[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
+
+    if (decoded.empty()) {
+        return common::Result<WmbusFrame>::error(common::ErrorCode::FormatInvalid);
+    }
+
+    const uint8_t L = decoded[0];
+    if (static_cast<size_t>(L) + 1U != decoded.size()) {
+        return common::Result<WmbusFrame>::error(common::ErrorCode::FormatInvalid);
+    }
+
+    if (!verify_dll_crc_chain(decoded.data(), decoded.size())) {
+        return common::Result<WmbusFrame>::error(common::ErrorCode::FormatInvalid);
+    }
 
     WmbusFrame frame;
-    frame.raw_bytes.assign(raw.data, raw.data + raw.length);
+    frame.raw_bytes = std::move(decoded);
 
     frame.metadata.rssi_dbm = raw.rssi_dbm;
     frame.metadata.lqi = raw.lqi;
-    frame.metadata.crc_ok = raw.crc_ok;
-    frame.metadata.frame_length = raw.length;
+    frame.metadata.crc_ok = true;
+    frame.metadata.frame_length = static_cast<uint16_t>(frame.raw_bytes.size());
     frame.metadata.timestamp_ms = timestamp_ms;
     frame.metadata.rx_count = rx_count;
 

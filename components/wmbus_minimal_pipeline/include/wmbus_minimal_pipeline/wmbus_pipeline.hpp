@@ -10,9 +10,9 @@ namespace wmbus_minimal_pipeline {
 
 class WmbusPipeline {
   public:
-    // Convert a raw radio frame into a WmbusFrame with metadata.
-    // This is the primary pipeline entry point.
-    // Pure function — no side effects, fully host-testable.
+    // Convert a raw radio capture into a WmbusFrame: decode Wireless M-Bus Mode-T
+    // 3-of-6 symbols, verify EN 13757-4 DLL block CRCs (Format A). On any failure
+    // returns Result::error (frames are dropped; no partial WmbusFrame).
     static common::Result<WmbusFrame> from_radio_frame(const radio_cc1101::RawRadioFrame& raw,
                                                        int64_t timestamp_ms, uint32_t rx_count);
 

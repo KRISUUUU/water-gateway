@@ -125,10 +125,16 @@ struct TmodeRegisterConfig {
 // T-mode: 868.95 MHz, 32.768 kbaud Manchester (effectively 100 kbps 3-of-6)
 // The CC1101 is configured for asynchronous serial mode, as the T-mode
 // 3-of-6 encoding is typically decoded in software post-capture.
+//
+// SYNC1/SYNC0: Wireless M-Bus T-mode sync/preamble pair 0x54 0x3D (16-bit sync word
+// 0x543D) so the demodulator only accepts packets that match the standard air
+// interface — reducing false triggers from uncorrelated RF noise.
 static constexpr TmodeRegisterConfig kTmodeConfig[] = {
     {registers::IOCFG2, 0x06},   // GDO2: sync word sent/received
     {registers::IOCFG0, 0x00},   // GDO0: CLK_XOSC/192 (not used, low)
     {registers::FIFOTHR, 0x47},  // RX FIFO threshold: 33 bytes
+    {registers::SYNC1, 0x54},    // W-MBus T-mode sync high byte
+    {registers::SYNC0, 0x3D},    // W-MBus T-mode sync low byte
     {registers::PKTLEN, 0xFF},   // Max packet length 255
     {registers::PKTCTRL1, 0x04}, // Append status (RSSI/LQI/CRC) to RX FIFO
     {registers::PKTCTRL0, 0x00}, // Fixed packet length mode, no CRC autoflush

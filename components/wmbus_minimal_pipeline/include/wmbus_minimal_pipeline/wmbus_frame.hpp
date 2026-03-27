@@ -9,14 +9,18 @@ namespace wmbus_minimal_pipeline {
 struct WmbusFrameMetadata {
     int8_t rssi_dbm = 0;
     uint8_t lqi = 0;
+    // True only after EN 13757-4 link-layer CRC verification in from_radio_frame().
     bool crc_ok = false;
     uint16_t frame_length = 0;
     int64_t timestamp_ms = 0; // Epoch ms (0 if NTP not synced)
     uint32_t rx_count = 0;    // Monotonic reception counter
 };
 
+// Canonical decoded link-layer frame (L-field first). raw_bytes are produced by
+// WmbusPipeline::from_radio_frame() after strict Mode-T 3-of-6 decoding and DLL
+// CRC validation — invalid air captures are rejected before a WmbusFrame exists.
 struct WmbusFrame {
-    std::vector<uint8_t> raw_bytes; // Canonical raw frame bytes
+    std::vector<uint8_t> raw_bytes; // Decoded link-layer octets (starts with L-field)
     WmbusFrameMetadata metadata;
 
     // Presentation helper for API/UI/logging.

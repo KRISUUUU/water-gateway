@@ -132,14 +132,14 @@
 
     function badgeClassByState(value) {
         const v = String(value || "").toLowerCase();
-        if (v.includes("ok") || v.includes("connected") || v.includes("healthy") || v === "up") {
-            return "badge badge-ok";
+        if (v.includes("disconnect") || v.includes("error") || v.includes("fail") || v.includes("down")) {
+            return "badge badge-error";
         }
         if (v.includes("warn") || v.includes("provisioning") || v.includes("idle")) {
             return "badge badge-warning";
         }
-        if (v.includes("error") || v.includes("fail") || v.includes("down") || v.includes("disconnected")) {
-            return "badge badge-error";
+        if (v.includes("ok") || v === "connected" || v.includes("healthy") || v === "up") {
+            return "badge badge-ok";
         }
         return "badge badge-muted";
     }
@@ -640,6 +640,7 @@
                 cacheWatchlist = watchlist.watchlist || [];
                 const aliases = watchAliasMap();
                 const arr = data.telegrams || [];
+                arr.sort((a, b) => Number(b.timestamp_ms || 0) - Number(a.timestamp_ms || 0));
                 const body = $("#tg-body");
                 clearChildren(body);
                 $("#tg-empty").hidden = arr.length > 0;
@@ -667,6 +668,13 @@
                     copyBtn.textContent = "Copy";
                     copyBtn.addEventListener("click", () => {
                         navigator.clipboard.writeText(f.raw_hex || "").catch(() => {});
+                        const prev = copyBtn.textContent;
+                        copyBtn.textContent = "Copied!";
+                        copyBtn.disabled = true;
+                        window.setTimeout(() => {
+                            copyBtn.textContent = prev;
+                            copyBtn.disabled = false;
+                        }, 2000);
                     });
                     actions.appendChild(copyBtn);
 
