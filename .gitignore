@@ -31,3 +31,4 @@ coverage/
 # Logs / temp
 *.log
 tmp/
+build_host/
