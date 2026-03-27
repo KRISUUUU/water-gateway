@@ -2,10 +2,14 @@
 
 #include "common/error.hpp"
 #include "common/result.hpp"
+#include <atomic>
 #include <cstdint>
+#include <mutex>
 
 #ifndef HOST_TEST_BUILD
 #include "esp_event_base.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 #endif
 
 namespace wifi_manager {
@@ -44,7 +48,7 @@ class WifiManager {
 
     WifiStatus status() const;
     WifiState state() const {
-        return state_;
+        return state_.load();
     }
 
   private:
@@ -57,16 +61,34 @@ class WifiManager {
                                  void* event_data);
     void handle_wifi_event(int32_t event_id, void* event_data);
     void handle_ip_event(int32_t event_id, void* event_data);
+
+    // Timer callback that fires after backoff delay to attempt reconnect.
+    static void reconnect_timer_cb(TimerHandle_t xTimer);
+
+    void* reconnect_timer_ = nullptr; // TimerHandle_t (opaque to keep C++ semantics clean)
 #endif
 
     bool initialized_ = false;
-    WifiState state_ = WifiState::Uninitialized;
+
+    // Fields read from health_task (Core0) and written from WiFi/IP event loop
+    // tasks — must be atomic or mutex-protected.
+    std::atomic<WifiState> state_{WifiState::Uninitialized};
+    std::atomic<int8_t> rssi_dbm_{0};
+    std::atomic<uint32_t> reconnect_count_{0};
+
+    // Exponential backoff state for STA reconnection (W1 fix).
+    // Written from the WiFi event loop and reset from start_sta() / handle_ip_event().
+    std::atomic<uint32_t> backoff_ms_{kMinBackoffMs};
+
+    // Mutex protects char array fields (ip_address_, current_ssid_) which cannot
+    // be updated or read atomically because they are multi-byte strings (W2 fix).
+    mutable std::mutex mutex_{};
     char ip_address_[16] = {};
-    int8_t rssi_dbm_ = 0;
-    uint32_t reconnect_count_ = 0;
     char current_ssid_[33] = {};
-    uint8_t retry_count_ = 0;
-    uint8_t max_retries_ = 10;
+
+    // Backoff constants
+    static constexpr uint32_t kMinBackoffMs = 2000;
+    static constexpr uint32_t kMaxBackoffMs = 120000;
 };
 
 } // namespace wifi_manager

@@ -107,6 +107,12 @@ void EventBus::publish(const Event& event) {
         return;
     }
 
+    // Snapshot matching handlers under the lock, then execute them WITHOUT the lock.
+    // This prevents a Deadlock if any handler calls publish() or subscribe() re-entrantly,
+    // since the underlying FreeRTOS binary semaphore is non-recursive.
+    EventHandler snapshot[kMaxSubscriptions];
+    size_t count = 0;
+
 #ifndef HOST_TEST_BUILD
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
 #endif
@@ -114,13 +120,18 @@ void EventBus::publish(const Event& event) {
     for (size_t i = 0; i < kMaxSubscriptions; ++i) {
         if (subscriptions_[i].active && subscriptions_[i].type == event.type &&
             subscriptions_[i].handler) {
-            subscriptions_[i].handler(event);
+            snapshot[count++] = subscriptions_[i].handler;
         }
     }
 
 #ifndef HOST_TEST_BUILD
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 #endif
+
+    // Lock is released. Handlers may now safely call publish()/subscribe().
+    for (size_t i = 0; i < count; ++i) {
+        snapshot[i](event);
+    }
 }
 
 void EventBus::publish(EventType type, int32_t code) {

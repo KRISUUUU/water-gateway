@@ -37,11 +37,11 @@ static constexpr size_t kMaxSubscriptions = 32;
 
 // In-process event bus for loosely-coupled module communication.
 //
-// Thread safety: publish() and subscribe() acquire a mutex internally.
-// Handlers run synchronously inside publish() while the mutex is held,
-// so handlers MUST be fast (no blocking, no heavy computation).
-// If a handler needs to do significant work, it should post to a
-// FreeRTOS queue and return immediately.
+// Thread safety: publish(), subscribe(), and unsubscribe() acquire a mutex
+// internally. Handlers are snapshotted under the lock and then executed
+// AFTER the lock is released, so handlers may safely call publish() or
+// subscribe() without causing a Deadlock. Handlers are still called
+// synchronously and should complete quickly (no blocking I/O).
 class EventBus {
   public:
     static EventBus& instance();
