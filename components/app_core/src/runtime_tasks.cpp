@@ -63,7 +63,12 @@ static void radio_rx_task(void* /*param*/) {
         auto result = radio.read_frame();
         if (result.is_ok() && frame_queue) {
             auto frame = result.value();
-            xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10));
+            // Q1 fix: check return value — a full queue silently dropped frames before.
+            if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) != pdTRUE) {
+                radio.note_frame_queue_full();
+                ESP_LOGW(TAG, "frame_queue full — radio frame dropped (total: %lu)",
+                         (unsigned long)radio.counters().frames_dropped_queue_full);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -73,6 +78,8 @@ static void radio_rx_task(void* /*param*/) {
 static void pipeline_task(void* /*param*/) {
     auto& router = telegram_router::TelegramRouter::instance();
     uint32_t rx_count = 0;
+    // Q1 fix: track mqtt_outbox overflow drops; log first occurrence and every 100th.
+    uint32_t mqtt_drop_count = 0;
 
     radio_cc1101::RawRadioFrame raw{};
     while (true) {
@@ -103,18 +110,34 @@ static void pipeline_task(void* /*param*/) {
                     strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
                 }
 
-                enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
-                             mqtt_service::payload_raw_frame(
-                                 frame.raw_hex().c_str(), frame.metadata.frame_length,
-                                 frame.metadata.rssi_dbm, frame.metadata.lqi, frame.metadata.crc_ok,
-                                 frame.manufacturer_id(), frame.device_id(),
-                                 derive_meter_key(frame).c_str(), ts_str, rx_count));
+                // Q1 fix: check enqueue_mqtt() return — outbox drops were silent before.
+                if (!enqueue_mqtt(
+                        mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
+                        mqtt_service::payload_raw_frame(
+                            frame.raw_hex().c_str(), frame.metadata.frame_length,
+                            frame.metadata.rssi_dbm, frame.metadata.lqi, frame.metadata.crc_ok,
+                            frame.manufacturer_id(), frame.device_id(),
+                            derive_meter_key(frame).c_str(), ts_str, rx_count))) {
+                    mqtt_drop_count++;
+                    if (mqtt_drop_count == 1 || (mqtt_drop_count % 100) == 0) {
+                        ESP_LOGW(TAG, "mqtt_outbox full — frame dropped (total drops: %lu)",
+                                 (unsigned long)mqtt_drop_count);
+                    }
+                }
             }
 
             if (route.publish_event && route.event_message) {
-                enqueue_mqtt(
-                    mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
-                    mqtt_service::payload_event("radio_event", "warning", route.event_message, ""));
+                // Q1 fix: check return; event drops are logged via the same counter.
+                if (!enqueue_mqtt(
+                        mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
+                        mqtt_service::payload_event("radio_event", "warning", route.event_message,
+                                                    ""))) {
+                    mqtt_drop_count++;
+                    if (mqtt_drop_count == 1 || (mqtt_drop_count % 100) == 0) {
+                        ESP_LOGW(TAG, "mqtt_outbox full — event dropped (total drops: %lu)",
+                                 (unsigned long)mqtt_drop_count);
+                    }
+                }
             }
         }
     }

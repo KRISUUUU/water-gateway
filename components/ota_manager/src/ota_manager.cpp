@@ -104,6 +104,8 @@ common::Result<void> OtaManager::write_chunk(const uint8_t* data, size_t length)
 
     bytes_written_ += length;
     if (image_size_ > 0) {
+        // O1 fix: direct progress_pct update must be under the mutex like set_status().
+        std::lock_guard<std::mutex> lock(mutex_);
         status_.progress_pct = static_cast<uint8_t>((bytes_written_ * 100) / image_size_);
     }
 #else
@@ -146,8 +148,7 @@ common::Result<void> OtaManager::finalize_upload() {
     reset_upload_state(false);
 #endif
 
-    set_status(OtaState::Rebooting, "OTA complete, reboot to activate");
-    status_.progress_pct = 100;
+    set_status(OtaState::Rebooting, "OTA complete, reboot to activate", 100);
 
     event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
 
@@ -189,8 +190,7 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
     ESP_LOGI(TAG, "HTTPS OTA successful, reboot to activate");
 #endif
 
-    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate");
-    status_.progress_pct = 100;
+    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate", 100);
 
     event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
 
@@ -210,10 +210,15 @@ common::Result<void> OtaManager::mark_boot_valid() {
 }
 
 OtaStatus OtaManager::status() const {
+    // O1 fix: snapshot under lock to prevent struct tearing with concurrent writes.
+    std::lock_guard<std::mutex> lock(mutex_);
     return status_;
 }
 
 void OtaManager::set_status(OtaState state, const char* msg, uint8_t progress) {
+    // O1 fix: all writes to status_ go through this helper which holds the mutex,
+    // ensuring status() readers always see a fully consistent struct.
+    std::lock_guard<std::mutex> lock(mutex_);
     status_.state = state;
     status_.progress_pct = progress;
     if (msg) {

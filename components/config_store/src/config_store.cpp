@@ -118,23 +118,32 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
         return common::Result<ValidationResult>::error(migrated.error());
     }
 
-    // Persist
-    auto persist_result = persist_to_nvs(migrated.value());
-    if (persist_result.is_error()) {
-        return common::Result<ValidationResult>::error(persist_result.error());
-    }
-
+    // C1 fix: update RAM config_ under lock BEFORE the slow NVS write so that
+    // concurrent config() readers never observe a state where NVS is already
+    // updated but the in-process config_ still holds stale data (TOCTOU).
+    // If persist_to_nvs() subsequently fails the runtime config is still correct;
+    // only the NVS backing store is stale (resolved on next successful save).
 #ifndef HOST_TEST_BUILD
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
 #endif
 
     config_ = migrated.value();
+    loaded_ = true;
 
 #ifndef HOST_TEST_BUILD
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 #endif
 
-    loaded_ = true;
+    // Persist outside the lock — NVS writes can take ~10–100 ms and must not
+    // block config() readers for that duration.
+    auto persist_result = persist_to_nvs(migrated.value());
+    if (persist_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "NVS persist failed after RAM update — reboot may revert config");
+#endif
+        return common::Result<ValidationResult>::error(persist_result.error());
+    }
+
     event_bus::EventBus::instance().publish(event_bus::EventType::ConfigChanged);
     return common::Result<ValidationResult>::ok(validation);
 }
@@ -145,22 +154,27 @@ common::Result<void> ConfigStore::reset_to_defaults() {
     }
 
     AppConfig defaults = AppConfig::make_default();
-    auto result = persist_to_nvs(defaults);
-    if (result.is_error()) {
-        return result;
-    }
 
+    // C1 fix: same RAM-first, then NVS pattern as save().
 #ifndef HOST_TEST_BUILD
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
 #endif
 
     config_ = defaults;
+    loaded_ = true;
 
 #ifndef HOST_TEST_BUILD
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 #endif
 
-    loaded_ = true;
+    auto result = persist_to_nvs(defaults);
+    if (result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "NVS persist failed after reset — reboot may not restore defaults");
+#endif
+        return result;
+    }
+
     event_bus::EventBus::instance().publish(event_bus::EventType::ConfigChanged);
     return common::Result<void>::ok();
 }

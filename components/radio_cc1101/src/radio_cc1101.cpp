@@ -361,6 +361,14 @@ void RadioCc1101::spi_write_register(uint8_t addr, uint8_t value) {
 void RadioCc1101::spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length) {
     if (!buffer || length == 0)
         return;
+    // S1 fix: rx_buf[] is 65 bytes (1 status + 64 data). A length > 64 would overflow.
+    // Treat this as an SPI error and abort rather than writing past the buffer end.
+    if (length > 64) {
+        counters_.spi_errors++;
+        ESP_LOGE(TAG, "spi_read_burst: length %zu > 64, aborting to prevent buffer overflow",
+                 length);
+        return;
+    }
 
     uint8_t tx_buf[65]{};
     uint8_t rx_buf[65]{};

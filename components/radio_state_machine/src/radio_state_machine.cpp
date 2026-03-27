@@ -87,6 +87,7 @@ common::Result<void> RadioStateMachine::recover() {
     }
 
     consecutive_errors_ = 0;
+    logged_max_errors_ = false; // R1: allow log emission again after successful recovery
     transition_to(RsmState::Receiving);
 
     event_bus::EventBus::instance().publish(event_bus::EventType::RadioRecovered);
@@ -104,12 +105,16 @@ void RadioStateMachine::tick() {
         if (consecutive_errors_ < kMaxConsecutiveErrors) {
             recover();
         } else {
+            // R1 fix: log only once to avoid log storm (~500 LOGE/s from 2ms tick loop)
+            if (!logged_max_errors_) {
 #ifndef HOST_TEST_BUILD
-            ESP_LOGE(TAG,
-                     "Max consecutive errors reached (%lu), "
-                     "radio recovery disabled until manual intervention",
-                     (unsigned long)kMaxConsecutiveErrors);
+                ESP_LOGE(TAG,
+                         "Max consecutive errors reached (%lu), "
+                         "radio recovery disabled until manual intervention",
+                         (unsigned long)kMaxConsecutiveErrors);
 #endif
+                logged_max_errors_ = true;
+            }
             transition_to(RsmState::Error);
         }
     }

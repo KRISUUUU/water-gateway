@@ -49,6 +49,8 @@ class RadioStateMachine {
     RsmState state_ = RsmState::Uninitialized;
     uint32_t consecutive_errors_ = 0;
     bool auto_recovery_ = true;
+    // R1 fix: log max-errors message only once to prevent log storm (~500 msg/s)
+    bool logged_max_errors_ = false;
 
     static constexpr uint32_t kMaxConsecutiveErrors = 5;
 };

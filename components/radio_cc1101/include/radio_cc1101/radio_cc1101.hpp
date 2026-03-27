@@ -20,6 +20,7 @@ struct RadioCounters {
     uint32_t frames_crc_fail = 0;
     uint32_t frames_incomplete = 0;
     uint32_t frames_dropped_too_long = 0;
+    uint32_t frames_dropped_queue_full = 0; // Q1: frame_queue overflow drops
     uint32_t fifo_overflows = 0;
     uint32_t radio_resets = 0;
     uint32_t radio_recoveries = 0;
@@ -85,6 +86,11 @@ class RadioCc1101 {
     }
     const RadioCounters& counters() const {
         return counters_;
+    }
+    // Q1 fix: called by the radio_rx_task when the frame_queue is full so the
+    // drop is visible in telemetry rather than silently lost.
+    void note_frame_queue_full() {
+        counters_.frames_dropped_queue_full++;
     }
 
     // Read chip part number and version for identification

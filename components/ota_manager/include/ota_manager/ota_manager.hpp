@@ -4,6 +4,7 @@
 #include "ota_manager/ota_state.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 namespace ota_manager {
 
@@ -33,6 +34,9 @@ class OtaManager {
     void set_status(OtaState state, const char* msg, uint8_t progress = 0);
 
     bool initialized_ = false;
+    // O1 fix: mutex protects status_ against concurrent reads from the API task
+    // while the HTTP upload task writes via set_status() or direct field updates.
+    mutable std::mutex mutex_{};
     OtaStatus status_{};
 
 #ifndef HOST_TEST_BUILD
