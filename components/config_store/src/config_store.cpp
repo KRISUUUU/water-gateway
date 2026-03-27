@@ -191,16 +191,56 @@ common::Result<void> ConfigStore::load_from_nvs() {
         return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
     }
 
-    size_t required_size = sizeof(AppConfig);
-    err = nvs_get_blob(handle, kNvsKey, &config_, &required_size);
-    nvs_close(handle);
-
-    if (err != ESP_OK || required_size != sizeof(AppConfig)) {
-        ESP_LOGW(TAG, "NVS config read failed or size mismatch");
+    // Probe actual stored blob size before committing to a read.
+    size_t stored_size = 0;
+    err = nvs_get_blob(handle, kNvsKey, nullptr, &stored_size);
+    if (err != ESP_OK || stored_size == 0) {
+        nvs_close(handle);
+        ESP_LOGW(TAG, "NVS config probe failed");
         return common::Result<void>::error(common::ErrorCode::NvsReadFailed);
     }
 
-    // Migrate if needed
+    if (stored_size == sizeof(AppConfig)) {
+        // Current struct size — normal read path.
+        size_t read_size = sizeof(AppConfig);
+        err = nvs_get_blob(handle, kNvsKey, &config_, &read_size);
+        nvs_close(handle);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "NVS config read failed");
+            return common::Result<void>::error(common::ErrorCode::NvsReadFailed);
+        }
+    } else if (stored_size == config_v1_blob_size()) {
+        // V1 blob (admin_password_hash was [98]) — read into raw buffer then migrate.
+        ESP_LOGI(TAG, "NVS blob size %zu matches V1 layout (%zu) — migrating",
+                 stored_size, config_v1_blob_size());
+        uint8_t* v1_buf = new uint8_t[stored_size]();
+        err = nvs_get_blob(handle, kNvsKey, v1_buf, &stored_size);
+        nvs_close(handle);
+        if (err != ESP_OK) {
+            delete[] v1_buf;
+            ESP_LOGW(TAG, "NVS V1 blob read failed");
+            return common::Result<void>::error(common::ErrorCode::NvsReadFailed);
+        }
+        auto migrated = migrate_v1_blob(v1_buf, stored_size);
+        delete[] v1_buf;
+        if (migrated.is_error()) {
+            ESP_LOGE(TAG, "V1 blob migration failed");
+            return common::Result<void>::error(migrated.error());
+        }
+        config_ = migrated.value();
+        // Persist the migrated config immediately so subsequent boots use V2.
+        auto persist_result = persist_to_nvs(config_);
+        if (persist_result.is_error()) {
+            ESP_LOGW(TAG, "Failed to persist V1->V2 migrated config");
+        }
+    } else {
+        nvs_close(handle);
+        ESP_LOGW(TAG, "NVS blob size %zu is unexpected (current=%zu, v1=%zu) — using defaults",
+                 stored_size, sizeof(AppConfig), config_v1_blob_size());
+        return common::Result<void>::error(common::ErrorCode::NvsReadFailed);
+    }
+
+    // Chain-migrate if version field says so (handles v0→v1→v2 in-struct path).
     if (config_.version != kCurrentConfigVersion) {
         ESP_LOGI(TAG, "Config version %lu, current %lu — migrating", (unsigned long)config_.version,
                  (unsigned long)kCurrentConfigVersion);
@@ -211,7 +251,6 @@ common::Result<void> ConfigStore::load_from_nvs() {
         }
         config_ = migrated.value();
 
-        // Persist the migrated config
         auto persist_result = persist_to_nvs(config_);
         if (persist_result.is_error()) {
             ESP_LOGW(TAG, "Failed to persist migrated config");

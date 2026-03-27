@@ -40,8 +40,10 @@ class WifiManager {
     // Connect to configured STA network
     common::Result<void> start_sta(const char* ssid, const char* password);
 
-    // Start SoftAP for provisioning
-    common::Result<void> start_ap(const char* ap_ssid);
+    // Start SoftAP for provisioning.
+    // ap_password: if non-null and at least 8 chars, AP uses WPA2-PSK;
+    //              otherwise falls back to open (no auth).
+    common::Result<void> start_ap(const char* ap_ssid, const char* ap_password = nullptr);
 
     // Stop WiFi (STA or AP)
     common::Result<void> stop();

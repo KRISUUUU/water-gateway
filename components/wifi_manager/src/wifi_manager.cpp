@@ -104,7 +104,7 @@ common::Result<void> WifiManager::start_sta(const char* ssid, const char* passwo
     return common::Result<void>::ok();
 }
 
-common::Result<void> WifiManager::start_ap(const char* ap_ssid) {
+common::Result<void> WifiManager::start_ap(const char* ap_ssid, const char* ap_password) {
     if (!initialized_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
@@ -113,19 +113,33 @@ common::Result<void> WifiManager::start_ap(const char* ap_ssid) {
     }
 
 #ifndef HOST_TEST_BUILD
+    // WPA2 minimum password length is 8 characters.
+    const bool use_wpa2 = ap_password && std::strlen(ap_password) >= 8;
+
     wifi_config_t wifi_config{};
     std::strncpy(reinterpret_cast<char*>(wifi_config.ap.ssid), ap_ssid,
                  sizeof(wifi_config.ap.ssid) - 1);
     wifi_config.ap.ssid_len = static_cast<uint8_t>(std::strlen(ap_ssid));
     wifi_config.ap.channel = 1;
-    wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     wifi_config.ap.max_connection = 2;
+
+    if (use_wpa2) {
+        std::strncpy(reinterpret_cast<char*>(wifi_config.ap.password), ap_password,
+                     sizeof(wifi_config.ap.password) - 1);
+        wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    } else {
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "WiFi AP started, SSID: %s", ap_ssid);
+    if (use_wpa2) {
+        ESP_LOGI(TAG, "WiFi AP started, SSID: %s (WPA2)", ap_ssid);
+    } else {
+        ESP_LOGI(TAG, "WiFi AP started, SSID: %s (open)", ap_ssid);
+    }
 #endif
 
     state_.store(WifiState::ApMode);

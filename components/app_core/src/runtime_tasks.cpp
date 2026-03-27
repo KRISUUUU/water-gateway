@@ -145,14 +145,63 @@ static void pipeline_task(void* /*param*/) {
 
 static void mqtt_task(void* /*param*/) {
     auto& mqtt = mqtt_service::MqttService::instance();
-    MqttOutboxItem item{};
+
+    // Carry-over item: holds one dequeued message that could not be published
+    // (broker disconnected or publish() failed). Retried on the next cycle.
+    // This prevents silent drops during brief MQTT reconnects.
+    bool has_carry = false;
+    MqttOutboxItem carry{};
+    uint32_t held_count = 0;
+    uint32_t retried_count = 0;
+    uint32_t publish_failed_count = 0;
 
     while (true) {
-        if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
-            if (mqtt.is_connected()) {
-                mqtt.publish(item.topic, item.payload, 0, false);
+        MqttOutboxItem* item_ptr = nullptr;
+        MqttOutboxItem fresh{};
+
+        if (has_carry) {
+            item_ptr = &carry;
+        } else if (mqtt_outbox &&
+                   xQueueReceive(mqtt_outbox, &fresh, pdMS_TO_TICKS(500)) == pdTRUE) {
+            item_ptr = &fresh;
+        }
+
+        if (item_ptr) {
+            if (!mqtt.is_connected()) {
+                // Hold for retry — do NOT dequeue further until reconnected.
+                if (!has_carry) {
+                    carry = *item_ptr;
+                    has_carry = true;
+                    held_count++;
+                    ESP_LOGD(TAG, "MQTT disconnected — item held (held:%lu)", (unsigned long)held_count);
+                }
+                vTaskDelay(pdMS_TO_TICKS(200));
+                continue;
+            }
+
+            // Connected — attempt publish.
+            if (has_carry) {
+                retried_count++;
+                ESP_LOGD(TAG, "MQTT retry carry item (retried:%lu)", (unsigned long)retried_count);
+            }
+            auto pub_result = mqtt.publish(item_ptr->topic, item_ptr->payload, 0, false);
+            if (pub_result.is_ok()) {
+                has_carry = false;
+            } else {
+                // publish() failed despite is_connected() being true (race on disconnect).
+                // Keep carry for retry; do not dequeue next item.
+                publish_failed_count++;
+                if (!has_carry) {
+                    carry = *item_ptr;
+                    has_carry = true;
+                }
+                ESP_LOGW(TAG, "MQTT publish() failed — item held for retry (pub_fail:%lu)",
+                         (unsigned long)publish_failed_count);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                continue;
             }
         }
+
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }

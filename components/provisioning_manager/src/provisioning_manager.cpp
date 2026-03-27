@@ -4,6 +4,8 @@
 
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
+#include "esp_wifi.h"
+#include <cstdio>
 static const char* TAG = "prov_mgr";
 #endif
 
@@ -35,7 +37,21 @@ common::Result<void> ProvisioningManager::start() {
 #endif
 
     auto& wifi = wifi_manager::WifiManager::instance();
+
+#ifndef HOST_TEST_BUILD
+    // Derive a device-unique WPA2 password from the lower 4 bytes of the STA MAC.
+    // This is printed to UART (serial) only — not stored in logs, config, or support bundles.
+    uint8_t mac[6] = {};
+    esp_wifi_get_mac(WIFI_IF_STA, mac);
+    char ap_password[9]; // 8 hex chars + null
+    std::snprintf(ap_password, sizeof(ap_password), "%02X%02X%02X%02X",
+                  mac[2], mac[3], mac[4], mac[5]);
+    // Print to UART only. Not forwarded to PersistentLogBuffer or any remote channel.
+    ESP_LOGI(TAG, "Provisioning AP password (UART only): %s", ap_password);
+    auto result = wifi.start_ap("WMBus-GW-Setup", ap_password);
+#else
     auto result = wifi.start_ap("WMBus-GW-Setup");
+#endif
     if (result.is_error()) {
         return common::Result<void>::error(common::ErrorCode::WifiApStartFailed);
     }

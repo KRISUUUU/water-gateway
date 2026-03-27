@@ -5,7 +5,7 @@
 
 namespace config_store {
 
-static constexpr uint32_t kCurrentConfigVersion = 1;
+static constexpr uint32_t kCurrentConfigVersion = 2;
 static constexpr const char* kNvsNamespace = "wg_config";
 static constexpr const char* kNvsKey = "config";
 
@@ -93,8 +93,9 @@ struct LoggingConfig {
 };
 
 struct AuthConfig {
-    // Format "salt_hex(32) + ':'(1) + hash_hex(64)" = 97 chars + '\0'
-    char admin_password_hash[98]; // SECRET
+    // V1 format: "salt_hex(32):hash_hex(64)"  = 97 chars + '\0'  (SHA-256, legacy)
+    // V2 format: "pbkdf2$iter$salt_hex(32)$dk_hex(64)" <= 110 chars + '\0'
+    char admin_password_hash[128]; // SECRET — enlarged in config v2
     uint32_t session_timeout_s;
 
     static AuthConfig make_default() {

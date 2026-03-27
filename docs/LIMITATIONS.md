@@ -23,7 +23,7 @@
 
 1. **QoS 0 by default.** Messages may be lost if the broker is unavailable; higher QoS increases resource use.
 2. **MQTT v3.1.1.** The ESP-IDF client does not use MQTT v5.
-3. **Volatile outbox.** MQTT queue items live in RAM; reboot clears unsent publishes.
+3. **Volatile outbox.** MQTT queue items live in RAM; reboot clears unsent publishes. One item is held in a carry-over buffer and retried on reconnect, but extended outages that overflow the 32-slot queue still cause drops (logged as warnings).
 
 ## Configuration
 

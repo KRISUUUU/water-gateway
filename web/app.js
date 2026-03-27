@@ -1,7 +1,7 @@
 (function () {
     "use strict";
 
-    let token = localStorage.getItem("wg_token") || "";
+    let token = sessionStorage.getItem("wg_token") || "";
     let currentPage = "dashboard";
     let cacheStatus = null;
     let cacheWatchlist = [];
@@ -94,7 +94,7 @@
     function showSessionExpiredSignIn() {
         stopRefreshTimer();
         token = "";
-        localStorage.removeItem("wg_token");
+        sessionStorage.removeItem("wg_token");
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
         setHiddenIfPresent("#auth-startup-msg", true);
@@ -112,7 +112,7 @@
     function showStartupUnauthenticated(boot) {
         stopRefreshTimer();
         token = "";
-        localStorage.removeItem("wg_token");
+        sessionStorage.removeItem("wg_token");
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
         setHiddenIfPresent("#login-form", false);
@@ -226,7 +226,7 @@
 
     function forceFirstBootSetup() {
         token = "";
-        localStorage.removeItem("wg_token");
+        sessionStorage.removeItem("wg_token");
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
         showSetupScreen();
@@ -446,7 +446,7 @@
             )
             .then(() => {
                 token = "";
-                localStorage.removeItem("wg_token");
+                sessionStorage.removeItem("wg_token");
                 setMsg(
                     msg,
                     "success",
@@ -1044,7 +1044,7 @@
                         throw new Error("No auth token");
                     }
                     token = data.token;
-                    localStorage.setItem("wg_token", token);
+                    sessionStorage.setItem("wg_token", token);
                     $("#login-error").hidden = true;
                     showApp();
                 })
@@ -1269,7 +1269,7 @@
     bootstrap().then((boot) => {
         bootstrapInfo = boot;
         const firstBoot = !!(boot.provisioning && !boot.password_set);
-        const stored = (localStorage.getItem("wg_token") || "").trim();
+        const stored = (sessionStorage.getItem("wg_token") || "").trim();
 
         if (firstBoot) {
             forceFirstBootSetup();

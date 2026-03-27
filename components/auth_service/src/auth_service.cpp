@@ -8,6 +8,8 @@
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
 #include "esp_random.h"
+#include "mbedtls/md.h"
+#include "mbedtls/pkcs5.h"
 #include "mbedtls/sha256.h"
 #include <sys/time.h>
 static const char* TAG = "auth_svc";
@@ -156,43 +158,59 @@ int32_t AuthService::retry_after_seconds() const {
     return static_cast<int32_t>(60 - delta);
 }
 
-common::Result<std::string> AuthService::hash_password(const char* password) {
-    if (!password || password[0] == '\0') {
-        return common::Result<std::string>::error(common::ErrorCode::InvalidArgument);
+// ---------------------------------------------------------------------------
+// PBKDF2 helpers
+// ---------------------------------------------------------------------------
+
+bool AuthService::pbkdf2_sha256(const uint8_t* password, size_t pwd_len,
+                                const uint8_t* salt, size_t salt_len,
+                                uint8_t* out) {
+#ifndef HOST_TEST_BUILD
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+    const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (!info) {
+        mbedtls_md_free(&ctx);
+        return false;
     }
-
-    // Generate random salt
-    char salt_hex[kSaltLength + 1] = {};
-    generate_random_hex(salt_hex, kSaltLength);
-
-    // Compute SHA-256(salt_bytes + password)
-    size_t salt_byte_len = kSaltLength / 2;
-    size_t pwd_len = std::strlen(password);
-    size_t total_len = salt_byte_len + pwd_len;
-
-    uint8_t* input = new uint8_t[total_len];
-
-    // Convert salt hex back to bytes for hashing
-    for (size_t i = 0; i < salt_byte_len; ++i) {
-        unsigned byte_val = 0;
-        std::sscanf(salt_hex + i * 2, "%2x", &byte_val);
-        input[i] = static_cast<uint8_t>(byte_val);
+    if (mbedtls_md_setup(&ctx, info, 1) != 0) {
+        mbedtls_md_free(&ctx);
+        return false;
     }
-    std::memcpy(input + salt_byte_len, password, pwd_len);
-
-    std::string hash_hex = sha256_hex(input, total_len);
-    delete[] input;
-
-    // Format: "salt_hex:hash_hex"
-    std::string result = std::string(salt_hex) + ":" + hash_hex;
-    return common::Result<std::string>::ok(std::move(result));
+    int rc = mbedtls_pkcs5_pbkdf2_hmac(&ctx, password, pwd_len, salt, salt_len,
+                                        kPbkdf2Iterations,
+                                        static_cast<uint32_t>(kPbkdf2DkBytes), out);
+    mbedtls_md_free(&ctx);
+    return rc == 0;
+#else
+    // Host test stub: deterministic fake KDF (NOT secure — test only)
+    (void)pwd_len;
+    (void)salt_len;
+    uint32_t h = 0xdeadbeef;
+    for (size_t i = 0; i < pwd_len; ++i) {
+        h ^= password[i];
+        h *= 0x01000193;
+    }
+    for (size_t i = 0; i < salt_len; ++i) {
+        h ^= (salt[i] << 8);
+        h *= 0x01000193;
+    }
+    for (size_t i = 0; i < kPbkdf2DkBytes; ++i) {
+        out[i] = static_cast<uint8_t>(h ^ (i * 37));
+        h = h * 1103515245 + 12345;
+    }
+    return true;
+#endif
 }
 
-bool AuthService::verify_password(const char* password, const char* stored_hash) {
-    if (!password || !stored_hash)
-        return false;
+bool AuthService::is_pbkdf2_hash(const char* stored_hash) {
+    return stored_hash && std::strncmp(stored_hash, "pbkdf2$", 7) == 0;
+}
 
-    // Parse "salt_hex:hash_hex"
+// ---------------------------------------------------------------------------
+// Legacy SHA-256 verify: "salt_hex(32):hash_hex(64)"
+// ---------------------------------------------------------------------------
+bool AuthService::verify_sha256(const char* password, const char* stored_hash) {
     const char* colon = std::strchr(stored_hash, ':');
     if (!colon)
         return false;
@@ -203,17 +221,13 @@ bool AuthService::verify_password(const char* password, const char* stored_hash)
 
     char salt_hex[kSaltLength + 1] = {};
     std::memcpy(salt_hex, stored_hash, salt_hex_len);
-
     const char* expected_hash = colon + 1;
 
-    // Recompute SHA-256(salt_bytes + password)
     size_t salt_byte_len = salt_hex_len / 2;
     size_t pwd_len = std::strlen(password);
-    size_t total_len = salt_byte_len + pwd_len;
 
     std::vector<uint8_t> input;
-    input.reserve(total_len);
-
+    input.reserve(salt_byte_len + pwd_len);
     for (size_t i = 0; i < salt_byte_len; ++i) {
         unsigned byte_val = 0;
         std::sscanf(salt_hex + i * 2, "%2x", &byte_val);
@@ -222,9 +236,110 @@ bool AuthService::verify_password(const char* password, const char* stored_hash)
     input.insert(input.end(), reinterpret_cast<const uint8_t*>(password),
                  reinterpret_cast<const uint8_t*>(password) + pwd_len);
 
-    std::string computed_hash = sha256_hex(input.data(), input.size());
+    std::string computed = sha256_hex(input.data(), input.size());
+    return computed == expected_hash;
+}
 
-    return computed_hash == expected_hash;
+// ---------------------------------------------------------------------------
+// PBKDF2 verify: "pbkdf2$<iter>$<salt_hex>$<dk_hex>"
+// ---------------------------------------------------------------------------
+bool AuthService::verify_pbkdf2(const char* password, const char* stored_hash) {
+    // Parse prefix
+    if (!is_pbkdf2_hash(stored_hash))
+        return false;
+
+    const char* p = stored_hash + 7; // skip "pbkdf2$"
+
+    // Parse iteration count
+    char* end = nullptr;
+    unsigned long iter = std::strtoul(p, &end, 10);
+    if (!end || *end != '$' || iter == 0)
+        return false;
+    p = end + 1; // skip '$'
+
+    // Parse salt_hex (32 chars)
+    const char* dollar2 = std::strchr(p, '$');
+    if (!dollar2 || (dollar2 - p) != static_cast<ptrdiff_t>(kSaltLength))
+        return false;
+
+    char salt_hex[kSaltLength + 1] = {};
+    std::memcpy(salt_hex, p, kSaltLength);
+    const char* expected_dk_hex = dollar2 + 1;
+
+    // Decode salt
+    uint8_t salt_bytes[kPbkdf2SaltBytes] = {};
+    for (size_t i = 0; i < kPbkdf2SaltBytes; ++i) {
+        unsigned byte_val = 0;
+        std::sscanf(salt_hex + i * 2, "%2x", &byte_val);
+        salt_bytes[i] = static_cast<uint8_t>(byte_val);
+    }
+
+    // Derive key
+    uint8_t dk[kPbkdf2DkBytes] = {};
+    if (!pbkdf2_sha256(reinterpret_cast<const uint8_t*>(password),
+                       std::strlen(password), salt_bytes, kPbkdf2SaltBytes, dk)) {
+        return false;
+    }
+
+    // Encode derived key to hex and compare
+    char dk_hex[kPbkdf2DkBytes * 2 + 1] = {};
+    for (size_t i = 0; i < kPbkdf2DkBytes; ++i) {
+        std::sprintf(dk_hex + i * 2, "%02x", dk[i]);
+    }
+
+    return secure_equals(dk_hex, expected_dk_hex);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+common::Result<std::string> AuthService::hash_password(const char* password) {
+    if (!password || password[0] == '\0') {
+        return common::Result<std::string>::error(common::ErrorCode::InvalidArgument);
+    }
+
+    // Generate 16-byte random salt
+    uint8_t salt_bytes[kPbkdf2SaltBytes] = {};
+#ifndef HOST_TEST_BUILD
+    esp_fill_random(salt_bytes, kPbkdf2SaltBytes);
+#else
+    for (size_t i = 0; i < kPbkdf2SaltBytes; ++i) {
+        salt_bytes[i] = static_cast<uint8_t>(std::rand() & 0xFF);
+    }
+#endif
+
+    char salt_hex[kSaltLength + 1] = {}; // kSaltLength == kPbkdf2SaltBytes * 2
+    for (size_t i = 0; i < kPbkdf2SaltBytes; ++i) {
+        std::sprintf(salt_hex + i * 2, "%02x", salt_bytes[i]);
+    }
+
+    uint8_t dk[kPbkdf2DkBytes] = {};
+    if (!pbkdf2_sha256(reinterpret_cast<const uint8_t*>(password),
+                       std::strlen(password), salt_bytes, kPbkdf2SaltBytes, dk)) {
+        return common::Result<std::string>::error(common::ErrorCode::Unknown);
+    }
+
+    char dk_hex[kPbkdf2DkBytes * 2 + 1] = {};
+    for (size_t i = 0; i < kPbkdf2DkBytes; ++i) {
+        std::sprintf(dk_hex + i * 2, "%02x", dk[i]);
+    }
+
+    // Format: "pbkdf2$<iter>$<salt_hex>$<dk_hex>"
+    char result[128] = {};
+    std::snprintf(result, sizeof(result), "pbkdf2$%u$%s$%s",
+                  kPbkdf2Iterations, salt_hex, dk_hex);
+    return common::Result<std::string>::ok(std::string(result));
+}
+
+bool AuthService::verify_password(const char* password, const char* stored_hash) {
+    if (!password || !stored_hash)
+        return false;
+    if (is_pbkdf2_hash(stored_hash)) {
+        return verify_pbkdf2(password, stored_hash);
+    }
+    // Legacy path: SHA-256 "salt_hex:hash_hex"
+    return verify_sha256(password, stored_hash);
 }
 
 void AuthService::generate_random_hex(char* out, size_t hex_len) {
