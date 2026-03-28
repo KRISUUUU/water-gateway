@@ -177,6 +177,29 @@ h3 {
     align-content: start;
 }
 
+.app-banner {
+    margin: 0 var(--space-6);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.app-banner.msg-error {
+    border-color: rgba(239, 68, 68, 0.45);
+    background: rgba(120, 25, 25, 0.22);
+}
+
+.app-banner.msg-success {
+    border-color: rgba(34, 197, 94, 0.4);
+    background: rgba(22, 101, 52, 0.18);
+}
+
+.app-banner.msg-warning {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(120, 72, 15, 0.2);
+}
+
 .page {
     display: grid;
     gap: var(--space-4);
@@ -482,6 +505,10 @@ pre {
 }
 
 @media (max-width: 1024px) {
+    .app-banner {
+        margin: 0 var(--space-4);
+    }
+
     .layout {
         grid-template-columns: 1fr;
     }

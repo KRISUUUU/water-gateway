@@ -9,6 +9,8 @@
     let heavyRefreshTimer = null;
     const dashboardCache = { duplicateCount: 0, detected: 0, watchlistCount: 0 };
     let bootstrapInfo = null;
+    let cacheOtaStatus = null;
+    let stickyBanner = null;
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -64,6 +66,15 @@
         el.hidden = false;
     }
 
+    function clearMsg(el) {
+        if (!el) {
+            return;
+        }
+        el.className = "msg";
+        el.textContent = "";
+        el.hidden = true;
+    }
+
     function toBool(value) {
         return !!value;
     }
@@ -90,11 +101,36 @@
         }
     }
 
+    function setBanner(kind, message) {
+        const banner = $("#app-banner");
+        if (!banner) {
+            return;
+        }
+        setMsg(banner, kind, message);
+        banner.classList.add("app-banner");
+    }
+
+    function clearBanner() {
+        const banner = $("#app-banner");
+        if (!banner) {
+            return;
+        }
+        banner.className = "msg app-banner";
+        banner.textContent = "";
+        banner.hidden = true;
+    }
+
+    function setStickyBanner(kind, message) {
+        stickyBanner = message ? { kind: kind || "warning", message: message } : null;
+        syncOperatorBanner();
+    }
+
     /** Sign-in only: session invalid, logout, or API 401. Never shows Initial Setup. */
     function showSessionExpiredSignIn(message, kind) {
         stopRefreshTimer();
         token = "";
         sessionStorage.removeItem("wg_token");
+        stickyBanner = null;
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
         setHiddenIfPresent("#auth-startup-msg", true);
@@ -327,6 +363,7 @@
     function forceFirstBootSetup() {
         token = "";
         sessionStorage.removeItem("wg_token");
+        stickyBanner = null;
         $("#app-shell").hidden = true;
         $("#login-page").hidden = false;
         showSetupScreen();
@@ -335,6 +372,7 @@
     function showApp() {
         $("#login-page").hidden = true;
         $("#app-shell").hidden = false;
+        syncOperatorBanner();
         showPage(currentPage);
         startRefresh();
     }
@@ -401,6 +439,160 @@
                 el.disabled = !enabled;
             }
         );
+    }
+
+    function appendKvRows(container, rows) {
+        rows.forEach((row) => container.appendChild(kvRow(row[0], row[1])));
+    }
+
+    function mqttQueueSummary(mqtt) {
+        const depth = Number(mqtt && mqtt.outbox_depth ? mqtt.outbox_depth : 0);
+        const capacity = Number(mqtt && mqtt.outbox_capacity ? mqtt.outbox_capacity : 0);
+        const held = !!(mqtt && mqtt.held_item);
+        const retryFailures = Number(mqtt && mqtt.retry_failure_count ? mqtt.retry_failure_count : 0);
+        const retries = Number(mqtt && mqtt.retry_count ? mqtt.retry_count : 0);
+        const details = [];
+        if (capacity > 0) {
+            details.push(depth + "/" + capacity + " queued");
+        } else if (depth > 0) {
+            details.push(depth + " queued");
+        } else {
+            details.push("idle");
+        }
+        if (held) {
+            details.push("held item");
+        }
+        if (retryFailures > 0) {
+            details.push(retryFailures + " retry failures");
+        } else if (retries > 0) {
+            details.push(retries + " retries");
+        }
+        if (capacity > 0 && depth >= capacity) {
+            return "High pressure: " + details.join(", ");
+        }
+        if (held || depth > 0) {
+            return "Active queue: " + details.join(", ");
+        }
+        return "Clear: " + details.join(", ");
+    }
+
+    function radioSummary(radioData) {
+        const rsm = radioData && radioData.rsm ? radioData.rsm : {};
+        const diag = radioData && radioData.diagnostics ? radioData.diagnostics : {};
+        const counters = diag.radio_counters || {};
+        const issues = [];
+        if (Number(rsm.consecutive_errors || 0) > 0) {
+            issues.push(rsm.consecutive_errors + " consecutive errors");
+        }
+        if (Number(counters.spi_errors || 0) > 0) {
+            issues.push(counters.spi_errors + " SPI errors");
+        }
+        if (Number(counters.fifo_overflows || 0) > 0) {
+            issues.push(counters.fifo_overflows + " FIFO overflows");
+        }
+        if (issues.length > 0) {
+            return "Needs attention: " + issues.join(", ");
+        }
+        return "Stable: " + text(diag.radio_state || rsm.state, "unknown");
+    }
+
+    function otaSummary(ota) {
+        const state = String(ota && ota.state ? ota.state : "").toLowerCase();
+        const progress = text(ota && ota.progress_pct, "0") + "%";
+        if (!state || state === "idle") {
+            return "Idle";
+        }
+        if (state.includes("error") || state.includes("fail")) {
+            return "Problem: " + text(ota && ota.message, state);
+        }
+        if (state.includes("success") || state.includes("complete")) {
+            return "Ready: " + text(ota && ota.message, "reboot may be required");
+        }
+        return "In progress: " + progress + " (" + text(ota && ota.message, state) + ")";
+    }
+
+    function healthSummary(health) {
+        if (!health) {
+            return "--";
+        }
+        const errors = Number(health.error_count || 0);
+        const warnings = Number(health.warning_count || 0);
+        if (errors > 0) {
+            return errors + " error(s): " + text(health.last_error_msg, "check diagnostics");
+        }
+        if (warnings > 0) {
+            return warnings + " warning(s): " + text(health.last_warning_msg, "check diagnostics");
+        }
+        return "No active health alerts";
+    }
+
+    function currentOperatorNotice() {
+        const status = cacheStatus || {};
+        const ota = cacheOtaStatus || {};
+        const health = status.health || {};
+        const mqtt = status.mqtt || {};
+
+        if (String(status.mode || "").toLowerCase() === "provisioning") {
+            return {
+                kind: "warning",
+                message:
+                    "Device is in provisioning mode. Finish required settings and reboot to enter normal operation.",
+            };
+        }
+
+        const otaState = String(ota.state || "").toLowerCase();
+        if (otaState && otaState !== "idle") {
+            if (otaState.includes("error") || otaState.includes("fail")) {
+                return {
+                    kind: "error",
+                    message: "OTA reports a problem: " + text(ota.message, ota.state),
+                };
+            }
+            if (otaState.includes("success") || otaState.includes("complete")) {
+                return {
+                    kind: "success",
+                    message: "OTA completed. Reboot the device if activation is still pending.",
+                };
+            }
+            return {
+                kind: "warning",
+                message: "OTA is in progress: " + text(ota.progress_pct, "0") + "% complete.",
+            };
+        }
+
+        if (Number(health.error_count || 0) > 0) {
+            return {
+                kind: "error",
+                message: "Health monitor reports an error: " + text(health.last_error_msg, "check diagnostics"),
+            };
+        }
+        if (Number(health.warning_count || 0) > 0) {
+            return {
+                kind: "warning",
+                message:
+                    "Health monitor has warnings: " + text(health.last_warning_msg, "check diagnostics"),
+            };
+        }
+        if (stickyBanner) {
+            return stickyBanner;
+        }
+        if ((mqtt.held_item || Number(mqtt.outbox_depth || 0) > 0) &&
+            String(mqtt.state || "").toLowerCase() !== "connected") {
+            return {
+                kind: "warning",
+                message: "MQTT has queued data waiting for connectivity. Check broker reachability and queue pressure.",
+            };
+        }
+        return null;
+    }
+
+    function syncOperatorBanner() {
+        const notice = currentOperatorNotice();
+        if (!notice) {
+            clearBanner();
+            return;
+        }
+        setBanner(notice.kind, notice.message);
     }
 
     async function bootstrap() {
@@ -541,6 +733,133 @@
         }
     }
 
+    async function submitWatchlistEntry() {
+        const msg = $("#wl-msg");
+        clearMsg(msg);
+        const key = $("#wl-key").value.trim();
+        if (!key) {
+            setMsg(msg, "error", "Meter key is required.");
+            return;
+        }
+        try {
+            await api("POST", "/api/watchlist", {
+                key: key,
+                alias: $("#wl-alias").value || "",
+                note: $("#wl-note").value || "",
+                enabled: $("#wl-enabled").checked,
+            });
+            setMsg(msg, "success", "Watchlist updated.");
+            await loadWatchlist();
+            if (currentPage === "meters") {
+                await loadDetectedMeters();
+            }
+        } catch (err) {
+            setMsg(msg, "error", errorMessage(err, "Watchlist update failed."));
+        }
+    }
+
+    async function deleteWatchlistEntry() {
+        const msg = $("#wl-msg");
+        clearMsg(msg);
+        const key = $("#wl-key").value.trim();
+        if (!key) {
+            setMsg(msg, "error", "Meter key is required.");
+            return;
+        }
+        try {
+            await api("POST", "/api/watchlist/delete", { key: key });
+            setMsg(msg, "success", "Watchlist entry removed.");
+            $("#wl-key").value = "";
+            $("#wl-alias").value = "";
+            $("#wl-note").value = "";
+            $("#wl-enabled").checked = true;
+            await loadWatchlist();
+            await loadDetectedMeters();
+        } catch (err) {
+            setMsg(msg, "error", errorMessage(err, "Watchlist delete failed."));
+        }
+    }
+
+    async function startOtaFromUrl() {
+        const url = $("#ota-url").value.trim();
+        if (!url) {
+            setMsg($("#ota-status"), "warning", "Enter URL first.");
+            return;
+        }
+        try {
+            await api("POST", "/api/ota/url", { url: url });
+            setMsg($("#ota-status"), "success", "OTA URL update started.");
+            cacheOtaStatus = {
+                state: "starting",
+                progress_pct: 0,
+                message: "Waiting for OTA worker to report progress.",
+            };
+            syncOperatorBanner();
+            await loadOtaStatus();
+        } catch (err) {
+            setMsg($("#ota-status"), "error", "OTA URL failed: " + errorMessage(err, "request failed"));
+        }
+    }
+
+    async function sendRebootCommand(messageSelector, options) {
+        const target = messageSelector ? $(messageSelector) : null;
+        try {
+            await api("POST", "/api/system/reboot");
+            if (target) {
+                setMsg(target, "warning", "Reboot command sent. Connection may drop shortly.");
+            }
+            setStickyBanner("warning", "Reboot command sent. Wait for the device to come back online.");
+        } catch (err) {
+            if (target) {
+                setMsg(target, "error", errorMessage(err, "Reboot failed."));
+            }
+        }
+        if (options && options.refreshStatus) {
+            await refreshStatusOnly();
+        }
+    }
+
+    async function sendFactoryResetCommand() {
+        const msg = $("#factory-msg");
+        try {
+            await api("POST", "/api/system/factory-reset");
+            setMsg(msg, "warning", "Factory reset command sent. Device will erase settings and reboot.");
+            setStickyBanner("warning", "Factory reset started. Stored settings will be cleared during reboot.");
+        } catch (err) {
+            setMsg(msg, "error", errorMessage(err, "Factory reset failed."));
+        }
+    }
+
+    async function exportConfigFile() {
+        try {
+            const cfg = await api("GET", "/api/config");
+            const blob = new Blob([JSON.stringify(cfg, null, 2)], {
+                type: "application/json",
+            });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "wmbus-gw-config.json";
+            a.click();
+        } catch (err) {
+            setMsg($("#cfg-msg"), "error", errorMessage(err, "Config export failed."));
+        }
+    }
+
+    async function downloadSupportBundle() {
+        const msg = $("#support-msg");
+        clearMsg(msg);
+        try {
+            const blob = await downloadBlob("/api/support-bundle");
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "support-bundle.json";
+            a.click();
+            setMsg(msg, "success", "Support bundle downloaded.");
+        } catch (err) {
+            setMsg(msg, "error", errorMessage(err, "Support bundle download failed."));
+        }
+    }
+
     async function loadDashboard() {
         try {
             const [status, metersData, watchlistData] = await Promise.all([
@@ -561,11 +880,15 @@
             cacheStatus = status;
             cacheWatchlist = watchlistData.watchlist || [];
             applyModeUi(status.mode);
+            clearMsg($("#dashboard-msg"));
             dashboardCache.duplicateCount = counts.duplicateCount;
             dashboardCache.detected = counts.detected;
             dashboardCache.watchlistCount = counts.watchCount;
             renderDashboard(status, counts);
-        } catch (_) {}
+            syncOperatorBanner();
+        } catch (err) {
+            setMsg($("#dashboard-msg"), "error", errorMessage(err, "Unable to load dashboard."));
+        }
     }
 
     /** Light dashboard refresh: /api/status only; keeps last meter/watchlist/duplicate totals from full load. */
@@ -574,12 +897,20 @@
             const status = await api("GET", "/api/status");
             cacheStatus = status;
             applyModeUi(status.mode);
+            clearMsg($("#dashboard-msg"));
             renderDashboard(status, {
                 duplicateCount: dashboardCache.duplicateCount,
                 detected: dashboardCache.detected,
                 watchCount: dashboardCache.watchlistCount,
             });
-        } catch (_) {}
+            syncOperatorBanner();
+        } catch (err) {
+            setMsg(
+                $("#dashboard-msg"),
+                "warning",
+                errorMessage(err, "Live refresh failed. Showing last known dashboard values.")
+            );
+        }
     }
 
     async function refreshStatusOnly() {
@@ -591,6 +922,7 @@
             const status = await api("GET", "/api/status");
             cacheStatus = status;
             applyModeUi(status.mode);
+            syncOperatorBanner();
         } catch (_) {}
     }
 
@@ -795,15 +1127,27 @@
             const mqttEl = $("#mqtt-stats");
             const sysEl = $("#sys-stats");
             const otaEl = $("#diag-ota-stats");
+            const summaryEl = $("#diag-summary");
             clearChildren(radioEl);
             clearChildren(mqttEl);
             clearChildren(sysEl);
             clearChildren(otaEl);
+            clearChildren(summaryEl);
+            cacheStatus = statusData;
+            cacheOtaStatus = otaData;
+            syncOperatorBanner();
 
             const rsm = radioData.rsm || {};
             const diag = radioData.diagnostics || {};
             const rc = diag.radio_counters || {};
-            [
+            appendKvRows(summaryEl, [
+                ["Health", healthSummary(statusData.health || {})],
+                ["MQTT Queue", mqttQueueSummary(mqttData)],
+                ["Radio", radioSummary(radioData)],
+                ["OTA", otaSummary(otaData)],
+            ]);
+
+            appendKvRows(radioEl, [
                 ["RSM State", rsm.state],
                 ["Consecutive Errors", rsm.consecutive_errors],
                 ["Radio State", diag.radio_state],
@@ -814,11 +1158,12 @@
                 ["Dropped Too Long", rc.frames_dropped_too_long],
                 ["FIFO Overflows", rc.fifo_overflows],
                 ["SPI Errors", rc.spi_errors],
-            ].forEach((entry) => radioEl.appendChild(kvRow(entry[0], entry[1])));
+            ]);
 
-            [
+            appendKvRows(mqttEl, [
                 ["State", mqttData.state],
                 ["Broker", mqttData.broker_uri],
+                ["Queue State", mqttQueueSummary(mqttData)],
                 ["Publish Count", mqttData.publish_count],
                 ["Publish Failures", mqttData.publish_failures],
                 ["Reconnects", mqttData.reconnect_count],
@@ -828,13 +1173,14 @@
                 ["Retry Failures", mqttData.retry_failure_count],
                 ["Outbox", text(mqttData.outbox_depth, 0) + " / " + text(mqttData.outbox_capacity, 0)],
                 ["Last Publish (ms)", mqttData.last_publish_epoch_ms],
-            ].forEach((entry) => mqttEl.appendChild(kvRow(entry[0], entry[1])));
+            ]);
 
             const health = statusData.health || {};
             const metrics = statusData.metrics || {};
             const wifi = statusData.wifi || {};
-            [
+            appendKvRows(sysEl, [
                 ["Health", health.state],
+                ["Health Detail", healthSummary(health)],
                 ["Uptime", formatUptime(metrics.uptime_s)],
                 ["Heap Free", metrics.free_heap_bytes],
                 ["Heap Min", metrics.min_free_heap_bytes],
@@ -842,16 +1188,18 @@
                 ["Wi-Fi State", wifi.state],
                 ["Wi-Fi IP", wifi.ip_address],
                 ["Wi-Fi RSSI", wifi.rssi_dbm],
-            ].forEach((entry) => sysEl.appendChild(kvRow(entry[0], entry[1])));
+            ]);
 
-            [
+            appendKvRows(otaEl, [
                 ["State", otaData.state],
+                ["Summary", otaSummary(otaData)],
                 ["Progress", text(otaData.progress_pct, "0") + "%"],
                 ["Message", otaData.message],
                 ["Version", otaData.current_version],
-            ].forEach((entry) => otaEl.appendChild(kvRow(entry[0], entry[1])));
+            ]);
         } catch (err) {
             const message = errorMessage(err, "Unable to load diagnostics.");
+            renderKvLoadError("#diag-summary", message);
             renderKvLoadError("#rf-stats", message);
             renderKvLoadError("#mqtt-stats", message);
             renderKvLoadError("#sys-stats", message);
@@ -962,13 +1310,18 @@
     async function loadOtaStatus() {
         try {
             const d = await api("GET", "/api/ota/status");
+            cacheOtaStatus = d;
             const otaGrid = $("#ota-state-grid");
             clearChildren(otaGrid);
-            otaGrid.appendChild(kvRow("State", d.state));
-            otaGrid.appendChild(kvRow("Progress", text(d.progress_pct, "0") + "%"));
-            otaGrid.appendChild(kvRow("Current Version", d.current_version));
-            otaGrid.appendChild(kvRow("Message", d.message));
+            appendKvRows(otaGrid, [
+                ["State", d.state],
+                ["Summary", otaSummary(d)],
+                ["Progress", text(d.progress_pct, "0") + "%"],
+                ["Current Version", d.current_version],
+                ["Message", d.message],
+            ]);
             $("#ota-status").textContent = "Status: " + text(d.state);
+            syncOperatorBanner();
         } catch (err) {
             renderKvLoadError("#ota-state-grid", errorMessage(err, "Unable to load OTA status."));
             setMsg($("#ota-status"), "error", errorMessage(err, "Unable to load OTA status."));
@@ -984,26 +1337,18 @@
                 api("GET", "/api/ota/status"),
                 api("GET", "/api/watchlist"),
             ]);
-            summary.appendChild(kvRow("Firmware", status.firmware_version));
-            summary.appendChild(kvRow("Mode", status.mode));
-            summary.appendChild(kvRow("Health", status.health ? status.health.state : "--"));
-            summary.appendChild(kvRow("MQTT", status.mqtt ? status.mqtt.state : "--"));
-            summary.appendChild(
-                kvRow(
-                    "MQTT Outbox",
-                    text(status.mqtt ? status.mqtt.outbox_depth : "--", "--") +
-                        " / " +
-                        text(status.mqtt ? status.mqtt.outbox_capacity : "--", "--")
-                )
-            );
-            summary.appendChild(
-                kvRow(
-                    "MQTT Held",
-                    status.mqtt && status.mqtt.held_item ? "yes" : "no"
-                )
-            );
-            summary.appendChild(kvRow("Watchlist Entries", (watch.watchlist || []).length));
-            summary.appendChild(kvRow("OTA State", ota.state));
+            cacheStatus = status;
+            cacheOtaStatus = ota;
+            syncOperatorBanner();
+            appendKvRows(summary, [
+                ["Firmware", status.firmware_version],
+                ["Mode", status.mode],
+                ["Health", healthSummary(status.health || {})],
+                ["MQTT", status.mqtt ? status.mqtt.state : "--"],
+                ["MQTT Queue", mqttQueueSummary(status.mqtt || {})],
+                ["Watchlist Entries", (watch.watchlist || []).length],
+                ["OTA", otaSummary(ota)],
+            ]);
         } catch (err) {
             renderKvLoadError("#support-summary", errorMessage(err, "Unable to load support summary."));
         }
@@ -1052,9 +1397,11 @@
             $("#sidebar").classList.toggle("open");
         });
 
-        $("#btn-logout").addEventListener("click", () => {
-            api("POST", "/api/auth/logout").catch(() => {});
-            showSessionExpiredSignIn();
+        $("#btn-logout").addEventListener("click", async () => {
+            try {
+                await api("POST", "/api/auth/logout");
+            } catch (_) {}
+            showSessionExpiredSignIn("Signed out.", "success");
         });
 
         $("#login-form").addEventListener("submit", async (e) => {
@@ -1106,6 +1453,7 @@
                 collectConfigValues(cfg);
                 const resp = await api("POST", "/api/config", cfg);
                 if (resp.relogin_required) {
+                    stickyBanner = null;
                     showSessionExpiredSignIn(
                         "Settings saved. Sign in again because authentication settings changed.",
                         "warning"
@@ -1114,8 +1462,13 @@
                 }
                 if (resp.reboot_required) {
                     setMsg(msg, "warning", "Saved. Reboot required to apply runtime settings.");
+                    setStickyBanner(
+                        "warning",
+                        "Runtime settings changed. Reboot the device to apply the new configuration."
+                    );
                 } else {
                     setMsg(msg, "success", "Settings saved.");
+                    syncOperatorBanner();
                 }
             } catch (err) {
                 const issues = err && err.data && err.data.issues ? err.data.issues : [];
@@ -1129,62 +1482,12 @@
         });
 
         $("#cfg-export").addEventListener("click", async () => {
-            try {
-                const cfg = await api("GET", "/api/config");
-                const blob = new Blob([JSON.stringify(cfg, null, 2)], {
-                    type: "application/json",
-                });
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = "wmbus-gw-config.json";
-                a.click();
-            } catch (_) {}
+            await exportConfigFile();
         });
 
-        $("#wl-save").addEventListener("click", () => {
-            const msg = $("#wl-msg");
-            msg.hidden = true;
-            const key = $("#wl-key").value.trim();
-            if (!key) {
-                setMsg(msg, "error", "Meter key is required.");
-                return;
-            }
-            api("POST", "/api/watchlist", {
-                key: key,
-                alias: $("#wl-alias").value || "",
-                note: $("#wl-note").value || "",
-                enabled: $("#wl-enabled").checked,
-            })
-                .then(() => {
-                    setMsg(msg, "success", "Watchlist updated.");
-                    loadWatchlist();
-                    if (currentPage === "meters") {
-                        loadDetectedMeters();
-                    }
-                })
-                .catch(() => setMsg(msg, "error", "Watchlist update failed."));
-        });
+        $("#wl-save").addEventListener("click", submitWatchlistEntry);
 
-        $("#wl-delete").addEventListener("click", () => {
-            const msg = $("#wl-msg");
-            msg.hidden = true;
-            const key = $("#wl-key").value.trim();
-            if (!key) {
-                setMsg(msg, "error", "Meter key is required.");
-                return;
-            }
-            api("POST", "/api/watchlist/delete", { key: key })
-                .then(() => {
-                    setMsg(msg, "success", "Watchlist entry removed.");
-                    $("#wl-key").value = "";
-                    $("#wl-alias").value = "";
-                    $("#wl-note").value = "";
-                    $("#wl-enabled").checked = true;
-                    loadWatchlist();
-                    loadDetectedMeters();
-                })
-                .catch(() => setMsg(msg, "error", "Watchlist delete failed."));
-        });
+        $("#wl-delete").addEventListener("click", deleteWatchlistEntry);
 
         $("#ota-upload-btn").addEventListener("click", async () => {
             const file = $("#ota-file").files[0];
@@ -1200,56 +1503,47 @@
                     body: file,
                 });
                 const detail = resp.detail || "Upload complete. Reboot required.";
+                cacheOtaStatus = {
+                    state: "uploaded",
+                    progress_pct: 100,
+                    message: detail,
+                    current_version: cacheOtaStatus ? cacheOtaStatus.current_version : "",
+                };
                 setMsg($("#ota-status"), "success", detail);
+                setStickyBanner(
+                    "warning",
+                    "Firmware upload finished. Reboot the device when you are ready to activate it."
+                );
                 loadOtaStatus();
             } catch (err) {
                 setMsg($("#ota-status"), "error", "Upload failed: " + err.message);
             }
         });
 
-        $("#ota-url-btn").addEventListener("click", () => {
-            const url = $("#ota-url").value.trim();
-            if (!url) {
-                setMsg($("#ota-status"), "warning", "Enter URL first.");
-                return;
-            }
-            api("POST", "/api/ota/url", { url: url })
-                .then(() => setMsg($("#ota-status"), "success", "OTA URL update started."))
-                .catch((err) => setMsg($("#ota-status"), "error", "OTA URL failed: " + err.message));
-        });
+        $("#ota-url-btn").addEventListener("click", startOtaFromUrl);
 
         $("#sys-bundle").addEventListener("click", async () => {
-            try {
-                const blob = await downloadBlob("/api/support-bundle");
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = "support-bundle.json";
-                a.click();
-            } catch (_) {}
+            await downloadSupportBundle();
         });
 
-        $("#sys-reboot").addEventListener("click", () => {
+        $("#sys-reboot").addEventListener("click", async () => {
             if (!confirm("Reboot device now?")) {
                 return;
             }
-            api("POST", "/api/system/reboot")
-                .then(() => setMsg($("#factory-msg"), "warning", "Reboot command sent."))
-                .catch(() => setMsg($("#factory-msg"), "error", "Reboot failed."));
+            await sendRebootCommand("#factory-msg");
         });
 
-        $("#dash-reboot").addEventListener("click", () => {
+        $("#dash-reboot").addEventListener("click", async () => {
             if (confirm("Reboot device now?")) {
-                api("POST", "/api/system/reboot").catch(() => {});
+                await sendRebootCommand(null, { refreshStatus: true });
             }
         });
 
-        $("#sys-reset").addEventListener("click", () => {
+        $("#sys-reset").addEventListener("click", async () => {
             if (!confirm("Factory reset will erase configuration and reboot. Continue?")) {
                 return;
             }
-            api("POST", "/api/system/factory-reset")
-                .then(() => setMsg($("#factory-msg"), "warning", "Factory reset command sent."))
-                .catch(() => setMsg($("#factory-msg"), "error", "Factory reset failed."));
+            await sendFactoryResetCommand();
         });
 
         $("#tg-filter").addEventListener("change", loadTelegrams);

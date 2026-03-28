@@ -139,6 +139,20 @@ static void test_qos_out_of_range() {
     printf("  PASS: QoS > 2 fails\n");
 }
 
+static void test_logging_level_out_of_range_fails() {
+    auto cfg = AppConfig::make_default();
+    std::strncpy(cfg.mqtt.host, "broker", sizeof(cfg.mqtt.host) - 1);
+    cfg.logging.level = 6;
+    auto result = validate_config(cfg);
+    assert(!result.valid);
+    bool found = false;
+    for (const auto& issue : result.issues) {
+        if (issue.field == "logging.level") found = true;
+    }
+    assert(found);
+    printf("  PASS: log level above 5 fails\n");
+}
+
 int main() {
     printf("=== test_config_validation ===\n");
     test_default_config_is_valid();
@@ -153,6 +167,7 @@ int main() {
     test_session_timeout_bounds();
     test_zero_wifi_retries_warns_without_invalidating();
     test_qos_out_of_range();
+    test_logging_level_out_of_range_fails();
     printf("All config validation tests passed.\n");
     return 0;
 }

@@ -43,6 +43,55 @@ const char* ota_state_str(ota_manager::OtaState s) {
     return ota_manager::ota_state_to_string(s);
 }
 
+const char* radio_state_str(radio_cc1101::RadioState s) {
+    using radio_cc1101::RadioState;
+    switch (s) {
+    case RadioState::Uninitialized:
+        return "Uninitialized";
+    case RadioState::Idle:
+        return "Idle";
+    case RadioState::Receiving:
+        return "Receiving";
+    case RadioState::Error:
+        return "Error";
+    }
+    return "Unknown";
+}
+
+const char* mqtt_state_str(mqtt_service::MqttState s) {
+    using mqtt_service::MqttState;
+    switch (s) {
+    case MqttState::Uninitialized:
+        return "Uninitialized";
+    case MqttState::Disconnected:
+        return "Disconnected";
+    case MqttState::Connecting:
+        return "Connecting";
+    case MqttState::Connected:
+        return "Connected";
+    case MqttState::Error:
+        return "Error";
+    }
+    return "Unknown";
+}
+
+const char* wifi_state_str(wifi_manager::WifiState s) {
+    using wifi_manager::WifiState;
+    switch (s) {
+    case WifiState::Uninitialized:
+        return "Uninitialized";
+    case WifiState::Disconnected:
+        return "Disconnected";
+    case WifiState::Connecting:
+        return "Connecting";
+    case WifiState::Connected:
+        return "Connected";
+    case WifiState::ApMode:
+        return "ApMode";
+    }
+    return "Unknown";
+}
+
 cJSON* build_redacted_config_json(const config_store::AppConfig& c) {
     cJSON* root = cJSON_CreateObject();
     if (!root) {
@@ -158,6 +207,36 @@ cJSON* build_ota_json() {
     return root;
 }
 
+cJSON* build_summary_json(const diagnostics_service::DiagnosticsSnapshot& snap) {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
+    }
+    cJSON_AddStringToObject(root, "health_state",
+                            health_monitor::HealthMonitor::state_to_string(snap.health.state));
+    cJSON_AddNumberToObject(root, "health_warning_count",
+                            static_cast<double>(snap.health.warning_count));
+    cJSON_AddNumberToObject(root, "health_error_count",
+                            static_cast<double>(snap.health.error_count));
+    cJSON_AddStringToObject(root, "health_last_warning", snap.health.last_warning_msg.c_str());
+    cJSON_AddStringToObject(root, "health_last_error", snap.health.last_error_msg.c_str());
+    cJSON_AddStringToObject(root, "wifi_state", wifi_state_str(snap.wifi.state));
+    cJSON_AddStringToObject(root, "mqtt_state", mqtt_state_str(snap.mqtt.state));
+    cJSON_AddNumberToObject(root, "mqtt_outbox_depth",
+                            static_cast<double>(snap.mqtt.outbox_depth));
+    cJSON_AddNumberToObject(root, "mqtt_outbox_capacity",
+                            static_cast<double>(snap.mqtt.outbox_capacity));
+    cJSON_AddBoolToObject(root, "mqtt_held_item", snap.mqtt.held_item);
+    cJSON_AddNumberToObject(root, "mqtt_retry_failure_count",
+                            static_cast<double>(snap.mqtt.retry_failure_count));
+    cJSON_AddStringToObject(root, "radio_state", radio_state_str(snap.radio_state));
+    cJSON_AddNumberToObject(root, "radio_fifo_overflows",
+                            static_cast<double>(snap.radio.fifo_overflows));
+    cJSON_AddNumberToObject(root, "radio_spi_errors", static_cast<double>(snap.radio.spi_errors));
+    cJSON_AddNumberToObject(root, "uptime_s", static_cast<double>(snap.metrics.uptime_s));
+    return root;
+}
+
 cJSON* build_diagnostics_json(const diagnostics_service::DiagnosticsSnapshot& snap) {
     const std::string diagnostics_json = diagnostics_service::DiagnosticsService::to_json(snap);
     cJSON* parsed = cJSON_Parse(diagnostics_json.c_str());
@@ -224,6 +303,7 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
     cJSON_AddNumberToObject(root.get(), "generated_at_epoch_s",
                             static_cast<double>(std::time(nullptr)));
 
+    add_owned_item(root.get(), "summary", build_summary_json(diag_res.value()));
     add_owned_item(root.get(), "diagnostics", build_diagnostics_json(diag_res.value()));
     add_owned_item(root.get(), "metrics", build_metrics_json(metrics_res.value()));
     add_owned_item(root.get(), "health", build_health_json(health_res.value()));

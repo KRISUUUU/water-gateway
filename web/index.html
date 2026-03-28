@@ -63,6 +63,7 @@
             <button id="btn-logout" class="btn btn-ghost">Logout</button>
         </div>
     </header>
+    <p id="app-banner" class="msg app-banner" hidden></p>
 
     <div class="layout">
         <aside id="sidebar" class="sidebar">
@@ -86,6 +87,7 @@
                     <h2>Dashboard</h2>
                     <p>Operational overview of gateway state and traffic health.</p>
                 </div>
+                <p id="dashboard-msg" class="msg" hidden></p>
                 <div class="status-grid" id="dashboard-status-grid"></div>
                 <div class="metric-grid" id="dashboard-metrics-grid"></div>
                 <div class="card quick-actions">
@@ -228,6 +230,10 @@
                 <div class="btn-row">
                     <button id="diag-refresh" class="btn btn-secondary">Refresh</button>
                 </div>
+                <div class="card">
+                    <h3>Operator Summary</h3>
+                    <div id="diag-summary" class="kv-list"></div>
+                </div>
                 <div class="diag-grid">
                     <div class="card">
                         <h3>Radio</h3>
@@ -321,6 +327,7 @@
                         <h3>Support Bundle</h3>
                         <p class="hint">Download JSON bundle for troubleshooting and support.</p>
                         <button id="sys-bundle" class="btn btn-primary">Download Support Bundle</button>
+                        <p id="support-msg" class="msg" hidden></p>
                     </div>
                     <div class="card">
                         <h3>Quick Summary</h3>

@@ -137,6 +137,15 @@ static void test_verify_invalid_pbkdf2_variants() {
     printf("  PASS: malformed PBKDF2 hashes are rejected\n");
 }
 
+static void test_verify_invalid_legacy_hash_variants() {
+    assert(!AuthService::verify_password("test", "0011:abcd"));
+    assert(!AuthService::verify_password(
+        "test", "00000000000000000000000000000000:"));
+    assert(!AuthService::verify_password(
+        "test", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz:1234"));
+    printf("  PASS: malformed legacy hashes are rejected\n");
+}
+
 static void test_different_passwords_different_hashes() {
     auto h1 = AuthService::hash_password("password1");
     auto h2 = AuthService::hash_password("password2");
@@ -160,6 +169,7 @@ int main() {
     test_verify_null_stored_hash();
     test_verify_invalid_format();
     test_verify_invalid_pbkdf2_variants();
+    test_verify_invalid_legacy_hash_variants();
     test_different_passwords_different_hashes();
     printf("All auth helper tests passed.\n");
     return 0;
