@@ -135,10 +135,9 @@ static void pipeline_task(void* /*param*/) {
 
             if (route.publish_event && route.event_message) {
                 // Q1 fix: check return; event drops are logged via the same counter.
-                if (!enqueue_mqtt(
-                        mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
-                        mqtt_service::payload_event("radio_event", "warning", route.event_message,
-                                                    ""))) {
+                if (!enqueue_mqtt(mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
+                                  mqtt_service::payload_event("radio_event", "warning",
+                                                              route.event_message, ""))) {
                     mqtt_drop_count++;
                     if (mqtt_drop_count == 1 || (mqtt_drop_count % 100) == 0) {
                         ESP_LOGW(TAG, "mqtt_outbox full — event dropped (total drops: %lu)",
@@ -155,9 +154,8 @@ static void mqtt_task(void* /*param*/) {
     auto report_outbox_state = [&mqtt](bool has_carry_item) {
         const uint32_t depth =
             mqtt_outbox ? static_cast<uint32_t>(uxQueueMessagesWaiting(mqtt_outbox)) : 0;
-        const uint32_t capacity = mqtt_outbox
-            ? depth + static_cast<uint32_t>(uxQueueSpacesAvailable(mqtt_outbox))
-            : 0;
+        const uint32_t capacity =
+            mqtt_outbox ? depth + static_cast<uint32_t>(uxQueueSpacesAvailable(mqtt_outbox)) : 0;
         mqtt.note_outbox_state(depth, capacity, has_carry_item);
     };
 
@@ -189,7 +187,8 @@ static void mqtt_task(void* /*param*/) {
                     has_carry = true;
                     held_count++;
                     mqtt.note_runtime_hold();
-                    ESP_LOGD(TAG, "MQTT disconnected - item held (held:%lu)", (unsigned long)held_count);
+                    ESP_LOGD(TAG, "MQTT disconnected - item held (held:%lu)",
+                             (unsigned long)held_count);
                 }
                 report_outbox_state(has_carry);
                 vTaskDelay(pdMS_TO_TICKS(200));
@@ -255,15 +254,14 @@ static void health_task(void* /*param*/) {
                 const bool rx_active = radio_state_machine::RadioStateMachine::instance().state() ==
                                        radio_state_machine::RsmState::Receiving;
 
-                enqueue_mqtt(mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname),
-                             mqtt_service::payload_telemetry(
-                                 static_cast<uint32_t>(m.uptime_s), m.free_heap_bytes,
-                                 m.min_free_heap_bytes, wifi.status().rssi_dbm,
-                                 mqtt.is_connected() ? "connected" : "disconnected",
-                                 rx_active ? "rx_active" : "idle", rc.frames_received,
-                                 tc.frames_published, tc.frames_duplicate, rc.frames_crc_fail,
-                                 rc.frames_dropped_queue_full, ms.publish_count,
-                                 ms.publish_failures, ""));
+                enqueue_mqtt(
+                    mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname),
+                    mqtt_service::payload_telemetry(
+                        static_cast<uint32_t>(m.uptime_s), m.free_heap_bytes, m.min_free_heap_bytes,
+                        wifi.status().rssi_dbm, mqtt.is_connected() ? "connected" : "disconnected",
+                        rx_active ? "rx_active" : "idle", rc.frames_received, tc.frames_published,
+                        tc.frames_duplicate, rc.frames_crc_fail, rc.frames_dropped_queue_full,
+                        ms.publish_count, ms.publish_failures, ""));
             }
         }
 

@@ -63,13 +63,14 @@ Periodic system metrics for monitoring and alerting.
   "frames_published": 4400,
   "frames_duplicate": 120,
   "frames_crc_fail": 3,
+  "frames_dropped_queue_full": 9,
   "mqtt_publishes": 4420,
   "mqtt_failures": 2,
   "timestamp": "2025-01-15T12:00:00Z"
 }
 ```
 
-`frames_crc_fail` comes from **radio** counters (CC1101 RX status / hardware-related accounting). It is not the same as DLL validation inside `WmbusPipeline`.
+`frames_crc_fail` and `frames_dropped_queue_full` come from **radio** counters. The queue-full counter reports frames dropped before the W-MBus pipeline could process them.
 
 ### `{prefix}/{hostname}/events`
 
@@ -124,14 +125,15 @@ Only frames that pass `WmbusPipeline::from_radio_frame` (3-of-6 + DLL CRC + L-fi
 
 ```json
 {
-  "raw_hex": "0B4493157856341234123EBF",
-  "frame_length": 12,
+  "raw_hex": "09449315785634120107",
+  "frame_length": 10,
   "rssi_dbm": -65,
   "lqi": 45,
   "crc_ok": true,
   "manufacturer_id": 5523,
   "device_id": 2018915346,
-  "meter_key": "mfg:1593-id:78563412",
+  "device_type": 7,
+  "meter_key": "mfg:1593-id:78563412-t:07",
   "timestamp": "2025-01-15T12:00:01Z",
   "rx_count": 4524
 }
@@ -141,14 +143,15 @@ Only frames that pass `WmbusPipeline::from_radio_frame` (3-of-6 + DLL CRC + L-fi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `raw_hex` | string | Uppercase hex of **decoded link-layer bytes** (L-field first), not raw 3-of-6 symbols |
-| `frame_length` | integer | Count of decoded link-layer bytes in `raw_hex` |
+| `raw_hex` | string | Uppercase hex of **clean decoded link-layer bytes** (L-field first, DLL block CRC bytes stripped), not raw 3-of-6 symbols |
+| `frame_length` | integer | Count of clean decoded link-layer bytes in `raw_hex` |
 | `rssi_dbm` | integer | RSSI in dBm (from CC1101 conversion) |
 | `lqi` | integer | Link quality (CC1101 status byte, 0–127) |
 | `crc_ok` | boolean | **DLL verification succeeded** in `WmbusPipeline` (`true` for published frames in the current code path) |
 | `manufacturer_id` | integer | Parsed from decoded frame (little-endian field) |
 | `device_id` | integer | Parsed from decoded frame |
-| `meter_key` | string | `identity_key()` from `WmbusFrame` |
+| `device_type` | integer | Parsed device type byte from the clean link layer |
+| `meter_key` | string | `identity_key()` from `WmbusFrame`, formatted as `mfg:<id>-id:<serial>-t:<device_type>` when parsed fields are present |
 | `timestamp` | string | ISO 8601 UTC reception time (NTP-backed when available) |
 | `rx_count` | integer | Monotonic counter from pipeline task |
 

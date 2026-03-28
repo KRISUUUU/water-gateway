@@ -12,7 +12,8 @@ using namespace wmbus_minimal_pipeline;
 using namespace radio_cc1101;
 
 // Reverse of decode_3of6_symbol (rtl_433 Mode-T table): nibble -> 6-bit codeword 0..63.
-static constexpr uint8_t kEnc3of6[16] = {22, 13, 14, 11, 28, 25, 26, 19, 44, 37, 38, 35, 52, 49, 50, 41};
+static constexpr uint8_t kEnc3of6[16] = {22, 13, 14, 11, 28, 25, 26, 19,
+                                         44, 37, 38, 35, 52, 49, 50, 41};
 
 static void encode_3of6_link_layer(const uint8_t* link, size_t link_len, uint8_t* out_symbols) {
     for (size_t i = 0; i < link_len; ++i) {
@@ -121,8 +122,7 @@ static void test_hex_to_bytes_lowercase() {
 }
 
 static void test_from_radio_frame() {
-    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
-                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01, 0x07};
     const auto decoded = build_format_a_decoded(clean);
     const auto sym = encode_3of6_frame(decoded);
     const RawRadioFrame raw = make_raw_frame(sym);
@@ -159,8 +159,7 @@ static void test_from_radio_frame_empty_fails() {
 }
 
 static void test_from_radio_frame_bad_crc_fails() {
-    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
-                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01, 0x07};
     auto decoded = build_format_a_decoded(clean);
     decoded[10] ^= 0xFFU;
 
@@ -174,8 +173,7 @@ static void test_from_radio_frame_bad_crc_fails() {
 }
 
 static void test_from_radio_frame_invalid_3of6_fails() {
-    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
-                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01, 0x07};
     const auto decoded = build_format_a_decoded(clean);
     auto sym = encode_3of6_frame(decoded);
     sym[0] = 0xFF;
@@ -189,8 +187,7 @@ static void test_from_radio_frame_invalid_3of6_fails() {
 }
 
 static void test_frame_l_field() {
-    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
-                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01, 0x07};
     const auto decoded = build_format_a_decoded(clean);
     const auto sym = encode_3of6_frame(decoded);
     const RawRadioFrame raw = make_raw_frame(sym, -50, 30);
@@ -203,8 +200,7 @@ static void test_frame_l_field() {
 }
 
 static void test_identity_and_signature_helpers() {
-    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
-                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01, 0x07};
     const auto decoded = build_format_a_decoded(clean);
     const auto sym = encode_3of6_frame(decoded);
     const RawRadioFrame raw = make_raw_frame(sym);
@@ -224,10 +220,9 @@ static void test_identity_and_signature_helpers() {
 }
 
 static void test_from_radio_frame_multiblock_strips_crc() {
-    const std::vector<uint8_t> clean = {0x19, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34,
-                                        0x12, 0x01, 0x07, 0x10, 0x11, 0x12, 0x13,
-                                        0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A,
-                                        0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
+    const std::vector<uint8_t> clean = {0x19, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01,
+                                        0x07, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+                                        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
     const auto decoded = build_format_a_decoded(clean);
     assert(decoded.size() == 30U);
 
@@ -247,9 +242,8 @@ static void test_from_radio_frame_multiblock_strips_crc() {
 }
 
 static void test_from_radio_frame_partial_final_block() {
-    const std::vector<uint8_t> clean = {0x13, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34,
-                                        0x12, 0x01, 0x07, 0x21, 0x22, 0x23, 0x24,
-                                        0x25, 0x26, 0x27, 0x28, 0x29, 0x2A};
+    const std::vector<uint8_t> clean = {0x13, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x01, 0x07,
+                                        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A};
     const auto decoded = build_format_a_decoded(clean);
     assert(decoded.size() == 24U);
 

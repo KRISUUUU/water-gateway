@@ -68,8 +68,8 @@ uint16_t crc16_en13757_block(const uint8_t* message, size_t n_bytes) {
 // CRC stored big-endian at message[n_bytes] (MSB) and message[n_bytes+1] (LSB).
 bool crc_match_at(const uint8_t* message, size_t n_bytes) {
     const uint16_t calc = crc16_en13757_block(message, n_bytes);
-    const uint16_t recv =
-        (static_cast<uint16_t>(message[n_bytes]) << 8U) | static_cast<uint16_t>(message[n_bytes + 1]);
+    const uint16_t recv = (static_cast<uint16_t>(message[n_bytes]) << 8U) |
+                          static_cast<uint16_t>(message[n_bytes + 1]);
     return calc == recv;
 }
 
@@ -195,9 +195,8 @@ std::string WmbusFrame::identity_key() const {
     const uint32_t dev = device_id();
     if (mfg != 0 || dev != 0) {
         char buf[48];
-        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X-t:%02X",
-                      static_cast<unsigned int>(mfg), static_cast<unsigned int>(dev),
-                      static_cast<unsigned int>(device_type()));
+        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X-t:%02X", static_cast<unsigned int>(mfg),
+                      static_cast<unsigned int>(dev), static_cast<unsigned int>(device_type()));
         return std::string(buf);
     }
     const std::string sig = signature_prefix_hex(12);

@@ -10,7 +10,7 @@
 6. **RX FIFO length and pipeline contract.** The CC1101 driver reads a length-prefixed burst from the FIFO and appends two status bytes. The **W-MBus pipeline** (`WmbusPipeline::from_radio_frame`) expects `RawRadioFrame.length` to be **even** and treats **every** byte pair as two **3-of-6** symbols (six valid bits each, masked to `0x3F`) that decode to one link-layer octet. If the on-air PHY delivers a different packing (for example already-decoded link bytes without 3-of-6 expansion), `from_radio_frame` will fail validation and **no** `WmbusFrame` is produced. End-to-end reception requires the RF path to match this contract; resolve mismatches in the driver or PHY configuration, not by guessing in documentation.
 7. **CC1101 vs DLL CRC.** `RawRadioFrame::crc_ok` reflects the CC1101 **hardware** status bit (append status in RX FIFO). Application acceptance uses **EN 13757-4 DLL CRC** after 3-of-6 decode (`metadata.crc_ok` is set only when the pipeline succeeds). The two are independent.
 8. **Hardware sync.** The register set programs `SYNC1`/`SYNC0` (`0x54`/`0x3D`) to reduce false packet sync on random noise; this does not remove the need for correct demodulation and pipeline decoding.
-9. **Detected meter identity is best-effort.** Identity uses manufacturer/device fields from the decoded link layer when present; otherwise a signature prefix. It is not full vendor-specific application decoding.
+9. **Detected meter identity is best-effort.** Identity uses manufacturer, device serial, and device type from the clean decoded link layer when present; otherwise a signature prefix. It is not full vendor-specific application decoding.
 
 ## Networking
 

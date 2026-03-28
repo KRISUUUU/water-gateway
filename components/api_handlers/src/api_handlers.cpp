@@ -76,8 +76,7 @@ esp_err_t send_json_chunk_row(httpd_req_t* req, std::string& row) {
     if (row.empty()) {
         return ESP_OK;
     }
-    const esp_err_t e =
-        httpd_resp_send_chunk(req, row.data(), static_cast<ssize_t>(row.size()));
+    const esp_err_t e = httpd_resp_send_chunk(req, row.data(), static_cast<ssize_t>(row.size()));
     row.clear();
     return e;
 }

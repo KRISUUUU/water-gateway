@@ -21,9 +21,8 @@ std::string payload_telemetry(uint32_t uptime_s, uint32_t free_heap_bytes,
                               const char* mqtt_state, const char* radio_state,
                               uint32_t frames_received, uint32_t frames_published,
                               uint32_t frames_duplicate, uint32_t frames_crc_fail,
-                              uint32_t frames_dropped_queue_full,
-                              uint32_t mqtt_publishes, uint32_t mqtt_failures,
-                              const char* timestamp);
+                              uint32_t frames_dropped_queue_full, uint32_t mqtt_publishes,
+                              uint32_t mqtt_failures, const char* timestamp);
 
 // Event payload for discrete events
 std::string payload_event(const char* event_type, const char* severity, const char* message,

@@ -1,6 +1,6 @@
 #include "host_test_stubs.hpp"
-#include "mqtt_service/mqtt_topics.hpp"
 #include "mqtt_service/mqtt_payloads.hpp"
+#include "mqtt_service/mqtt_topics.hpp"
 #include <cassert>
 #include <cstdio>
 #include <string>
@@ -54,9 +54,8 @@ static void test_payload_status_offline() {
 }
 
 static void test_payload_raw_frame() {
-    auto p = payload_raw_frame("2C4493", 3, -65, 45, true, 0x1593, 0x12345678,
-                               0x07, "mfg:1593-id:12345678-t:07",
-                               "2025-01-15T12:00:00Z", 42);
+    auto p = payload_raw_frame("2C4493", 3, -65, 45, true, 0x1593, 0x12345678, 0x07,
+                               "mfg:1593-id:12345678-t:07", "2025-01-15T12:00:00Z", 42);
     assert(p.find("\"raw_hex\":\"2C4493\"") != std::string::npos);
     assert(p.find("\"frame_length\":3") != std::string::npos);
     assert(p.find("\"rssi_dbm\":-65") != std::string::npos);
@@ -79,8 +78,8 @@ static void test_payload_event() {
 }
 
 static void test_payload_telemetry() {
-    auto p = payload_telemetry(86400, 120000, 95000, -55, "connected", "rx_active",
-                                4523, 4400, 120, 3, 9, 4420, 2, "2025-01-15T12:00:00Z");
+    auto p = payload_telemetry(86400, 120000, 95000, -55, "connected", "rx_active", 4523, 4400, 120,
+                               3, 9, 4420, 2, "2025-01-15T12:00:00Z");
     assert(p.find("\"uptime_s\":86400") != std::string::npos);
     assert(p.find("\"free_heap_bytes\":120000") != std::string::npos);
     assert(p.find("\"frames_received\":4523") != std::string::npos);
