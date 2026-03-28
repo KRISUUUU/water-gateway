@@ -8,12 +8,13 @@ without requiring ESP-IDF or target hardware.
 ## Running Host Tests
 
 ```bash
-cd tests/host
-mkdir -p build && cd build
-cmake ..
-cmake --build .
-ctest --output-on-failure
+cmake -S tests/host -B tests/host/build-local
+cmake --build tests/host/build-local
+ctest --test-dir tests/host/build-local --output-on-failure
 ```
+
+`tests/host/build*` directories are local build artifacts and are intentionally
+ignored by Git.
 
 Requirements: CMake >= 3.16, C++17 compiler (g++ or clang++).
 

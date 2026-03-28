@@ -126,6 +126,17 @@ static void test_verify_invalid_format() {
     printf("  PASS: invalid hash format returns false\n");
 }
 
+static void test_verify_invalid_pbkdf2_variants() {
+    assert(!AuthService::verify_password(
+        "test", "pbkdf2$0$00000000000000000000000000000000$abcdef"));
+    assert(!AuthService::verify_password(
+        "test", "pbkdf2$600000$000000000000000000000000000000$abcdef"));
+    assert(!AuthService::verify_password(
+        "test",
+        "pbkdf2$600000$00000000000000000000000000000000$abcd"));
+    printf("  PASS: malformed PBKDF2 hashes are rejected\n");
+}
+
 static void test_different_passwords_different_hashes() {
     auto h1 = AuthService::hash_password("password1");
     auto h2 = AuthService::hash_password("password2");
@@ -148,6 +159,7 @@ int main() {
     test_hash_null_password_fails();
     test_verify_null_stored_hash();
     test_verify_invalid_format();
+    test_verify_invalid_pbkdf2_variants();
     test_different_passwords_different_hashes();
     printf("All auth helper tests passed.\n");
     return 0;

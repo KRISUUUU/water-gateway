@@ -72,6 +72,20 @@ static void test_mqtt_disabled_skips_host_check() {
     printf("  PASS: disabled MQTT skips host check\n");
 }
 
+static void test_empty_mqtt_prefix_fails_when_enabled() {
+    auto cfg = AppConfig::make_default();
+    std::strncpy(cfg.mqtt.host, "broker", sizeof(cfg.mqtt.host) - 1);
+    cfg.mqtt.prefix[0] = '\0';
+    auto result = validate_config(cfg);
+    assert(!result.valid);
+    bool found = false;
+    for (const auto& issue : result.issues) {
+        if (issue.field == "mqtt.prefix") found = true;
+    }
+    assert(found);
+    printf("  PASS: empty MQTT prefix fails when MQTT is enabled\n");
+}
+
 static void test_frequency_out_of_range() {
     auto cfg = AppConfig::make_default();
     std::strncpy(cfg.mqtt.host, "broker", sizeof(cfg.mqtt.host) - 1);
@@ -99,6 +113,23 @@ static void test_session_timeout_bounds() {
     printf("  PASS: session timeout bounds\n");
 }
 
+static void test_zero_wifi_retries_warns_without_invalidating() {
+    auto cfg = AppConfig::make_default();
+    std::strncpy(cfg.mqtt.host, "broker", sizeof(cfg.mqtt.host) - 1);
+    cfg.wifi.max_retries = 0;
+    auto result = validate_config(cfg);
+    assert(result.valid);
+    bool found = false;
+    for (const auto& issue : result.issues) {
+        if (issue.field == "wifi.max_retries" &&
+            issue.severity == ValidationSeverity::Warning) {
+            found = true;
+        }
+    }
+    assert(found);
+    printf("  PASS: zero WiFi retries emits warning but stays valid\n");
+}
+
 static void test_qos_out_of_range() {
     auto cfg = AppConfig::make_default();
     std::strncpy(cfg.mqtt.host, "broker", sizeof(cfg.mqtt.host) - 1);
@@ -117,8 +148,10 @@ int main() {
     test_invalid_hostname_chars();
     test_invalid_mqtt_port();
     test_mqtt_disabled_skips_host_check();
+    test_empty_mqtt_prefix_fails_when_enabled();
     test_frequency_out_of_range();
     test_session_timeout_bounds();
+    test_zero_wifi_retries_warns_without_invalidating();
     test_qos_out_of_range();
     printf("All config validation tests passed.\n");
     return 0;

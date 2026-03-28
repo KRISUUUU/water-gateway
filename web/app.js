@@ -91,7 +91,7 @@
     }
 
     /** Sign-in only: session invalid, logout, or API 401. Never shows Initial Setup. */
-    function showSessionExpiredSignIn() {
+    function showSessionExpiredSignIn(message, kind) {
         stopRefreshTimer();
         token = "";
         sessionStorage.removeItem("wg_token");
@@ -103,8 +103,12 @@
         $("#login-subtitle").textContent = "Sign in to manage your device.";
         const err = $("#login-error");
         if (err) {
-            err.hidden = true;
-            err.textContent = "";
+            if (message) {
+                setMsg(err, kind || "warning", message);
+            } else {
+                err.hidden = true;
+                err.textContent = "";
+            }
         }
     }
 
@@ -198,7 +202,7 @@
 
         const response = await fetch(path, requestOptions);
         if (settings.handleUnauthorized && response.status === 401) {
-            showSessionExpiredSignIn();
+            showSessionExpiredSignIn("Session expired. Sign in again to continue.", "warning");
             throw new Error("unauthorized");
         }
         return response;
@@ -268,6 +272,36 @@
             statCard("Free Heap", Math.round((metrics.free_heap_bytes || 0) / 1024) + " KB")
         );
         metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
+    }
+
+    function errorMessage(err, fallback) {
+        if (err && err.data && err.data.detail) {
+            return String(err.data.detail);
+        }
+        if (err && err.message && !String(err.message).startsWith("http_")) {
+            return String(err.message);
+        }
+        return fallback;
+    }
+
+    function setEmptyState(sel, message, hidden) {
+        const el = $(sel);
+        if (!el) {
+            return;
+        }
+        if (message !== undefined) {
+            el.textContent = message;
+        }
+        el.hidden = hidden;
+    }
+
+    function renderKvLoadError(sel, message) {
+        const el = $(sel);
+        if (!el) {
+            return;
+        }
+        clearChildren(el);
+        el.appendChild(kvRow("Error", message));
     }
 
     function showSignInScreen() {
@@ -598,66 +632,71 @@
         showPage("watchlist");
     }
 
-    function loadTelegrams() {
+    async function loadTelegrams() {
         const filter = $("#tg-filter").value || "all";
         const apiFilter = filter === "problematic" ? "crc_fail" : filter;
         const suffix = apiFilter === "all" ? "" : ("?filter=" + encodeURIComponent(apiFilter));
-        Promise.all([api("GET", "/api/telegrams" + suffix), api("GET", "/api/watchlist")])
-            .then(([data, watchlist]) => {
-                cacheWatchlist = watchlist.watchlist || [];
-                const aliases = watchAliasMap();
-                const arr = data.telegrams || [];
-                arr.sort((a, b) => Number(b.timestamp_ms || 0) - Number(a.timestamp_ms || 0));
-                const body = $("#tg-body");
-                clearChildren(body);
-                $("#tg-empty").hidden = arr.length > 0;
+        const body = $("#tg-body");
+        try {
+            const [data, watchlist] = await Promise.all([
+                api("GET", "/api/telegrams" + suffix),
+                api("GET", "/api/watchlist"),
+            ]);
+            cacheWatchlist = watchlist.watchlist || [];
+            const aliases = watchAliasMap();
+            const arr = data.telegrams || [];
+            arr.sort((a, b) => Number(b.timestamp_ms || 0) - Number(a.timestamp_ms || 0));
+            clearChildren(body);
+            setEmptyState("#tg-empty", "No telegrams available yet.", arr.length > 0);
 
-                arr.forEach((f) => {
-                    const tr = document.createElement("tr");
-                    createCell(tr, formatTimeMs(f.timestamp_ms));
-                    createCell(tr, f.meter_key || "");
-                    createCell(tr, aliases[f.meter_key] || "");
-                    const raw = createCell(tr, f.raw_hex || "", "hex");
-                    raw.title = f.raw_hex || "";
-                    createCell(tr, f.frame_length);
-                    createCell(tr, f.rssi_dbm);
-                    createCell(tr, f.lqi);
-                    createCell(tr, f.crc_ok ? "OK" : "FAIL");
-                    createCell(tr, f.duplicate ? "YES" : "NO");
-                    createCell(tr, f.watched ? "YES" : "NO");
+            arr.forEach((f) => {
+                const tr = document.createElement("tr");
+                createCell(tr, formatTimeMs(f.timestamp_ms));
+                createCell(tr, f.meter_key || "");
+                createCell(tr, aliases[f.meter_key] || "");
+                const raw = createCell(tr, f.raw_hex || "", "hex");
+                raw.title = f.raw_hex || "";
+                createCell(tr, f.frame_length);
+                createCell(tr, f.rssi_dbm);
+                createCell(tr, f.lqi);
+                createCell(tr, f.crc_ok ? "OK" : "FAIL");
+                createCell(tr, f.duplicate ? "YES" : "NO");
+                createCell(tr, f.watched ? "YES" : "NO");
 
-                    const act = document.createElement("td");
-                    const actions = document.createElement("div");
-                    actions.className = "btn-row";
+                const act = document.createElement("td");
+                const actions = document.createElement("div");
+                actions.className = "btn-row";
 
-                    const copyBtn = document.createElement("button");
-                    copyBtn.className = "btn btn-secondary";
-                    copyBtn.textContent = "Copy";
-                    copyBtn.addEventListener("click", () => {
-                        navigator.clipboard.writeText(f.raw_hex || "").catch(() => {});
-                        const prev = copyBtn.textContent;
-                        copyBtn.textContent = "Copied!";
-                        copyBtn.disabled = true;
-                        window.setTimeout(() => {
-                            copyBtn.textContent = prev;
-                            copyBtn.disabled = false;
-                        }, 2000);
-                    });
-                    actions.appendChild(copyBtn);
-
-                    const addBtn = document.createElement("button");
-                    addBtn.className = "btn btn-primary";
-                    addBtn.textContent = f.watched ? "Edit Watch" : "Add Watch";
-                    addBtn.addEventListener("click", () => {
-                        addWatchlistQuickAction(f.meter_key || "", aliases[f.meter_key] || "", "");
-                    });
-                    actions.appendChild(addBtn);
-                    act.appendChild(actions);
-                    tr.appendChild(act);
-                    body.appendChild(tr);
+                const copyBtn = document.createElement("button");
+                copyBtn.className = "btn btn-secondary";
+                copyBtn.textContent = "Copy";
+                copyBtn.addEventListener("click", () => {
+                    navigator.clipboard.writeText(f.raw_hex || "").catch(() => {});
+                    const prev = copyBtn.textContent;
+                    copyBtn.textContent = "Copied!";
+                    copyBtn.disabled = true;
+                    window.setTimeout(() => {
+                        copyBtn.textContent = prev;
+                        copyBtn.disabled = false;
+                    }, 2000);
                 });
-            })
-            .catch(() => {});
+                actions.appendChild(copyBtn);
+
+                const addBtn = document.createElement("button");
+                addBtn.className = "btn btn-primary";
+                addBtn.textContent = f.watched ? "Edit Watch" : "Add Watch";
+                addBtn.addEventListener("click", () => {
+                    addWatchlistQuickAction(f.meter_key || "", aliases[f.meter_key] || "", "");
+                });
+                actions.appendChild(addBtn);
+                act.appendChild(actions);
+                tr.appendChild(act);
+                body.appendChild(tr);
+            });
+        } catch (err) {
+            clearChildren(body);
+            setEmptyState("#tg-empty", errorMessage(err, "Unable to load telegrams."), false);
+        }
     }
 
     function matchesMeterSearch(meter, search) {
@@ -671,73 +710,77 @@
         );
     }
 
-    function loadDetectedMeters() {
+    async function loadDetectedMeters() {
         const filter = $("#meters-filter").value || "all";
         const suffix = filter === "all" ? "" : ("?filter=" + encodeURIComponent(filter));
         const search = ($("#meters-search").value || "").trim();
-        api("GET", "/api/meters/detected" + suffix)
-            .then((data) => {
-                const arr = (data.meters || []).filter((m) => matchesMeterSearch(m, search));
-                const body = $("#meters-body");
-                clearChildren(body);
-                $("#meters-empty").hidden = arr.length > 0;
-                arr.forEach((m) => {
-                    const tr = document.createElement("tr");
-                    createCell(tr, m.alias || "");
-                    createCell(tr, m.key || "", "hex");
-                    createCell(tr, m.manufacturer_id || "--");
-                    createCell(tr, m.device_id || "--");
-                    createCell(tr, formatTimeMs(m.first_seen_ms));
-                    createCell(tr, formatTimeMs(m.last_seen_ms));
-                    createCell(tr, m.seen_count || 0);
-                    createCell(tr, text(m.last_rssi_dbm, "--") + " / " + text(m.last_lqi, "--"));
-                    createCell(
-                        tr,
-                        m.watch_enabled ? "ENABLED" : m.watched ? "DISABLED" : "NO"
-                    );
-                    createCell(tr, m.note || "");
+        const body = $("#meters-body");
+        try {
+            const data = await api("GET", "/api/meters/detected" + suffix);
+            const arr = (data.meters || []).filter((m) => matchesMeterSearch(m, search));
+            clearChildren(body);
+            setEmptyState("#meters-empty", "No meters detected yet.", arr.length > 0);
+            arr.forEach((m) => {
+                const tr = document.createElement("tr");
+                createCell(tr, m.alias || "");
+                createCell(tr, m.key || "", "hex");
+                createCell(tr, m.manufacturer_id || "--");
+                createCell(tr, m.device_id || "--");
+                createCell(tr, formatTimeMs(m.first_seen_ms));
+                createCell(tr, formatTimeMs(m.last_seen_ms));
+                createCell(tr, m.seen_count || 0);
+                createCell(tr, text(m.last_rssi_dbm, "--") + " / " + text(m.last_lqi, "--"));
+                createCell(
+                    tr,
+                    m.watch_enabled ? "ENABLED" : m.watched ? "DISABLED" : "NO"
+                );
+                createCell(tr, m.note || "");
 
-                    const act = document.createElement("td");
-                    const row = document.createElement("div");
-                    row.className = "btn-row";
-                    const watchBtn = document.createElement("button");
-                    watchBtn.className = "btn btn-primary";
-                    watchBtn.textContent = m.watched ? "Edit Watch" : "Add";
-                    watchBtn.addEventListener("click", () => {
-                        addWatchlistQuickAction(m.key, m.alias || "", m.note || "");
-                    });
-                    row.appendChild(watchBtn);
-                    act.appendChild(row);
-                    tr.appendChild(act);
-                    body.appendChild(tr);
+                const act = document.createElement("td");
+                const row = document.createElement("div");
+                row.className = "btn-row";
+                const watchBtn = document.createElement("button");
+                watchBtn.className = "btn btn-primary";
+                watchBtn.textContent = m.watched ? "Edit Watch" : "Add";
+                watchBtn.addEventListener("click", () => {
+                    addWatchlistQuickAction(m.key, m.alias || "", m.note || "");
                 });
-            })
-            .catch(() => {});
+                row.appendChild(watchBtn);
+                act.appendChild(row);
+                tr.appendChild(act);
+                body.appendChild(tr);
+            });
+        } catch (err) {
+            clearChildren(body);
+            setEmptyState("#meters-empty", errorMessage(err, "Unable to load detected meters."), false);
+        }
     }
 
-    function loadWatchlist() {
-        api("GET", "/api/watchlist")
-            .then((data) => {
-                cacheWatchlist = data.watchlist || [];
-                const body = $("#watchlist-body");
-                clearChildren(body);
-                $("#watchlist-empty").hidden = cacheWatchlist.length > 0;
-                cacheWatchlist.forEach((w) => {
-                    const tr = document.createElement("tr");
-                    createCell(tr, w.enabled ? "YES" : "NO");
-                    createCell(tr, w.alias || "");
-                    createCell(tr, w.key || "", "hex");
-                    createCell(tr, w.note || "");
-                    tr.addEventListener("click", () => {
-                        $("#wl-key").value = w.key || "";
-                        $("#wl-alias").value = w.alias || "";
-                        $("#wl-note").value = w.note || "";
-                        $("#wl-enabled").checked = !!w.enabled;
-                    });
-                    body.appendChild(tr);
+    async function loadWatchlist() {
+        const body = $("#watchlist-body");
+        try {
+            const data = await api("GET", "/api/watchlist");
+            cacheWatchlist = data.watchlist || [];
+            clearChildren(body);
+            setEmptyState("#watchlist-empty", "Watchlist is empty.", cacheWatchlist.length > 0);
+            cacheWatchlist.forEach((w) => {
+                const tr = document.createElement("tr");
+                createCell(tr, w.enabled ? "YES" : "NO");
+                createCell(tr, w.alias || "");
+                createCell(tr, w.key || "", "hex");
+                createCell(tr, w.note || "");
+                tr.addEventListener("click", () => {
+                    $("#wl-key").value = w.key || "";
+                    $("#wl-alias").value = w.alias || "";
+                    $("#wl-note").value = w.note || "";
+                    $("#wl-enabled").checked = !!w.enabled;
                 });
-            })
-            .catch(() => {});
+                body.appendChild(tr);
+            });
+        } catch (err) {
+            clearChildren(body);
+            setEmptyState("#watchlist-empty", errorMessage(err, "Unable to load watchlist."), false);
+        }
     }
 
     async function loadDiagnostics() {
@@ -807,7 +850,13 @@
                 ["Message", otaData.message],
                 ["Version", otaData.current_version],
             ].forEach((entry) => otaEl.appendChild(kvRow(entry[0], entry[1])));
-        } catch (_) {}
+        } catch (err) {
+            const message = errorMessage(err, "Unable to load diagnostics.");
+            renderKvLoadError("#rf-stats", message);
+            renderKvLoadError("#mqtt-stats", message);
+            renderKvLoadError("#sys-stats", message);
+            renderKvLoadError("#diag-ota-stats", message);
+        }
     }
 
     function renderConfigSection(container, sectionName, obj) {
@@ -854,6 +903,7 @@
 
     async function loadConfig() {
         try {
+            $("#cfg-msg").hidden = true;
             const cfg = await api("GET", "/api/config");
             const c = $("#config-form-container");
             clearChildren(c);
@@ -879,7 +929,10 @@
             renderConfigSection(c, "Radio", cfg.radio || {});
             renderConfigSection(c, "Auth", cfg.auth || {});
             renderConfigSection(c, "Logging", cfg.logging || {});
-        } catch (_) {}
+        } catch (err) {
+            clearChildren($("#config-form-container"));
+            setMsg($("#cfg-msg"), "error", errorMessage(err, "Unable to load settings."));
+        }
     }
 
     function collectConfigValues(cfg) {
@@ -916,7 +969,10 @@
             otaGrid.appendChild(kvRow("Current Version", d.current_version));
             otaGrid.appendChild(kvRow("Message", d.message));
             $("#ota-status").textContent = "Status: " + text(d.state);
-        } catch (_) {}
+        } catch (err) {
+            renderKvLoadError("#ota-state-grid", errorMessage(err, "Unable to load OTA status."));
+            setMsg($("#ota-status"), "error", errorMessage(err, "Unable to load OTA status."));
+        }
     }
 
     async function loadSupport() {
@@ -931,9 +987,26 @@
             summary.appendChild(kvRow("Firmware", status.firmware_version));
             summary.appendChild(kvRow("Mode", status.mode));
             summary.appendChild(kvRow("Health", status.health ? status.health.state : "--"));
+            summary.appendChild(kvRow("MQTT", status.mqtt ? status.mqtt.state : "--"));
+            summary.appendChild(
+                kvRow(
+                    "MQTT Outbox",
+                    text(status.mqtt ? status.mqtt.outbox_depth : "--", "--") +
+                        " / " +
+                        text(status.mqtt ? status.mqtt.outbox_capacity : "--", "--")
+                )
+            );
+            summary.appendChild(
+                kvRow(
+                    "MQTT Held",
+                    status.mqtt && status.mqtt.held_item ? "yes" : "no"
+                )
+            );
             summary.appendChild(kvRow("Watchlist Entries", (watch.watchlist || []).length));
             summary.appendChild(kvRow("OTA State", ota.state));
-        } catch (_) {}
+        } catch (err) {
+            renderKvLoadError("#support-summary", errorMessage(err, "Unable to load support summary."));
+        }
     }
 
     async function loadLogs() {
@@ -953,8 +1026,11 @@
                 })
                 .join("\n");
             $("#log-output").textContent = output || "No logs.";
-            $("#logs-empty").hidden = filtered.length > 0;
-        } catch (_) {}
+            setEmptyState("#logs-empty", "No logs available.", filtered.length > 0);
+        } catch (err) {
+            $("#log-output").textContent = "";
+            setEmptyState("#logs-empty", errorMessage(err, "Unable to load logs."), false);
+        }
     }
 
     function startRefresh() {
@@ -1030,8 +1106,10 @@
                 collectConfigValues(cfg);
                 const resp = await api("POST", "/api/config", cfg);
                 if (resp.relogin_required) {
-                    setMsg(msg, "warning", "Saved. Authentication changed, please log in again.");
-                    showSessionExpiredSignIn();
+                    showSessionExpiredSignIn(
+                        "Settings saved. Sign in again because authentication settings changed.",
+                        "warning"
+                    );
                     return;
                 }
                 if (resp.reboot_required) {
@@ -1221,7 +1299,10 @@
             if (err && err.message === "unauthorized") {
                 return;
             }
-            showSessionExpiredSignIn();
+            showSessionExpiredSignIn(
+                "Stored session could not be restored. Sign in again to continue.",
+                "warning"
+            );
         }
     }
 

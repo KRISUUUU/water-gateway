@@ -1,8 +1,0 @@
-test_config_validation 4 0.00332498
-test_config_migration 4 0.003385
-test_dedup 4 0.00310003
-test_mqtt_payloads 4 0.0033234
-test_auth_helpers 4 0.00337677
-test_health_logic 4 0.00328895
-test_wmbus_pipeline 4 0.00317192
----

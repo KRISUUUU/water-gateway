@@ -11,6 +11,7 @@
 #include <string>
 
 #include "cJSON.h"
+#include <ctime>
 
 namespace support_bundle_service {
 
@@ -220,6 +221,8 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
 
     cJSON_AddStringToObject(root.get(), "format", "water-gateway-support-bundle");
     cJSON_AddNumberToObject(root.get(), "format_version", 1);
+    cJSON_AddNumberToObject(root.get(), "generated_at_epoch_s",
+                            static_cast<double>(std::time(nullptr)));
 
     add_owned_item(root.get(), "diagnostics", build_diagnostics_json(diag_res.value()));
     add_owned_item(root.get(), "metrics", build_metrics_json(metrics_res.value()));
