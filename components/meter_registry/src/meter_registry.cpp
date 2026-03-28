@@ -92,6 +92,7 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
         m.key = key;
         m.manufacturer_id = frame.manufacturer_id();
         m.device_id = frame.device_id();
+        m.device_type = frame.device_type();
         m.first_seen_ms = frame.metadata.timestamp_ms;
         m.last_seen_ms = frame.metadata.timestamp_ms;
         m.seen_count = 1;
@@ -104,6 +105,7 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
         DetectedMeter& m = s.detected[static_cast<size_t>(idx)];
         m.last_seen_ms = frame.metadata.timestamp_ms;
         m.seen_count++;
+        m.device_type = frame.device_type();
         m.last_rssi_dbm = frame.metadata.rssi_dbm;
         m.last_lqi = frame.metadata.lqi;
         m.last_crc_ok = frame.metadata.crc_ok;

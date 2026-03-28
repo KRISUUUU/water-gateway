@@ -786,6 +786,8 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(rc.frames_incomplete));
     cJSON_AddNumberToObject(radio_o, "frames_dropped_too_long",
                             static_cast<double>(rc.frames_dropped_too_long));
+    cJSON_AddNumberToObject(radio_o, "frames_dropped_queue_full",
+                            static_cast<double>(rc.frames_dropped_queue_full));
     cJSON_AddNumberToObject(radio_o, "fifo_overflows", static_cast<double>(rc.fifo_overflows));
     return send_json_root(req, 200, root);
 }
@@ -899,6 +901,8 @@ esp_err_t handle_meters_detected(httpd_req_t* req) {
         row += std::to_string(static_cast<unsigned int>(m.manufacturer_id));
         row += ",\"device_id\":";
         row += std::to_string(static_cast<unsigned long long>(m.device_id));
+        row += ",\"device_type\":";
+        row += std::to_string(static_cast<unsigned int>(m.device_type));
         row += ",\"first_seen_ms\":";
         row += std::to_string(static_cast<long long>(m.first_seen_ms));
         row += ",\"last_seen_ms\":";

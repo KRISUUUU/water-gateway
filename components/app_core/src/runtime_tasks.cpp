@@ -36,11 +36,18 @@ static QueueHandle_t mqtt_outbox = nullptr;
 
 struct MqttOutboxItem {
     char topic[128];
-    char payload[896];
+    char payload[512];
 };
 
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
     if (!mqtt_outbox) {
+        return false;
+    }
+    if (topic.size() >= sizeof(MqttOutboxItem::topic) ||
+        payload.size() >= sizeof(MqttOutboxItem::payload)) {
+        ESP_LOGW(TAG, "mqtt outbox item too large: topic=%u payload=%u",
+                 static_cast<unsigned int>(topic.size()),
+                 static_cast<unsigned int>(payload.size()));
         return false;
     }
     MqttOutboxItem item{};
@@ -116,7 +123,7 @@ static void pipeline_task(void* /*param*/) {
                         mqtt_service::payload_raw_frame(
                             frame.raw_hex().c_str(), frame.metadata.frame_length,
                             frame.metadata.rssi_dbm, frame.metadata.lqi, frame.metadata.crc_ok,
-                            frame.manufacturer_id(), frame.device_id(),
+                            frame.manufacturer_id(), frame.device_id(), frame.device_type(),
                             derive_meter_key(frame).c_str(), ts_str, rx_count))) {
                     mqtt_drop_count++;
                     if (mqtt_drop_count == 1 || (mqtt_drop_count % 100) == 0) {
@@ -255,7 +262,8 @@ static void health_task(void* /*param*/) {
                                  mqtt.is_connected() ? "connected" : "disconnected",
                                  rx_active ? "rx_active" : "idle", rc.frames_received,
                                  tc.frames_published, tc.frames_duplicate, rc.frames_crc_fail,
-                                 ms.publish_count, ms.publish_failures, ""));
+                                 rc.frames_dropped_queue_full, ms.publish_count,
+                                 ms.publish_failures, ""));
             }
         }
 

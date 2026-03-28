@@ -3,8 +3,10 @@
 #include "wmbus_minimal_pipeline/wmbus_frame.hpp"
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 using namespace wmbus_minimal_pipeline;
 using namespace radio_cc1101;
@@ -19,10 +21,62 @@ static void encode_3of6_link_layer(const uint8_t* link, size_t link_len, uint8_t
     }
 }
 
-// 12-byte Format A link layer with valid DLL CRC (bytes 0-9), CRC at 10-11 (big-endian storage).
-static const uint8_t kValidLink12[12] = {
-    0x0B, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34, 0x12, 0x34, 0x12, 0x3E, 0xBF,
-};
+static uint16_t crc16_en13757_block(const uint8_t* message, size_t n_bytes) {
+    uint16_t remainder = 0;
+    for (size_t byte = 0; byte < n_bytes; ++byte) {
+        remainder ^= static_cast<uint16_t>(message[byte]) << 8U;
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            if (remainder & 0x8000U) {
+                remainder = static_cast<uint16_t>((remainder << 1) ^ 0x3D65U);
+            } else {
+                remainder = static_cast<uint16_t>(remainder << 1);
+            }
+        }
+    }
+    return static_cast<uint16_t>(~remainder);
+}
+
+static std::vector<uint8_t> build_format_a_decoded(const std::vector<uint8_t>& clean_data) {
+    std::vector<uint8_t> decoded;
+    size_t pos = 0;
+
+    const size_t block1_data = std::min<size_t>(clean_data.size(), 10U);
+    decoded.insert(decoded.end(), clean_data.begin(), clean_data.begin() + block1_data);
+    const uint16_t block1_crc = crc16_en13757_block(clean_data.data(), block1_data);
+    decoded.push_back(static_cast<uint8_t>((block1_crc >> 8U) & 0xFFU));
+    decoded.push_back(static_cast<uint8_t>(block1_crc & 0xFFU));
+    pos += block1_data;
+
+    while (pos < clean_data.size()) {
+        const size_t block_data = std::min<size_t>(clean_data.size() - pos, 16U);
+        decoded.insert(decoded.end(), clean_data.begin() + static_cast<std::ptrdiff_t>(pos),
+                       clean_data.begin() + static_cast<std::ptrdiff_t>(pos + block_data));
+        const uint16_t crc =
+            crc16_en13757_block(clean_data.data() + static_cast<std::ptrdiff_t>(pos), block_data);
+        decoded.push_back(static_cast<uint8_t>((crc >> 8U) & 0xFFU));
+        decoded.push_back(static_cast<uint8_t>(crc & 0xFFU));
+        pos += block_data;
+    }
+
+    return decoded;
+}
+
+static std::vector<uint8_t> encode_3of6_frame(const std::vector<uint8_t>& decoded) {
+    std::vector<uint8_t> symbols(decoded.size() * 2U);
+    encode_3of6_link_layer(decoded.data(), decoded.size(), symbols.data());
+    return symbols;
+}
+
+static RawRadioFrame make_raw_frame(const std::vector<uint8_t>& symbols, int8_t rssi_dbm = -65,
+                                    uint8_t lqi = 45, bool crc_ok = true) {
+    RawRadioFrame raw{};
+    std::memcpy(raw.data, symbols.data(), symbols.size());
+    raw.length = static_cast<uint16_t>(symbols.size());
+    raw.rssi_dbm = rssi_dbm;
+    raw.lqi = lqi;
+    raw.crc_ok = crc_ok;
+    return raw;
+}
 
 static void test_bytes_to_hex_basic() {
     uint8_t data[] = {0x2C, 0x44, 0x93, 0x15};
@@ -67,27 +121,30 @@ static void test_hex_to_bytes_lowercase() {
 }
 
 static void test_from_radio_frame() {
-    uint8_t sym[24];
-    encode_3of6_link_layer(kValidLink12, sizeof(kValidLink12), sym);
-
-    RawRadioFrame raw{};
-    std::memcpy(raw.data, sym, sizeof(sym));
-    raw.length = sizeof(sym);
-    raw.rssi_dbm = -65;
-    raw.lqi = 45;
-    raw.crc_ok = true;
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
+                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const auto decoded = build_format_a_decoded(clean);
+    const auto sym = encode_3of6_frame(decoded);
+    const RawRadioFrame raw = make_raw_frame(sym);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 1705312800000LL, 42);
     assert(result.is_ok());
 
     const auto& frame = result.value();
-    assert(frame.raw_hex() == "0B4493157856341234123EBF");
+    assert(frame.raw_hex() == "09449315785634120107");
     assert(frame.metadata.rssi_dbm == -65);
     assert(frame.metadata.lqi == 45);
     assert(frame.metadata.crc_ok == true);
-    assert(frame.metadata.frame_length == 12);
+    assert(frame.metadata.frame_length == 10);
     assert(frame.metadata.timestamp_ms == 1705312800000LL);
     assert(frame.metadata.rx_count == 42);
+    assert(frame.raw_bytes.size() == 10U);
+    assert(frame.l_field() == 0x09);
+    assert(frame.manufacturer_id() == 0x1593);
+    assert(frame.device_id() == 0x12345678);
+    assert(frame.device_version() == 0x01);
+    assert(frame.device_type() == 0x07);
+    assert(frame.raw_hex().find("D57F") == std::string::npos);
     (void)frame.raw_hex().length();
     printf("  PASS: from_radio_frame\n");
 }
@@ -102,17 +159,13 @@ static void test_from_radio_frame_empty_fails() {
 }
 
 static void test_from_radio_frame_bad_crc_fails() {
-    uint8_t bad[12];
-    std::memcpy(bad, kValidLink12, sizeof(bad));
-    bad[10] ^= 0xFF;
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
+                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    auto decoded = build_format_a_decoded(clean);
+    decoded[10] ^= 0xFFU;
 
-    uint8_t sym[24];
-    encode_3of6_link_layer(bad, sizeof(bad), sym);
-
-    RawRadioFrame raw{};
-    std::memcpy(raw.data, sym, sizeof(sym));
-    raw.length = sizeof(sym);
-    raw.crc_ok = true;
+    const auto sym = encode_3of6_frame(decoded);
+    const RawRadioFrame raw = make_raw_frame(sym);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 0);
     assert(result.is_error());
@@ -121,14 +174,13 @@ static void test_from_radio_frame_bad_crc_fails() {
 }
 
 static void test_from_radio_frame_invalid_3of6_fails() {
-    uint8_t sym[24];
-    encode_3of6_link_layer(kValidLink12, sizeof(kValidLink12), sym);
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
+                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const auto decoded = build_format_a_decoded(clean);
+    auto sym = encode_3of6_frame(decoded);
     sym[0] = 0xFF;
 
-    RawRadioFrame raw{};
-    std::memcpy(raw.data, sym, sizeof(sym));
-    raw.length = sizeof(sym);
-    raw.crc_ok = true;
+    const RawRadioFrame raw = make_raw_frame(sym);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 0);
     assert(result.is_error());
@@ -137,42 +189,82 @@ static void test_from_radio_frame_invalid_3of6_fails() {
 }
 
 static void test_frame_l_field() {
-    uint8_t sym[24];
-    encode_3of6_link_layer(kValidLink12, sizeof(kValidLink12), sym);
-
-    RawRadioFrame raw{};
-    std::memcpy(raw.data, sym, sizeof(sym));
-    raw.length = sizeof(sym);
-    raw.rssi_dbm = -50;
-    raw.lqi = 30;
-    raw.crc_ok = true;
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
+                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const auto decoded = build_format_a_decoded(clean);
+    const auto sym = encode_3of6_frame(decoded);
+    const RawRadioFrame raw = make_raw_frame(sym, -50, 30);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
     assert(result.is_ok());
-    assert(result.value().l_field() == 0x0B);
+    assert(result.value().l_field() == 0x09);
     assert(result.value().c_field() == 0x44);
     printf("  PASS: frame field accessors\n");
 }
 
 static void test_identity_and_signature_helpers() {
-    uint8_t sym[24];
-    encode_3of6_link_layer(kValidLink12, sizeof(kValidLink12), sym);
-
-    RawRadioFrame raw{};
-    std::memcpy(raw.data, sym, sizeof(sym));
-    raw.length = sizeof(sym);
-    raw.crc_ok = true;
+    const std::vector<uint8_t> clean = {0x09, 0x44, 0x93, 0x15, 0x78,
+                                        0x56, 0x34, 0x12, 0x01, 0x07};
+    const auto decoded = build_format_a_decoded(clean);
+    const auto sym = encode_3of6_frame(decoded);
+    const RawRadioFrame raw = make_raw_frame(sym);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
     assert(result.is_ok());
     const auto& fr = result.value();
     assert(fr.manufacturer_id() == 0x1593);
-    assert(fr.device_id() == 0x78563412);
-    assert(fr.identity_key() == "mfg:1593-id:78563412");
-    assert(fr.signature_prefix_hex(4) == "0B449315");
+    assert(fr.device_id() == 0x12345678);
+    assert(fr.device_version() == 0x01);
+    assert(fr.device_type() == 0x07);
+    assert(fr.identity_key() == "mfg:1593-id:12345678-t:07");
+    assert(fr.signature_prefix_hex(4) == "09449315");
     assert(fr.dedup_key().size() == fr.raw_bytes.size());
     (void)fr.l_field();
     printf("  PASS: identity/signature helpers\n");
+}
+
+static void test_from_radio_frame_multiblock_strips_crc() {
+    const std::vector<uint8_t> clean = {0x19, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34,
+                                        0x12, 0x01, 0x07, 0x10, 0x11, 0x12, 0x13,
+                                        0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A,
+                                        0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
+    const auto decoded = build_format_a_decoded(clean);
+    assert(decoded.size() == 30U);
+
+    const auto sym = encode_3of6_frame(decoded);
+    assert(sym.size() == 60U);
+
+    const RawRadioFrame raw = make_raw_frame(sym);
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 2);
+    assert(result.is_ok());
+
+    const auto& frame = result.value();
+    assert(frame.raw_bytes == clean);
+    assert(frame.raw_bytes.size() == 26U);
+    assert(frame.metadata.frame_length == 26U);
+    assert(frame.raw_hex().size() == 52U);
+    printf("  PASS: multiblock CRC stripping\n");
+}
+
+static void test_from_radio_frame_partial_final_block() {
+    const std::vector<uint8_t> clean = {0x13, 0x44, 0x93, 0x15, 0x78, 0x56, 0x34,
+                                        0x12, 0x01, 0x07, 0x21, 0x22, 0x23, 0x24,
+                                        0x25, 0x26, 0x27, 0x28, 0x29, 0x2A};
+    const auto decoded = build_format_a_decoded(clean);
+    assert(decoded.size() == 24U);
+
+    const auto sym = encode_3of6_frame(decoded);
+    assert(sym.size() == 48U);
+
+    const RawRadioFrame raw = make_raw_frame(sym);
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 3);
+    assert(result.is_ok());
+
+    const auto& frame = result.value();
+    assert(frame.raw_bytes == clean);
+    assert(frame.raw_bytes.size() == 20U);
+    assert(frame.metadata.frame_length == 20U);
+    printf("  PASS: partial final block\n");
 }
 
 static void test_roundtrip_hex() {
@@ -201,6 +293,8 @@ int main() {
     test_from_radio_frame_invalid_3of6_fails();
     test_frame_l_field();
     test_identity_and_signature_helpers();
+    test_from_radio_frame_multiblock_strips_crc();
+    test_from_radio_frame_partial_final_block();
     test_roundtrip_hex();
     printf("All WMBus pipeline tests passed.\n");
     return 0;

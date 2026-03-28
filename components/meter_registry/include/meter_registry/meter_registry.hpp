@@ -13,6 +13,7 @@ struct DetectedMeter {
     std::string key;
     uint16_t manufacturer_id = 0;
     uint32_t device_id = 0;
+    uint8_t device_type = 0;
     int64_t first_seen_ms = 0;
     int64_t last_seen_ms = 0;
     uint32_t seen_count = 0;

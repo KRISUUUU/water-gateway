@@ -38,6 +38,12 @@ struct WmbusFrame {
     // Device serial (bytes 5-8, BCD-encoded)
     uint32_t device_id() const;
 
+    // Device version (byte 9 in the clean link layer)
+    uint8_t device_version() const;
+
+    // Device type (byte 10 in the clean link layer)
+    uint8_t device_type() const;
+
     // Best-effort meter identity key for product-layer indexing.
     std::string identity_key() const;
 

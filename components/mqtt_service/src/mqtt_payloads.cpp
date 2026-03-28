@@ -64,6 +64,7 @@ std::string payload_telemetry(uint32_t uptime_s, uint32_t free_heap_bytes,
                               const char* mqtt_state, const char* radio_state,
                               uint32_t frames_received, uint32_t frames_published,
                               uint32_t frames_duplicate, uint32_t frames_crc_fail,
+                              uint32_t frames_dropped_queue_full,
                               uint32_t mqtt_publishes, uint32_t mqtt_failures,
                               const char* timestamp) {
     JsonPtr root = make_object();
@@ -82,6 +83,8 @@ std::string payload_telemetry(uint32_t uptime_s, uint32_t free_heap_bytes,
     cJSON_AddNumberToObject(root.get(), "frames_published", static_cast<double>(frames_published));
     cJSON_AddNumberToObject(root.get(), "frames_duplicate", static_cast<double>(frames_duplicate));
     cJSON_AddNumberToObject(root.get(), "frames_crc_fail", static_cast<double>(frames_crc_fail));
+    cJSON_AddNumberToObject(root.get(), "frames_dropped_queue_full",
+                            static_cast<double>(frames_dropped_queue_full));
     cJSON_AddNumberToObject(root.get(), "mqtt_publishes", static_cast<double>(mqtt_publishes));
     cJSON_AddNumberToObject(root.get(), "mqtt_failures", static_cast<double>(mqtt_failures));
     cJSON_AddStringToObject(root.get(), "timestamp", safe_cstr(timestamp));
@@ -104,8 +107,8 @@ std::string payload_event(const char* event_type, const char* severity, const ch
 
 std::string payload_raw_frame(const char* raw_hex, uint16_t frame_length, int8_t rssi_dbm,
                               uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
-                              uint32_t device_id, const char* meter_key, const char* timestamp,
-                              uint32_t rx_count) {
+                              uint32_t device_id, uint8_t device_type, const char* meter_key,
+                              const char* timestamp, uint32_t rx_count) {
     JsonPtr root = make_object();
     if (!root) {
         return "{}";
@@ -118,6 +121,7 @@ std::string payload_raw_frame(const char* raw_hex, uint16_t frame_length, int8_t
     cJSON_AddBoolToObject(root.get(), "crc_ok", crc_ok);
     cJSON_AddNumberToObject(root.get(), "manufacturer_id", static_cast<double>(manufacturer_id));
     cJSON_AddNumberToObject(root.get(), "device_id", static_cast<double>(device_id));
+    cJSON_AddNumberToObject(root.get(), "device_type", static_cast<double>(device_type));
     cJSON_AddStringToObject(root.get(), "meter_key", safe_cstr(meter_key));
     cJSON_AddStringToObject(root.get(), "timestamp", safe_cstr(timestamp));
     cJSON_AddNumberToObject(root.get(), "rx_count", static_cast<double>(rx_count));

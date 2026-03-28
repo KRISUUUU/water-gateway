@@ -55,7 +55,8 @@ static void test_payload_status_offline() {
 
 static void test_payload_raw_frame() {
     auto p = payload_raw_frame("2C4493", 3, -65, 45, true, 0x1593, 0x12345678,
-                               "mfg:1593-id:12345678", "2025-01-15T12:00:00Z", 42);
+                               0x07, "mfg:1593-id:12345678-t:07",
+                               "2025-01-15T12:00:00Z", 42);
     assert(p.find("\"raw_hex\":\"2C4493\"") != std::string::npos);
     assert(p.find("\"frame_length\":3") != std::string::npos);
     assert(p.find("\"rssi_dbm\":-65") != std::string::npos);
@@ -63,7 +64,8 @@ static void test_payload_raw_frame() {
     assert(p.find("\"crc_ok\":true") != std::string::npos);
     assert(p.find("\"manufacturer_id\":5523") != std::string::npos);
     assert(p.find("\"device_id\":305419896") != std::string::npos);
-    assert(p.find("\"meter_key\":\"mfg:1593-id:12345678\"") != std::string::npos);
+    assert(p.find("\"device_type\":7") != std::string::npos);
+    assert(p.find("\"meter_key\":\"mfg:1593-id:12345678-t:07\"") != std::string::npos);
     assert(p.find("\"rx_count\":42") != std::string::npos);
     printf("  PASS: payload_raw_frame\n");
 }
@@ -78,10 +80,11 @@ static void test_payload_event() {
 
 static void test_payload_telemetry() {
     auto p = payload_telemetry(86400, 120000, 95000, -55, "connected", "rx_active",
-                                4523, 4400, 120, 3, 4420, 2, "2025-01-15T12:00:00Z");
+                                4523, 4400, 120, 3, 9, 4420, 2, "2025-01-15T12:00:00Z");
     assert(p.find("\"uptime_s\":86400") != std::string::npos);
     assert(p.find("\"free_heap_bytes\":120000") != std::string::npos);
     assert(p.find("\"frames_received\":4523") != std::string::npos);
+    assert(p.find("\"frames_dropped_queue_full\":9") != std::string::npos);
     assert(p.find("\"mqtt_state\":\"connected\"") != std::string::npos);
     printf("  PASS: payload_telemetry\n");
 }

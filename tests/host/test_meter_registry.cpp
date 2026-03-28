@@ -30,7 +30,8 @@ int main() {
     assert(!meters.empty());
     assert(meters[0].seen_count >= 1);
     assert(!meters[0].key.empty());
-    assert(meters[0].key == "mfg:1593-id:12345678");
+    assert(meters[0].key == "mfg:1593-id:12345678-t:07");
+    assert(meters[0].device_type == 0x07);
 
     meter_registry::WatchlistEntry wl{};
     wl.key = meters[0].key;

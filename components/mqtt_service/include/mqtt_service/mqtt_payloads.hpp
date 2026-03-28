@@ -21,6 +21,7 @@ std::string payload_telemetry(uint32_t uptime_s, uint32_t free_heap_bytes,
                               const char* mqtt_state, const char* radio_state,
                               uint32_t frames_received, uint32_t frames_published,
                               uint32_t frames_duplicate, uint32_t frames_crc_fail,
+                              uint32_t frames_dropped_queue_full,
                               uint32_t mqtt_publishes, uint32_t mqtt_failures,
                               const char* timestamp);
 
@@ -31,7 +32,7 @@ std::string payload_event(const char* event_type, const char* severity, const ch
 // Raw frame payload for received WMBus telegrams
 std::string payload_raw_frame(const char* raw_hex, uint16_t frame_length, int8_t rssi_dbm,
                               uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
-                              uint32_t device_id, const char* meter_key, const char* timestamp,
-                              uint32_t rx_count);
+                              uint32_t device_id, uint8_t device_type, const char* meter_key,
+                              const char* timestamp, uint32_t rx_count);
 
 } // namespace mqtt_service

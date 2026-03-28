@@ -106,6 +106,45 @@ bool verify_dll_crc_chain(const uint8_t* d, size_t len) {
     return true;
 }
 
+size_t expected_format_a_decoded_size(size_t data_total) {
+    size_t expected = 0;
+
+    const size_t block1_data = std::min<size_t>(data_total, 10U);
+    expected += block1_data + 2U;
+
+    size_t remaining = data_total > 10U ? (data_total - 10U) : 0U;
+    while (remaining > 0U) {
+        const size_t block_data = std::min<size_t>(remaining, 16U);
+        expected += block_data + 2U;
+        remaining -= block_data;
+    }
+
+    return expected;
+}
+
+std::vector<uint8_t> strip_format_a_crc_bytes(const std::vector<uint8_t>& decoded,
+                                              size_t data_total) {
+    std::vector<uint8_t> clean;
+    clean.reserve(data_total);
+
+    size_t pos = 0;
+    const size_t block1_data = std::min<size_t>(data_total, 10U);
+    clean.insert(clean.end(), decoded.begin() + static_cast<std::ptrdiff_t>(pos),
+                 decoded.begin() + static_cast<std::ptrdiff_t>(pos + block1_data));
+    pos += block1_data + 2U;
+
+    size_t remaining = data_total > 10U ? (data_total - 10U) : 0U;
+    while (remaining > 0U) {
+        const size_t block_data = std::min<size_t>(remaining, 16U);
+        clean.insert(clean.end(), decoded.begin() + static_cast<std::ptrdiff_t>(pos),
+                     decoded.begin() + static_cast<std::ptrdiff_t>(pos + block_data));
+        pos += block_data + 2U;
+        remaining -= block_data;
+    }
+
+    return clean;
+}
+
 uint8_t byte_at(const std::vector<uint8_t>& bytes, size_t idx) {
     if (idx >= bytes.size()) {
         return 0;
@@ -143,13 +182,22 @@ uint32_t WmbusFrame::device_id() const {
     return (b8 << 24U) | (b7 << 16U) | (b6 << 8U) | b5;
 }
 
+uint8_t WmbusFrame::device_version() const {
+    return byte_at(raw_bytes, 8);
+}
+
+uint8_t WmbusFrame::device_type() const {
+    return byte_at(raw_bytes, 9);
+}
+
 std::string WmbusFrame::identity_key() const {
     const uint16_t mfg = manufacturer_id();
     const uint32_t dev = device_id();
     if (mfg != 0 || dev != 0) {
         char buf[48];
-        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X", static_cast<unsigned int>(mfg),
-                      static_cast<unsigned int>(dev));
+        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X-t:%02X",
+                      static_cast<unsigned int>(mfg), static_cast<unsigned int>(dev),
+                      static_cast<unsigned int>(device_type()));
         return std::string(buf);
     }
     const std::string sig = signature_prefix_hex(12);
@@ -201,7 +249,8 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     }
 
     const uint8_t L = decoded[0];
-    if (static_cast<size_t>(L) + 1U != decoded.size()) {
+    const size_t data_total = static_cast<size_t>(L) + 1U;
+    if (decoded.size() != expected_format_a_decoded_size(data_total)) {
         return common::Result<WmbusFrame>::error(common::ErrorCode::FormatInvalid);
     }
 
@@ -210,12 +259,12 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     }
 
     WmbusFrame frame;
-    frame.raw_bytes = std::move(decoded);
+    frame.raw_bytes = strip_format_a_crc_bytes(decoded, data_total);
 
     frame.metadata.rssi_dbm = raw.rssi_dbm;
     frame.metadata.lqi = raw.lqi;
     frame.metadata.crc_ok = true;
-    frame.metadata.frame_length = static_cast<uint16_t>(frame.raw_bytes.size());
+    frame.metadata.frame_length = static_cast<uint16_t>(data_total);
     frame.metadata.timestamp_ms = timestamp_ms;
     frame.metadata.rx_count = rx_count;
 

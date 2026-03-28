@@ -97,6 +97,8 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.radio.frames_incomplete));
     cJSON_AddNumberToObject(counters, "frames_dropped_too_long",
                             static_cast<double>(snap.radio.frames_dropped_too_long));
+    cJSON_AddNumberToObject(counters, "frames_dropped_queue_full",
+                            static_cast<double>(snap.radio.frames_dropped_queue_full));
     cJSON_AddNumberToObject(counters, "fifo_overflows",
                             static_cast<double>(snap.radio.fifo_overflows));
     cJSON_AddNumberToObject(counters, "radio_resets", static_cast<double>(snap.radio.radio_resets));
