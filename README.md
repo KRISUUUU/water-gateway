@@ -53,7 +53,7 @@ cmake --build .
 ctest --output-on-failure
 ```
 
-Nine executables are registered with CTest (config, dedup, MQTT payloads, auth, health, W-MBus pipeline, meter registry, OTA manager, migration).
+Ten executables are registered with CTest (config, dedup, MQTT payloads, auth, health, W-MBus pipeline, meter registry, OTA manager, migration, support summary).
 
 ## Hardware
 

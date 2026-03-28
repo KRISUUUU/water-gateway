@@ -1,4 +1,5 @@
 #include "support_bundle_service/support_bundle_service.hpp"
+#include "support_bundle_service/support_summary.hpp"
 #include "config_store/config_store.hpp"
 #include "diagnostics_service/diagnostics_service.hpp"
 #include "health_monitor/health_monitor.hpp"
@@ -41,55 +42,6 @@ const char* log_severity_str(persistent_log_buffer::LogSeverity s) {
 
 const char* ota_state_str(ota_manager::OtaState s) {
     return ota_manager::ota_state_to_string(s);
-}
-
-const char* radio_state_str(radio_cc1101::RadioState s) {
-    using radio_cc1101::RadioState;
-    switch (s) {
-    case RadioState::Uninitialized:
-        return "Uninitialized";
-    case RadioState::Idle:
-        return "Idle";
-    case RadioState::Receiving:
-        return "Receiving";
-    case RadioState::Error:
-        return "Error";
-    }
-    return "Unknown";
-}
-
-const char* mqtt_state_str(mqtt_service::MqttState s) {
-    using mqtt_service::MqttState;
-    switch (s) {
-    case MqttState::Uninitialized:
-        return "Uninitialized";
-    case MqttState::Disconnected:
-        return "Disconnected";
-    case MqttState::Connecting:
-        return "Connecting";
-    case MqttState::Connected:
-        return "Connected";
-    case MqttState::Error:
-        return "Error";
-    }
-    return "Unknown";
-}
-
-const char* wifi_state_str(wifi_manager::WifiState s) {
-    using wifi_manager::WifiState;
-    switch (s) {
-    case WifiState::Uninitialized:
-        return "Uninitialized";
-    case WifiState::Disconnected:
-        return "Disconnected";
-    case WifiState::Connecting:
-        return "Connecting";
-    case WifiState::Connected:
-        return "Connected";
-    case WifiState::ApMode:
-        return "ApMode";
-    }
-    return "Unknown";
 }
 
 cJSON* build_redacted_config_json(const config_store::AppConfig& c) {
@@ -207,33 +159,45 @@ cJSON* build_ota_json() {
     return root;
 }
 
-cJSON* build_summary_json(const diagnostics_service::DiagnosticsSnapshot& snap) {
+cJSON* build_summary_json(const CompactSupportSummary& summary) {
     cJSON* root = cJSON_CreateObject();
     if (!root) {
         return nullptr;
     }
-    cJSON_AddStringToObject(root, "health_state",
-                            health_monitor::HealthMonitor::state_to_string(snap.health.state));
-    cJSON_AddNumberToObject(root, "health_warning_count",
-                            static_cast<double>(snap.health.warning_count));
-    cJSON_AddNumberToObject(root, "health_error_count",
-                            static_cast<double>(snap.health.error_count));
-    cJSON_AddStringToObject(root, "health_last_warning", snap.health.last_warning_msg.c_str());
-    cJSON_AddStringToObject(root, "health_last_error", snap.health.last_error_msg.c_str());
-    cJSON_AddStringToObject(root, "wifi_state", wifi_state_str(snap.wifi.state));
-    cJSON_AddStringToObject(root, "mqtt_state", mqtt_state_str(snap.mqtt.state));
-    cJSON_AddNumberToObject(root, "mqtt_outbox_depth",
-                            static_cast<double>(snap.mqtt.outbox_depth));
-    cJSON_AddNumberToObject(root, "mqtt_outbox_capacity",
-                            static_cast<double>(snap.mqtt.outbox_capacity));
-    cJSON_AddBoolToObject(root, "mqtt_held_item", snap.mqtt.held_item);
-    cJSON_AddNumberToObject(root, "mqtt_retry_failure_count",
-                            static_cast<double>(snap.mqtt.retry_failure_count));
-    cJSON_AddStringToObject(root, "radio_state", radio_state_str(snap.radio_state));
-    cJSON_AddNumberToObject(root, "radio_fifo_overflows",
-                            static_cast<double>(snap.radio.fifo_overflows));
-    cJSON_AddNumberToObject(root, "radio_spi_errors", static_cast<double>(snap.radio.spi_errors));
-    cJSON_AddNumberToObject(root, "uptime_s", static_cast<double>(snap.metrics.uptime_s));
+    cJSON_AddNumberToObject(root, "generated_at_epoch_s",
+                            static_cast<double>(summary.generated_at_epoch_s));
+    cJSON_AddStringToObject(root, "mode", summary.mode.c_str());
+
+    cJSON* health = cJSON_AddObjectToObject(root, "health");
+    cJSON_AddStringToObject(health, "state", summary.health.state.c_str());
+    cJSON_AddStringToObject(health, "message", summary.health.message.c_str());
+    cJSON_AddNumberToObject(health, "warning_count",
+                            static_cast<double>(summary.health.warning_count));
+    cJSON_AddNumberToObject(health, "error_count",
+                            static_cast<double>(summary.health.error_count));
+
+    cJSON* mqtt = cJSON_AddObjectToObject(root, "mqtt");
+    cJSON_AddStringToObject(mqtt, "state", summary.mqtt.state.c_str());
+    cJSON_AddStringToObject(mqtt, "message", summary.mqtt.message.c_str());
+
+    cJSON* queue = cJSON_AddObjectToObject(root, "queue");
+    cJSON_AddStringToObject(queue, "state", summary.queue.state.c_str());
+    cJSON_AddStringToObject(queue, "message", summary.queue.message.c_str());
+    cJSON_AddNumberToObject(queue, "outbox_depth",
+                            static_cast<double>(summary.queue.outbox_depth));
+    cJSON_AddNumberToObject(queue, "outbox_capacity",
+                            static_cast<double>(summary.queue.outbox_capacity));
+    cJSON_AddBoolToObject(queue, "held_item", summary.queue.held_item);
+    cJSON_AddNumberToObject(queue, "retry_failure_count",
+                            static_cast<double>(summary.queue.retry_failure_count));
+
+    cJSON* radio = cJSON_AddObjectToObject(root, "radio");
+    cJSON_AddStringToObject(radio, "state", summary.radio.state.c_str());
+    cJSON_AddStringToObject(radio, "message", summary.radio.message.c_str());
+
+    cJSON* ota = cJSON_AddObjectToObject(root, "ota");
+    cJSON_AddStringToObject(ota, "state", summary.ota.state.c_str());
+    cJSON_AddStringToObject(ota, "message", summary.ota.message.c_str());
     return root;
 }
 
@@ -292,6 +256,20 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
     if (health_res.is_error()) {
         return common::Result<std::string>::error(health_res.error());
     }
+    const auto ota_status = ota_manager::OtaManager::instance().status();
+    const std::int64_t generated_at_epoch_s = static_cast<std::int64_t>(std::time(nullptr));
+    const char* mode = "unknown";
+    if (config_store::ConfigStore::instance().is_initialized() &&
+        config_store::ConfigStore::instance().is_loaded()) {
+        mode = config_store::ConfigStore::instance().config().wifi.is_configured()
+            ? "normal"
+            : "provisioning";
+    }
+    const auto summary = build_compact_support_summary(
+        diag_res.value(),
+        ota_status,
+        mode,
+        generated_at_epoch_s);
 
     JsonPtr root = make_object();
     if (!root) {
@@ -301,9 +279,9 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
     cJSON_AddStringToObject(root.get(), "format", "water-gateway-support-bundle");
     cJSON_AddNumberToObject(root.get(), "format_version", 1);
     cJSON_AddNumberToObject(root.get(), "generated_at_epoch_s",
-                            static_cast<double>(std::time(nullptr)));
+                            static_cast<double>(generated_at_epoch_s));
 
-    add_owned_item(root.get(), "summary", build_summary_json(diag_res.value()));
+    add_owned_item(root.get(), "summary", build_summary_json(summary));
     add_owned_item(root.get(), "diagnostics", build_diagnostics_json(diag_res.value()));
     add_owned_item(root.get(), "metrics", build_metrics_json(metrics_res.value()));
     add_owned_item(root.get(), "health", build_health_json(health_res.value()));

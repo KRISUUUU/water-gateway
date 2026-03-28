@@ -28,7 +28,10 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/ota_manager/include"
     "${COMP_DIR}/health_monitor/include"
     "${COMP_DIR}/metrics_service/include"
+    "${COMP_DIR}/diagnostics_service/include"
     "${COMP_DIR}/persistent_log_buffer/include"
+    "${COMP_DIR}/support_bundle_service/include"
+    "${COMP_DIR}/wifi_manager/include"
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
@@ -134,4 +137,10 @@ add_host_test(test_ota_manager
     test_ota_manager.cpp
     "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/ota_manager/src/ota_manager.cpp"
+)
+
+# ---- test_support_summary ----
+add_host_test(test_support_summary
+    test_support_summary.cpp
+    "${COMP_DIR}/support_bundle_service/src/support_summary.cpp"
 )

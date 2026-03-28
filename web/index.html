@@ -230,6 +230,7 @@
                 <div class="btn-row">
                     <button id="diag-refresh" class="btn btn-secondary">Refresh</button>
                 </div>
+                <p id="diag-msg" class="msg" hidden></p>
                 <div class="card">
                     <h3>Operator Summary</h3>
                     <div id="diag-summary" class="kv-list"></div>
@@ -285,6 +286,7 @@
                         <h3>Current OTA State</h3>
                         <div id="ota-state-grid" class="kv-list"></div>
                         <p id="ota-status" class="msg">Status: idle</p>
+                        <p id="ota-msg" class="msg" hidden></p>
                     </div>
                     <div class="card">
                         <h3>Upload Firmware</h3>
@@ -355,6 +357,6 @@
     </div>
 </div>
 
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

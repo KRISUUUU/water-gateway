@@ -2,11 +2,24 @@
 
 ## Overview
 
-The web panel is a single-page control panel (`web/index.html`, `web/app.js`,
-`web/styles.css`) served from SPIFFS over HTTP port 80.
+The web panel is a single-page control panel (`web/index.html`, `web/styles.css`,
+and small ES-module files under `web/*.js`) served from SPIFFS over HTTP port 80.
 
 It is designed for day-to-day gateway operation, provisioning, and serviceability,
 without a heavy frontend framework.
+
+Current frontend split:
+
+- `web/app.js`: entry/bootstrap, routing, refresh timers
+- `web/api.js`: HTTP/auth-aware request helpers
+- `web/auth.js`: bootstrap, login, logout, initial setup flow
+- `web/ui_banner.js`: operator banner and status interpretation helpers
+- `web/dashboard.js`: dashboard loading and refresh
+- `web/diagnostics.js`: diagnostics, logs, support summary/download
+- `web/settings.js`: configuration loading and saving
+- `web/watchlist.js`: watchlist editor and table actions
+- `web/ota.js`: OTA status, upload, URL trigger, reboot/reset actions
+- `web/data_views.js`: telegram and detected-meter table views
 
 ## Access
 
@@ -71,6 +84,8 @@ Logs, OTA, Settings, Support, Factory Reset.
 ### Support
 
 - Support bundle download and short runtime summary
+- Downloaded support bundles now include a compact safe `summary` section in
+  addition to the full diagnostics/config/log payloads
 
 ### Factory Reset
 
@@ -111,7 +126,7 @@ are not shown as green due to substring matching.
 ## Static Asset Delivery
 
 SPIFFS image is generated from `web/` in the ESP-IDF project. Flash the `storage`
-partition so `index.html`, `app.js`, and `styles.css` are available.
+partition so `index.html`, `styles.css`, and the `web/*.js` module files are available.
 
 ## Honest Limitations
 
