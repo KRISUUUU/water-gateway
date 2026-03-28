@@ -116,6 +116,14 @@ void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.mqtt.publish_failures));
     cJSON_AddNumberToObject(mqtt, "reconnect_count",
                             static_cast<double>(snap.mqtt.reconnect_count));
+    cJSON_AddNumberToObject(mqtt, "hold_count", static_cast<double>(snap.mqtt.hold_count));
+    cJSON_AddNumberToObject(mqtt, "retry_count", static_cast<double>(snap.mqtt.retry_count));
+    cJSON_AddNumberToObject(mqtt, "retry_failure_count",
+                            static_cast<double>(snap.mqtt.retry_failure_count));
+    cJSON_AddNumberToObject(mqtt, "outbox_depth", static_cast<double>(snap.mqtt.outbox_depth));
+    cJSON_AddNumberToObject(mqtt, "outbox_capacity",
+                            static_cast<double>(snap.mqtt.outbox_capacity));
+    cJSON_AddBoolToObject(mqtt, "held_item", snap.mqtt.held_item);
     cJSON_AddNumberToObject(mqtt, "last_publish_epoch_ms",
                             static_cast<double>(snap.mqtt.last_publish_epoch_ms));
     cJSON_AddStringToObject(mqtt, "broker_uri", snap.mqtt.broker_uri);

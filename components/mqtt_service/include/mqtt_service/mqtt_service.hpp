@@ -25,6 +25,12 @@ struct MqttStatus {
     uint32_t publish_count;
     uint32_t publish_failures;
     uint32_t reconnect_count;
+    uint32_t hold_count;
+    uint32_t retry_count;
+    uint32_t retry_failure_count;
+    uint32_t outbox_depth;
+    uint32_t outbox_capacity;
+    bool held_item;
     int64_t last_publish_epoch_ms;
     char broker_uri[160]; // "mqtt://host:port" (redacted in export)
 };
@@ -58,6 +64,12 @@ class MqttService {
     // Set the Last Will topic and payload (must be called before connect)
     void set_last_will(const char* topic, const char* payload);
 
+    // Runtime publish-task observability hooks.
+    void note_runtime_hold();
+    void note_runtime_retry();
+    void note_runtime_retry_failure();
+    void note_outbox_state(uint32_t depth, uint32_t capacity, bool held_item);
+
   private:
     MqttService() = default;
 
@@ -75,6 +87,12 @@ class MqttService {
     std::atomic<uint32_t> publish_count_{0};
     std::atomic<uint32_t> publish_failures_{0};
     std::atomic<uint32_t> reconnect_count_{0};
+    std::atomic<uint32_t> hold_count_{0};
+    std::atomic<uint32_t> retry_count_{0};
+    std::atomic<uint32_t> retry_failure_count_{0};
+    std::atomic<uint32_t> outbox_depth_{0};
+    std::atomic<uint32_t> outbox_capacity_{0};
+    std::atomic<bool> held_item_{false};
     std::atomic<int64_t> last_publish_epoch_ms_{0};
 
     // Mutex protects: client_ (opaque handle) and broker_uri_ (char array).

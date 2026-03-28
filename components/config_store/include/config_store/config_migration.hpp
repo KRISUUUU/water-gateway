@@ -18,8 +18,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config);
 // Migrate a raw V1 NVS blob (old struct layout with admin_password_hash[98])
 // to the current AppConfig (V2 with admin_password_hash[128]).
 // Called from load_from_nvs() when stored blob size matches the V1 layout.
-// Preserves all fields except auth.admin_password_hash (which is zero-cleared;
-// the user must reset their password after firmware upgrade).
+// Preserves all layout-compatible fields, including the existing password hash.
 //
 // Returns the blob size of the V1 struct (used by load_from_nvs for probing).
 size_t config_v1_blob_size();

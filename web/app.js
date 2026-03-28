@@ -172,36 +172,102 @@
         return div;
     }
 
-    function api(method, path, body) {
-        const opts = { method: method, headers: {} };
-        if (token) {
-            opts.headers.Authorization = "Bearer " + token;
+    async function readJsonBody(response) {
+        const txt = await response.text();
+        if (!txt) {
+            return {};
         }
-        if (body) {
-            opts.headers["Content-Type"] = "application/json";
-            opts.body = JSON.stringify(body);
+        try {
+            return JSON.parse(txt);
+        } catch (_) {
+            return {};
         }
-        return fetch(path, opts).then((r) => {
-            if (r.status === 401) {
-                showSessionExpiredSignIn();
-                throw new Error("unauthorized");
-            }
-            return r.text().then((txt) => {
-                let data = {};
-                try {
-                    data = txt ? JSON.parse(txt) : {};
-                } catch (_) {
-                    data = {};
-                }
-                if (!r.ok) {
-                    const e = new Error(data.error || ("http_" + r.status));
-                    e.status = r.status;
-                    e.data = data;
-                    throw e;
-                }
-                return data;
-            });
-        });
+    }
+
+    async function request(path, options, opts) {
+        const requestOptions = Object.assign({}, options || {});
+        const settings = Object.assign(
+            { authorize: true, handleUnauthorized: true },
+            opts || {}
+        );
+        const headers = Object.assign({}, requestOptions.headers || {});
+        if (settings.authorize && token) {
+            headers.Authorization = "Bearer " + token;
+        }
+        requestOptions.headers = headers;
+
+        const response = await fetch(path, requestOptions);
+        if (settings.handleUnauthorized && response.status === 401) {
+            showSessionExpiredSignIn();
+            throw new Error("unauthorized");
+        }
+        return response;
+    }
+
+    async function requestJson(path, options, opts) {
+        const response = await request(path, options, opts);
+        const data = await readJsonBody(response);
+        if (!response.ok) {
+            const error = new Error(data.error || ("http_" + response.status));
+            error.status = response.status;
+            error.data = data;
+            throw error;
+        }
+        return data;
+    }
+
+    async function api(method, path, body, opts) {
+        const requestOptions = {
+            method: method,
+            headers: {},
+        };
+        if (body !== undefined) {
+            requestOptions.headers["Content-Type"] = "application/json";
+            requestOptions.body = JSON.stringify(body);
+        }
+        return requestJson(path, requestOptions, opts);
+    }
+
+    async function downloadBlob(path, opts) {
+        const response = await request(path, { method: "GET" }, opts);
+        if (!response.ok) {
+            throw new Error("download_failed");
+        }
+        return response.blob();
+    }
+
+    function renderDashboard(status, counts) {
+        const health = status.health || {};
+        const metrics = status.metrics || {};
+        const wifi = status.wifi || {};
+        const mqtt = status.mqtt || {};
+        const radio = status.radio || {};
+
+        const statusGrid = $("#dashboard-status-grid");
+        clearChildren(statusGrid);
+        statusGrid.appendChild(statCard("Health", text(health.state), badgeClassByState(health.state)));
+        statusGrid.appendChild(statCard("Wi-Fi", text(wifi.state), badgeClassByState(wifi.state)));
+        statusGrid.appendChild(statCard("MQTT", text(mqtt.state), badgeClassByState(mqtt.state)));
+        statusGrid.appendChild(statCard("Radio", text(radio.state), badgeClassByState(radio.state)));
+        statusGrid.appendChild(statCard("Mode", status.mode || "--"));
+        statusGrid.appendChild(statCard("Firmware", status.firmware_version || "--"));
+
+        const metricGrid = $("#dashboard-metrics-grid");
+        clearChildren(metricGrid);
+        metricGrid.appendChild(statCard("Uptime", formatUptime(metrics.uptime_s)));
+        metricGrid.appendChild(statCard("Frames Received", radio.frames_received || 0));
+        metricGrid.appendChild(statCard("CRC Fail", radio.frames_crc_fail || 0));
+        metricGrid.appendChild(statCard("Duplicates", counts.duplicateCount));
+        metricGrid.appendChild(statCard("Incomplete Frames", radio.frames_incomplete || 0));
+        metricGrid.appendChild(statCard("Dropped Too Long", radio.frames_dropped_too_long || 0));
+        metricGrid.appendChild(statCard("MQTT Publish Failures", mqtt.publish_failures || 0));
+        metricGrid.appendChild(statCard("Detected Meters", counts.detected));
+        metricGrid.appendChild(statCard("Watchlist", counts.watchCount));
+        metricGrid.appendChild(statCard("Wi-Fi RSSI", text(wifi.rssi_dbm, "--") + " dBm"));
+        metricGrid.appendChild(
+            statCard("Free Heap", Math.round((metrics.free_heap_bytes || 0) / 1024) + " KB")
+        );
+        metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
     }
 
     function showSignInScreen() {
@@ -303,7 +369,7 @@
         );
     }
 
-    function bootstrap() {
+    async function bootstrap() {
         const timeoutMs = 5000;
         const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
         let timeoutId = null;
@@ -317,62 +383,57 @@
             fetchOpts.signal = controller.signal;
         }
 
-        return fetch("/api/bootstrap", fetchOpts)
-            .then((r) => {
-                if (!r.ok) {
-                    throw new Error("bootstrap_failed");
-                }
-                return r.json();
-            })
-            .then((data) => {
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                }
+        try {
+            const data = await requestJson("/api/bootstrap", fetchOpts, {
+                authorize: false,
+                handleUnauthorized: false,
+            });
+            bootstrapInfo = {
+                mode: data.mode || "unknown",
+                provisioning: toBool(data.provisioning),
+                password_set: toBool(data.password_set),
+                bootstrap_failed: false,
+            };
+            return bootstrapInfo;
+        } catch (_) {
+            bootstrapInfo = {
+                mode: "unknown",
+                provisioning: false,
+                password_set: true,
+                bootstrap_failed: true,
+            };
+            return bootstrapInfo;
+        } finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        }
+    }
+
+    async function checkFirstBootByLiveConfig(status) {
+        if (!status || String(status.mode || "").toLowerCase() !== "provisioning") {
+            return false;
+        }
+        try {
+            const cfg = await api("GET", "/api/config");
+            const auth = cfg && cfg.auth ? cfg.auth : {};
+            const passwordSet = !!auth.password_set;
+            if (!passwordSet) {
                 bootstrapInfo = {
-                    mode: data.mode || "unknown",
-                    provisioning: toBool(data.provisioning),
-                    password_set: toBool(data.password_set),
+                    mode: "provisioning",
+                    provisioning: true,
+                    password_set: false,
                     bootstrap_failed: false,
                 };
-                return bootstrapInfo;
-            })
-            .catch(() => {
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                }
-                bootstrapInfo = {
-                    mode: "unknown",
-                    provisioning: false,
-                    password_set: true,
-                    bootstrap_failed: true,
-                };
-                return bootstrapInfo;
-            });
-    }
-
-    function checkFirstBootByLiveConfig(status) {
-        if (!status || String(status.mode || "").toLowerCase() !== "provisioning") {
-            return Promise.resolve(false);
+                return true;
+            }
+            return false;
+        } catch (_) {
+            return false;
         }
-        return api("GET", "/api/config")
-            .then((cfg) => {
-                const auth = cfg && cfg.auth ? cfg.auth : {};
-                const passwordSet = !!auth.password_set;
-                if (!passwordSet) {
-                    bootstrapInfo = {
-                        mode: "provisioning",
-                        provisioning: true,
-                        password_set: false,
-                        bootstrap_failed: false,
-                    };
-                    return true;
-                }
-                return false;
-            })
-            .catch(() => false);
     }
 
-    function runInitialSetup() {
+    async function runInitialSetup() {
         const msg = $("#setup-msg");
         msg.hidden = true;
 
@@ -384,15 +445,15 @@
 
         if (!ssid) {
             setMsg(msg, "error", "Wi-Fi SSID is required.");
-            return Promise.resolve();
+            return;
         }
         if (!adminPassword) {
             setMsg(msg, "error", "Admin password is required.");
-            return Promise.resolve();
+            return;
         }
         if (mqttEnabled && !mqttHost) {
             setMsg(msg, "error", "MQTT host is required when MQTT is enabled.");
-            return Promise.resolve();
+            return;
         }
 
         setMsg(msg, "warning", "Saving initial setup...");
@@ -421,176 +482,82 @@
             payload.mqtt.port = portValue;
         }
 
-        return fetch("/api/bootstrap/setup", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        })
-            .then((r) =>
-                r.text().then((txt) => {
-                    let data = {};
-                    try {
-                        data = txt ? JSON.parse(txt) : {};
-                    } catch (_) {
-                        data = {};
-                    }
-                    if (!r.ok) {
-                        const issues = Array.isArray(data.issues)
-                            ? data.issues.map((i) => i.field + ": " + i.message).join("; ")
-                            : "";
-                        const suffix = issues ? " (" + issues + ")" : "";
-                        throw new Error((data.error || "setup_save_failed") + suffix);
-                    }
-                    return data;
-                })
-            )
-            .then(() => {
-                token = "";
-                sessionStorage.removeItem("wg_token");
-                setMsg(
-                    msg,
-                    "success",
-                    "Initial setup saved. Reboot is required. After reboot, use normal admin login."
-                );
-            })
-            .catch((err) => {
-                setMsg(msg, "error", "Initial setup failed: " + (err.message || "unknown_error"));
+        try {
+            await api("POST", "/api/bootstrap/setup", payload, {
+                authorize: false,
+                handleUnauthorized: false,
             });
+            token = "";
+            sessionStorage.removeItem("wg_token");
+            setMsg(
+                msg,
+                "success",
+                "Initial setup saved. Reboot is required. After reboot, use normal admin login."
+            );
+        } catch (err) {
+            const issues = err && err.data && Array.isArray(err.data.issues)
+                ? err.data.issues.map((i) => i.field + ": " + i.message).join("; ")
+                : "";
+            const suffix = issues ? " (" + issues + ")" : "";
+            setMsg(
+                msg,
+                "error",
+                "Initial setup failed: " + ((err && err.message) || "unknown_error") + suffix
+            );
+        }
     }
 
-    function loadDashboard() {
-        Promise.all([
-            api("GET", "/api/status"),
-            api("GET", "/api/meters/detected"),
-            api("GET", "/api/watchlist"),
-        ])
-            .then(([status, metersData, watchlistData]) => {
-                cacheStatus = status;
-                cacheWatchlist = watchlistData.watchlist || [];
-                applyModeUi(status.mode);
-
-                const health = status.health || {};
-                const metrics = status.metrics || {};
-                const wifi = status.wifi || {};
-                const mqtt = status.mqtt || {};
-                const radio = status.radio || {};
-                const meters = metersData.meters || [];
-                const detected = meters.length;
-                const watchCount = (watchlistData.watchlist || []).length;
-                const duplicateCount = meters.reduce(
-                    (sum, m) => sum + Number(m.duplicate_count || 0),
+    async function loadDashboard() {
+        try {
+            const [status, metersData, watchlistData] = await Promise.all([
+                api("GET", "/api/status"),
+                api("GET", "/api/meters/detected"),
+                api("GET", "/api/watchlist"),
+            ]);
+            const meters = metersData.meters || [];
+            const counts = {
+                detected: meters.length,
+                watchCount: (watchlistData.watchlist || []).length,
+                duplicateCount: meters.reduce(
+                    (sum, meter) => sum + Number(meter.duplicate_count || 0),
                     0
-                );
+                ),
+            };
 
-                dashboardCache.duplicateCount = duplicateCount;
-                dashboardCache.detected = detected;
-                dashboardCache.watchlistCount = watchCount;
-
-                const statusGrid = $("#dashboard-status-grid");
-                clearChildren(statusGrid);
-                statusGrid.appendChild(
-                    statCard("Health", text(health.state), badgeClassByState(health.state))
-                );
-                statusGrid.appendChild(
-                    statCard("Wi-Fi", text(wifi.state), badgeClassByState(wifi.state))
-                );
-                statusGrid.appendChild(
-                    statCard("MQTT", text(mqtt.state), badgeClassByState(mqtt.state))
-                );
-                statusGrid.appendChild(
-                    statCard("Radio", text(radio.state), badgeClassByState(radio.state))
-                );
-                statusGrid.appendChild(statCard("Mode", status.mode || "--"));
-                statusGrid.appendChild(statCard("Firmware", status.firmware_version || "--"));
-
-                const metricGrid = $("#dashboard-metrics-grid");
-                clearChildren(metricGrid);
-                metricGrid.appendChild(statCard("Uptime", formatUptime(metrics.uptime_s)));
-                metricGrid.appendChild(statCard("Frames Received", radio.frames_received || 0));
-                metricGrid.appendChild(statCard("CRC Fail", radio.frames_crc_fail || 0));
-                metricGrid.appendChild(statCard("Duplicates", duplicateCount));
-                metricGrid.appendChild(statCard("Incomplete Frames", radio.frames_incomplete || 0));
-                metricGrid.appendChild(
-                    statCard("Dropped Too Long", radio.frames_dropped_too_long || 0)
-                );
-                metricGrid.appendChild(statCard("MQTT Publish Failures", mqtt.publish_failures || 0));
-                metricGrid.appendChild(statCard("Detected Meters", detected));
-                metricGrid.appendChild(statCard("Watchlist", watchCount));
-                metricGrid.appendChild(statCard("Wi-Fi RSSI", text(wifi.rssi_dbm, "--") + " dBm"));
-                metricGrid.appendChild(
-                    statCard("Free Heap", Math.round((metrics.free_heap_bytes || 0) / 1024) + " KB")
-                );
-                metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
-            })
-            .catch(() => {});
+            cacheStatus = status;
+            cacheWatchlist = watchlistData.watchlist || [];
+            applyModeUi(status.mode);
+            dashboardCache.duplicateCount = counts.duplicateCount;
+            dashboardCache.detected = counts.detected;
+            dashboardCache.watchlistCount = counts.watchCount;
+            renderDashboard(status, counts);
+        } catch (_) {}
     }
 
     /** Light dashboard refresh: /api/status only; keeps last meter/watchlist/duplicate totals from full load. */
-    function loadDashboardLight() {
-        api("GET", "/api/status")
-            .then((status) => {
-                cacheStatus = status;
-                applyModeUi(status.mode);
-
-                const health = status.health || {};
-                const metrics = status.metrics || {};
-                const wifi = status.wifi || {};
-                const mqtt = status.mqtt || {};
-                const radio = status.radio || {};
-                const duplicateCount = dashboardCache.duplicateCount;
-                const detected = dashboardCache.detected;
-                const watchCount = dashboardCache.watchlistCount;
-
-                const statusGrid = $("#dashboard-status-grid");
-                clearChildren(statusGrid);
-                statusGrid.appendChild(
-                    statCard("Health", text(health.state), badgeClassByState(health.state))
-                );
-                statusGrid.appendChild(
-                    statCard("Wi-Fi", text(wifi.state), badgeClassByState(wifi.state))
-                );
-                statusGrid.appendChild(
-                    statCard("MQTT", text(mqtt.state), badgeClassByState(mqtt.state))
-                );
-                statusGrid.appendChild(
-                    statCard("Radio", text(radio.state), badgeClassByState(radio.state))
-                );
-                statusGrid.appendChild(statCard("Mode", status.mode || "--"));
-                statusGrid.appendChild(statCard("Firmware", status.firmware_version || "--"));
-
-                const metricGrid = $("#dashboard-metrics-grid");
-                clearChildren(metricGrid);
-                metricGrid.appendChild(statCard("Uptime", formatUptime(metrics.uptime_s)));
-                metricGrid.appendChild(statCard("Frames Received", radio.frames_received || 0));
-                metricGrid.appendChild(statCard("CRC Fail", radio.frames_crc_fail || 0));
-                metricGrid.appendChild(statCard("Duplicates", duplicateCount));
-                metricGrid.appendChild(statCard("Incomplete Frames", radio.frames_incomplete || 0));
-                metricGrid.appendChild(
-                    statCard("Dropped Too Long", radio.frames_dropped_too_long || 0)
-                );
-                metricGrid.appendChild(statCard("MQTT Publish Failures", mqtt.publish_failures || 0));
-                metricGrid.appendChild(statCard("Detected Meters", detected));
-                metricGrid.appendChild(statCard("Watchlist", watchCount));
-                metricGrid.appendChild(statCard("Wi-Fi RSSI", text(wifi.rssi_dbm, "--") + " dBm"));
-                metricGrid.appendChild(
-                    statCard("Free Heap", Math.round((metrics.free_heap_bytes || 0) / 1024) + " KB")
-                );
-                metricGrid.appendChild(statCard("IP Address", wifi.ip_address || "--"));
-            })
-            .catch(() => {});
+    async function loadDashboardLight() {
+        try {
+            const status = await api("GET", "/api/status");
+            cacheStatus = status;
+            applyModeUi(status.mode);
+            renderDashboard(status, {
+                duplicateCount: dashboardCache.duplicateCount,
+                detected: dashboardCache.detected,
+                watchCount: dashboardCache.watchlistCount,
+            });
+        } catch (_) {}
     }
 
-    function refreshStatusOnly() {
+    async function refreshStatusOnly() {
         if (currentPage === "dashboard") {
-            loadDashboardLight();
+            await loadDashboardLight();
             return;
         }
-        api("GET", "/api/status")
-            .then((status) => {
-                cacheStatus = status;
-                applyModeUi(status.mode);
-            })
-            .catch(() => {});
+        try {
+            const status = await api("GET", "/api/status");
+            cacheStatus = status;
+            applyModeUi(status.mode);
+        } catch (_) {}
     }
 
     function refreshHeavyIfNeeded() {
@@ -773,65 +740,74 @@
             .catch(() => {});
     }
 
-    function loadDiagnostics() {
-        Promise.all([api("GET", "/api/diagnostics/radio"), api("GET", "/api/diagnostics/mqtt"), api("GET", "/api/status"), api("GET", "/api/ota/status")])
-            .then(([radioData, mqttData, statusData, otaData]) => {
-                const radioEl = $("#rf-stats");
-                const mqttEl = $("#mqtt-stats");
-                const sysEl = $("#sys-stats");
-                const otaEl = $("#diag-ota-stats");
-                clearChildren(radioEl);
-                clearChildren(mqttEl);
-                clearChildren(sysEl);
-                clearChildren(otaEl);
+    async function loadDiagnostics() {
+        try {
+            const [radioData, mqttData, statusData, otaData] = await Promise.all([
+                api("GET", "/api/diagnostics/radio"),
+                api("GET", "/api/diagnostics/mqtt"),
+                api("GET", "/api/status"),
+                api("GET", "/api/ota/status"),
+            ]);
+            const radioEl = $("#rf-stats");
+            const mqttEl = $("#mqtt-stats");
+            const sysEl = $("#sys-stats");
+            const otaEl = $("#diag-ota-stats");
+            clearChildren(radioEl);
+            clearChildren(mqttEl);
+            clearChildren(sysEl);
+            clearChildren(otaEl);
 
-                const rsm = radioData.rsm || {};
-                const diag = radioData.diagnostics || {};
-                const rc = diag.radio_counters || {};
-                [
-                    ["RSM State", rsm.state],
-                    ["Consecutive Errors", rsm.consecutive_errors],
-                    ["Radio State", diag.radio_state],
-                    ["Frames Received", rc.frames_received],
-                    ["CRC OK", rc.frames_crc_ok],
-                    ["CRC Fail", rc.frames_crc_fail],
-                    ["Incomplete", rc.frames_incomplete],
-                    ["Dropped Too Long", rc.frames_dropped_too_long],
-                    ["FIFO Overflows", rc.fifo_overflows],
-                    ["SPI Errors", rc.spi_errors],
-                ].forEach((entry) => radioEl.appendChild(kvRow(entry[0], entry[1])));
+            const rsm = radioData.rsm || {};
+            const diag = radioData.diagnostics || {};
+            const rc = diag.radio_counters || {};
+            [
+                ["RSM State", rsm.state],
+                ["Consecutive Errors", rsm.consecutive_errors],
+                ["Radio State", diag.radio_state],
+                ["Frames Received", rc.frames_received],
+                ["CRC OK", rc.frames_crc_ok],
+                ["CRC Fail", rc.frames_crc_fail],
+                ["Incomplete", rc.frames_incomplete],
+                ["Dropped Too Long", rc.frames_dropped_too_long],
+                ["FIFO Overflows", rc.fifo_overflows],
+                ["SPI Errors", rc.spi_errors],
+            ].forEach((entry) => radioEl.appendChild(kvRow(entry[0], entry[1])));
 
-                [
-                    ["State", mqttData.state],
-                    ["Broker", mqttData.broker_uri],
-                    ["Publish Count", mqttData.publish_count],
-                    ["Publish Failures", mqttData.publish_failures],
-                    ["Reconnects", mqttData.reconnect_count],
-                    ["Last Publish (ms)", mqttData.last_publish_epoch_ms],
-                ].forEach((entry) => mqttEl.appendChild(kvRow(entry[0], entry[1])));
+            [
+                ["State", mqttData.state],
+                ["Broker", mqttData.broker_uri],
+                ["Publish Count", mqttData.publish_count],
+                ["Publish Failures", mqttData.publish_failures],
+                ["Reconnects", mqttData.reconnect_count],
+                ["Held Item", mqttData.held_item ? "yes" : "no"],
+                ["Hold Count", mqttData.hold_count],
+                ["Retry Attempts", mqttData.retry_count],
+                ["Retry Failures", mqttData.retry_failure_count],
+                ["Outbox", text(mqttData.outbox_depth, 0) + " / " + text(mqttData.outbox_capacity, 0)],
+                ["Last Publish (ms)", mqttData.last_publish_epoch_ms],
+            ].forEach((entry) => mqttEl.appendChild(kvRow(entry[0], entry[1])));
 
-                const health = statusData.health || {};
-                const metrics = statusData.metrics || {};
-                const wifi = statusData.wifi || {};
-                [
-                    ["Health", health.state],
-                    ["Uptime", formatUptime(metrics.uptime_s)],
-                    ["Heap Free", metrics.free_heap_bytes],
-                    ["Heap Min", metrics.min_free_heap_bytes],
-                    ["Largest Block", metrics.largest_free_block],
-                    ["Wi-Fi State", wifi.state],
-                    ["Wi-Fi IP", wifi.ip_address],
-                    ["Wi-Fi RSSI", wifi.rssi_dbm],
-                ].forEach((entry) => sysEl.appendChild(kvRow(entry[0], entry[1])));
+            const health = statusData.health || {};
+            const metrics = statusData.metrics || {};
+            const wifi = statusData.wifi || {};
+            [
+                ["Health", health.state],
+                ["Uptime", formatUptime(metrics.uptime_s)],
+                ["Heap Free", metrics.free_heap_bytes],
+                ["Heap Min", metrics.min_free_heap_bytes],
+                ["Largest Block", metrics.largest_free_block],
+                ["Wi-Fi State", wifi.state],
+                ["Wi-Fi IP", wifi.ip_address],
+                ["Wi-Fi RSSI", wifi.rssi_dbm],
+            ].forEach((entry) => sysEl.appendChild(kvRow(entry[0], entry[1])));
 
-                [
-                    ["State", otaData.state],
-                    ["Progress", text(otaData.progress_pct, "0") + "%"],
-                    ["Message", otaData.message],
-                    ["Version", otaData.current_version],
-                ].forEach((entry) => otaEl.appendChild(kvRow(entry[0], entry[1])));
-            })
-            .catch(() => {});
+            [
+                ["State", otaData.state],
+                ["Progress", text(otaData.progress_pct, "0") + "%"],
+                ["Message", otaData.message],
+                ["Version", otaData.current_version],
+            ].forEach((entry) => otaEl.appendChild(kvRow(entry[0], entry[1])));
+        } catch (_) {}
     }
 
     function renderConfigSection(container, sectionName, obj) {
@@ -876,35 +852,34 @@
         container.appendChild(card);
     }
 
-    function loadConfig() {
-        api("GET", "/api/config")
-            .then((cfg) => {
-                const c = $("#config-form-container");
-                clearChildren(c);
-                if (
-                    cacheStatus &&
-                    String(cacheStatus.mode || "").toLowerCase() === "provisioning"
-                ) {
-                    const onboarding = document.createElement("div");
-                    onboarding.className = "card";
-                    const h = document.createElement("h3");
-                    h.textContent = "Provisioning Checklist";
-                    const p = document.createElement("p");
-                    p.className = "hint";
-                    p.textContent =
-                        "Complete Wi-Fi, admin password, and MQTT settings. Save settings and reboot to enter normal mode.";
-                    onboarding.appendChild(h);
-                    onboarding.appendChild(p);
-                    c.appendChild(onboarding);
-                }
-                renderConfigSection(c, "Device", cfg.device || {});
-                renderConfigSection(c, "WiFi", cfg.wifi || {});
-                renderConfigSection(c, "MQTT", cfg.mqtt || {});
-                renderConfigSection(c, "Radio", cfg.radio || {});
-                renderConfigSection(c, "Auth", cfg.auth || {});
-                renderConfigSection(c, "Logging", cfg.logging || {});
-            })
-            .catch(() => {});
+    async function loadConfig() {
+        try {
+            const cfg = await api("GET", "/api/config");
+            const c = $("#config-form-container");
+            clearChildren(c);
+            if (
+                cacheStatus &&
+                String(cacheStatus.mode || "").toLowerCase() === "provisioning"
+            ) {
+                const onboarding = document.createElement("div");
+                onboarding.className = "card";
+                const h = document.createElement("h3");
+                h.textContent = "Provisioning Checklist";
+                const p = document.createElement("p");
+                p.className = "hint";
+                p.textContent =
+                    "Complete Wi-Fi, admin password, and MQTT settings. Save settings and reboot to enter normal mode.";
+                onboarding.appendChild(h);
+                onboarding.appendChild(p);
+                c.appendChild(onboarding);
+            }
+            renderConfigSection(c, "Device", cfg.device || {});
+            renderConfigSection(c, "WiFi", cfg.wifi || {});
+            renderConfigSection(c, "MQTT", cfg.mqtt || {});
+            renderConfigSection(c, "Radio", cfg.radio || {});
+            renderConfigSection(c, "Auth", cfg.auth || {});
+            renderConfigSection(c, "Logging", cfg.logging || {});
+        } catch (_) {}
     }
 
     function collectConfigValues(cfg) {
@@ -931,54 +906,55 @@
         });
     }
 
-    function loadOtaStatus() {
-        api("GET", "/api/ota/status")
-            .then((d) => {
-                const otaGrid = $("#ota-state-grid");
-                clearChildren(otaGrid);
-                otaGrid.appendChild(kvRow("State", d.state));
-                otaGrid.appendChild(kvRow("Progress", text(d.progress_pct, "0") + "%"));
-                otaGrid.appendChild(kvRow("Current Version", d.current_version));
-                otaGrid.appendChild(kvRow("Message", d.message));
-                $("#ota-status").textContent = "Status: " + text(d.state);
-            })
-            .catch(() => {});
+    async function loadOtaStatus() {
+        try {
+            const d = await api("GET", "/api/ota/status");
+            const otaGrid = $("#ota-state-grid");
+            clearChildren(otaGrid);
+            otaGrid.appendChild(kvRow("State", d.state));
+            otaGrid.appendChild(kvRow("Progress", text(d.progress_pct, "0") + "%"));
+            otaGrid.appendChild(kvRow("Current Version", d.current_version));
+            otaGrid.appendChild(kvRow("Message", d.message));
+            $("#ota-status").textContent = "Status: " + text(d.state);
+        } catch (_) {}
     }
 
-    function loadSupport() {
+    async function loadSupport() {
         const summary = $("#support-summary");
         clearChildren(summary);
-        Promise.all([api("GET", "/api/status"), api("GET", "/api/ota/status"), api("GET", "/api/watchlist")])
-            .then(([status, ota, watch]) => {
-                summary.appendChild(kvRow("Firmware", status.firmware_version));
-                summary.appendChild(kvRow("Mode", status.mode));
-                summary.appendChild(kvRow("Health", status.health ? status.health.state : "--"));
-                summary.appendChild(kvRow("Watchlist Entries", (watch.watchlist || []).length));
-                summary.appendChild(kvRow("OTA State", ota.state));
-            })
-            .catch(() => {});
+        try {
+            const [status, ota, watch] = await Promise.all([
+                api("GET", "/api/status"),
+                api("GET", "/api/ota/status"),
+                api("GET", "/api/watchlist"),
+            ]);
+            summary.appendChild(kvRow("Firmware", status.firmware_version));
+            summary.appendChild(kvRow("Mode", status.mode));
+            summary.appendChild(kvRow("Health", status.health ? status.health.state : "--"));
+            summary.appendChild(kvRow("Watchlist Entries", (watch.watchlist || []).length));
+            summary.appendChild(kvRow("OTA State", ota.state));
+        } catch (_) {}
     }
 
-    function loadLogs() {
-        api("GET", "/api/logs")
-            .then((data) => {
-                const lines = data.entries || [];
-                const filter = $("#log-filter").value;
-                const filtered = filter ? lines.filter((l) => l.severity === filter) : lines;
-                const output = filtered
-                    .map((l) => {
-                        const ts = l.timestamp_us
-                            ? new Date(Math.floor(l.timestamp_us / 1000)).toISOString()
-                            : "";
-                        return (
-                            "[" + text(l.severity, "?").toUpperCase().padEnd(7) + "] " + ts + " " + text(l.message, "")
-                        );
-                    })
-                    .join("\n");
-                $("#log-output").textContent = output || "No logs.";
-                $("#logs-empty").hidden = filtered.length > 0;
-            })
-            .catch(() => {});
+    async function loadLogs() {
+        try {
+            const data = await api("GET", "/api/logs");
+            const lines = data.entries || [];
+            const filter = $("#log-filter").value;
+            const filtered = filter ? lines.filter((l) => l.severity === filter) : lines;
+            const output = filtered
+                .map((l) => {
+                    const ts = l.timestamp_us
+                        ? new Date(Math.floor(l.timestamp_us / 1000)).toISOString()
+                        : "";
+                    return (
+                        "[" + text(l.severity, "?").toUpperCase().padEnd(7) + "] " + ts + " " + text(l.message, "")
+                    );
+                })
+                .join("\n");
+            $("#log-output").textContent = output || "No logs.";
+            $("#logs-empty").hidden = filtered.length > 0;
+        } catch (_) {}
     }
 
     function startRefresh() {
@@ -1005,7 +981,7 @@
             showSessionExpiredSignIn();
         });
 
-        $("#login-form").addEventListener("submit", (e) => {
+        $("#login-form").addEventListener("submit", async (e) => {
             e.preventDefault();
             if (isFirstBootProvisioning()) {
                 setMsg(
@@ -1017,86 +993,66 @@
                 return;
             }
             const pwd = $("#login-pwd").value;
-            fetch("/api/auth/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password: pwd }),
-            })
-                .then((r) =>
-                    r.text().then((txt) => {
-                        let data = {};
-                        try {
-                            data = txt ? JSON.parse(txt) : {};
-                        } catch (_) {
-                            data = {};
-                        }
-                        if (!r.ok) {
-                            const retry = data.retry_after_s
-                                ? " Try again in " + data.retry_after_s + "s."
-                                : "";
-                            throw new Error((data.error || "Login failed") + retry);
-                        }
-                        return data;
-                    })
-                )
-                .then((data) => {
-                    if (!data.token) {
-                        throw new Error("No auth token");
-                    }
-                    token = data.token;
-                    sessionStorage.setItem("wg_token", token);
-                    $("#login-error").hidden = true;
-                    showApp();
-                })
-                .catch((err) => {
-                    setMsg($("#login-error"), "error", err.message || "Login failed");
+            try {
+                const data = await api("POST", "/api/auth/login", { password: pwd }, {
+                    authorize: false,
+                    handleUnauthorized: false,
                 });
+                if (!data.token) {
+                    throw new Error("No auth token");
+                }
+                token = data.token;
+                sessionStorage.setItem("wg_token", token);
+                $("#login-error").hidden = true;
+                showApp();
+            } catch (err) {
+                const retry = err && err.data && err.data.retry_after_s
+                    ? " Try again in " + err.data.retry_after_s + "s."
+                    : "";
+                setMsg($("#login-error"), "error", (err.message || "Login failed") + retry);
+            }
         });
 
         $("#setup-mqtt-enabled").addEventListener("change", (e) => {
             applySetupMqttEnabled(e.target.checked);
         });
 
-        $("#setup-form").addEventListener("submit", (e) => {
+        $("#setup-form").addEventListener("submit", async (e) => {
             e.preventDefault();
-            runInitialSetup();
+            await runInitialSetup();
         });
 
-        $("#cfg-save").addEventListener("click", () => {
+        $("#cfg-save").addEventListener("click", async () => {
             const msg = $("#cfg-msg");
             msg.hidden = true;
-            api("GET", "/api/config")
-                .then((cfg) => {
-                    collectConfigValues(cfg);
-                    return api("POST", "/api/config", cfg);
-                })
-                .then((resp) => {
-                    if (resp.relogin_required) {
-                        setMsg(msg, "warning", "Saved. Authentication changed, please log in again.");
-                        showSessionExpiredSignIn();
-                        return;
-                    }
-                    if (resp.reboot_required) {
-                        setMsg(msg, "warning", "Saved. Reboot required to apply runtime settings.");
-                    } else {
-                        setMsg(msg, "success", "Settings saved.");
-                    }
-                })
-                .catch((err) => {
-                    const issues = err && err.data && err.data.issues ? err.data.issues : [];
-                    if (issues.length > 0) {
-                        const detail = issues
-                            .map((i) => i.field + ": " + i.message)
-                            .join("; ");
-                        setMsg(msg, "error", "Validation failed: " + detail);
-                    } else {
-                        setMsg(msg, "error", "Save failed.");
-                    }
-                });
+            try {
+                const cfg = await api("GET", "/api/config");
+                collectConfigValues(cfg);
+                const resp = await api("POST", "/api/config", cfg);
+                if (resp.relogin_required) {
+                    setMsg(msg, "warning", "Saved. Authentication changed, please log in again.");
+                    showSessionExpiredSignIn();
+                    return;
+                }
+                if (resp.reboot_required) {
+                    setMsg(msg, "warning", "Saved. Reboot required to apply runtime settings.");
+                } else {
+                    setMsg(msg, "success", "Settings saved.");
+                }
+            } catch (err) {
+                const issues = err && err.data && err.data.issues ? err.data.issues : [];
+                if (issues.length > 0) {
+                    const detail = issues.map((i) => i.field + ": " + i.message).join("; ");
+                    setMsg(msg, "error", "Validation failed: " + detail);
+                } else {
+                    setMsg(msg, "error", "Save failed.");
+                }
+            }
         });
 
-        $("#cfg-export").addEventListener("click", () => {
-            api("GET", "/api/config").then((cfg) => {
+        $("#cfg-export").addEventListener("click", async () => {
+            try {
+                const cfg = await api("GET", "/api/config");
                 const blob = new Blob([JSON.stringify(cfg, null, 2)], {
                     type: "application/json",
                 });
@@ -1104,7 +1060,7 @@
                 a.href = URL.createObjectURL(blob);
                 a.download = "wmbus-gw-config.json";
                 a.click();
-            });
+            } catch (_) {}
         });
 
         $("#wl-save").addEventListener("click", () => {
@@ -1152,41 +1108,25 @@
                 .catch(() => setMsg(msg, "error", "Watchlist delete failed."));
         });
 
-        $("#ota-upload-btn").addEventListener("click", () => {
+        $("#ota-upload-btn").addEventListener("click", async () => {
             const file = $("#ota-file").files[0];
             if (!file) {
                 setMsg($("#ota-status"), "warning", "Select a firmware file first.");
                 return;
             }
             setMsg($("#ota-status"), "warning", "Uploading firmware...");
-            fetch("/api/ota/upload", {
-                method: "POST",
-                headers: {
-                    Authorization: token ? "Bearer " + token : "",
-                    "Content-Type": "application/octet-stream",
-                },
-                body: file,
-            })
-                .then((r) =>
-                    r.text().then((txt) => {
-                        let data = {};
-                        try {
-                            data = txt ? JSON.parse(txt) : {};
-                        } catch (_) {
-                            data = {};
-                        }
-                        if (!r.ok) {
-                            throw new Error(data.error || "upload_failed");
-                        }
-                        return data;
-                    })
-                )
-                .then((resp) => {
-                    const detail = resp.detail || "Upload complete. Reboot required.";
-                    setMsg($("#ota-status"), "success", detail);
-                    loadOtaStatus();
-                })
-                .catch((err) => setMsg($("#ota-status"), "error", "Upload failed: " + err.message));
+            try {
+                const resp = await requestJson("/api/ota/upload", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/octet-stream" },
+                    body: file,
+                });
+                const detail = resp.detail || "Upload complete. Reboot required.";
+                setMsg($("#ota-status"), "success", detail);
+                loadOtaStatus();
+            } catch (err) {
+                setMsg($("#ota-status"), "error", "Upload failed: " + err.message);
+            }
         });
 
         $("#ota-url-btn").addEventListener("click", () => {
@@ -1200,25 +1140,14 @@
                 .catch((err) => setMsg($("#ota-status"), "error", "OTA URL failed: " + err.message));
         });
 
-        $("#sys-bundle").addEventListener("click", () => {
-            fetch("/api/support-bundle", {
-                headers: {
-                    Authorization: token ? "Bearer " + token : "",
-                },
-            })
-                .then((r) => {
-                    if (!r.ok) {
-                        throw new Error("download_failed");
-                    }
-                    return r.blob();
-                })
-                .then((blob) => {
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = "support-bundle.json";
-                    a.click();
-                })
-                .catch(() => {});
+        $("#sys-bundle").addEventListener("click", async () => {
+            try {
+                const blob = await downloadBlob("/api/support-bundle");
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "support-bundle.json";
+                a.click();
+            } catch (_) {}
         });
 
         $("#sys-reboot").addEventListener("click", () => {
@@ -1266,7 +1195,8 @@
     setHiddenIfPresent("#login-form", true);
     setHiddenIfPresent("#setup-form", true);
 
-    bootstrap().then((boot) => {
+    async function initializeApp() {
+        const boot = await bootstrap();
         bootstrapInfo = boot;
         const firstBoot = !!(boot.provisioning && !boot.password_set);
         const stored = (sessionStorage.getItem("wg_token") || "").trim();
@@ -1282,17 +1212,18 @@
         }
 
         token = stored;
-        api("GET", "/api/status")
-            .then((status) => {
-                cacheStatus = status;
-                applyModeUi(status.mode);
-                showApp();
-            })
-            .catch((err) => {
-                if (err && err.message === "unauthorized") {
-                    return;
-                }
-                showSessionExpiredSignIn();
-            });
-    });
+        try {
+            const status = await api("GET", "/api/status");
+            cacheStatus = status;
+            applyModeUi(status.mode);
+            showApp();
+        } catch (err) {
+            if (err && err.message === "unauthorized") {
+                return;
+            }
+            showSessionExpiredSignIn();
+        }
+    }
+
+    initializeApp();
 })();

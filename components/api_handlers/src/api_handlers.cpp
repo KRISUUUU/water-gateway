@@ -769,6 +769,13 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddNumberToObject(mqtt_o, "publish_count", static_cast<double>(mqtt.publish_count));
     cJSON_AddNumberToObject(mqtt_o, "publish_failures", static_cast<double>(mqtt.publish_failures));
     cJSON_AddNumberToObject(mqtt_o, "reconnect_count", static_cast<double>(mqtt.reconnect_count));
+    cJSON_AddNumberToObject(mqtt_o, "hold_count", static_cast<double>(mqtt.hold_count));
+    cJSON_AddNumberToObject(mqtt_o, "retry_count", static_cast<double>(mqtt.retry_count));
+    cJSON_AddNumberToObject(mqtt_o, "retry_failure_count",
+                            static_cast<double>(mqtt.retry_failure_count));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_depth", static_cast<double>(mqtt.outbox_depth));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_capacity", static_cast<double>(mqtt.outbox_capacity));
+    cJSON_AddBoolToObject(mqtt_o, "held_item", mqtt.held_item);
 
     cJSON* radio_o = cJSON_AddObjectToObject(root.get(), "radio");
     cJSON_AddStringToObject(radio_o, "state", radio_state_name(radio.state()));
@@ -1089,6 +1096,13 @@ esp_err_t handle_diagnostics_mqtt(httpd_req_t* req) {
     cJSON_AddNumberToObject(root.get(), "publish_failures",
                             static_cast<double>(st.publish_failures));
     cJSON_AddNumberToObject(root.get(), "reconnect_count", static_cast<double>(st.reconnect_count));
+    cJSON_AddNumberToObject(root.get(), "hold_count", static_cast<double>(st.hold_count));
+    cJSON_AddNumberToObject(root.get(), "retry_count", static_cast<double>(st.retry_count));
+    cJSON_AddNumberToObject(root.get(), "retry_failure_count",
+                            static_cast<double>(st.retry_failure_count));
+    cJSON_AddNumberToObject(root.get(), "outbox_depth", static_cast<double>(st.outbox_depth));
+    cJSON_AddNumberToObject(root.get(), "outbox_capacity", static_cast<double>(st.outbox_capacity));
+    cJSON_AddBoolToObject(root.get(), "held_item", st.held_item);
     cJSON_AddNumberToObject(root.get(), "last_publish_epoch_ms",
                             static_cast<double>(st.last_publish_epoch_ms));
     cJSON_AddStringToObject(root.get(), "broker_uri", st.broker_uri);

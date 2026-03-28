@@ -40,6 +40,25 @@ void MqttService::set_last_will(const char* topic, const char* payload) {
     }
 }
 
+void MqttService::note_runtime_hold() {
+    hold_count_.fetch_add(1, std::memory_order_relaxed);
+    held_item_.store(true, std::memory_order_relaxed);
+}
+
+void MqttService::note_runtime_retry() {
+    retry_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void MqttService::note_runtime_retry_failure() {
+    retry_failure_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void MqttService::note_outbox_state(uint32_t depth, uint32_t capacity, bool held_item) {
+    outbox_depth_.store(depth, std::memory_order_relaxed);
+    outbox_capacity_.store(capacity, std::memory_order_relaxed);
+    held_item_.store(held_item, std::memory_order_relaxed);
+}
+
 common::Result<void> MqttService::connect(const char* host, uint16_t port, const char* username,
                                           const char* password, const char* client_id,
                                           bool use_tls) {
@@ -180,6 +199,12 @@ MqttStatus MqttService::status() const {
     s.publish_count = publish_count_.load(std::memory_order_relaxed);
     s.publish_failures = publish_failures_.load(std::memory_order_relaxed);
     s.reconnect_count = reconnect_count_.load(std::memory_order_relaxed);
+    s.hold_count = hold_count_.load(std::memory_order_relaxed);
+    s.retry_count = retry_count_.load(std::memory_order_relaxed);
+    s.retry_failure_count = retry_failure_count_.load(std::memory_order_relaxed);
+    s.outbox_depth = outbox_depth_.load(std::memory_order_relaxed);
+    s.outbox_capacity = outbox_capacity_.load(std::memory_order_relaxed);
+    s.held_item = held_item_.load(std::memory_order_relaxed);
     s.last_publish_epoch_ms = last_publish_epoch_ms_.load(std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(mutex_);
