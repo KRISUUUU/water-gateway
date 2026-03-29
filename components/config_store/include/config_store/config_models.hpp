@@ -8,6 +8,7 @@ namespace config_store {
 static constexpr uint32_t kCurrentConfigVersion = 1;
 static constexpr const char* kNvsNamespace = "wg_config";
 static constexpr const char* kNvsKey = "config";
+static constexpr const char* kNvsBackupKey = "config_bak";
 
 // Secret field marker used in export/API responses
 static constexpr const char* kRedactedValue = "***";

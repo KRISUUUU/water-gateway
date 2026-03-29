@@ -86,6 +86,15 @@ add_host_test(test_config_migration
     "${COMP_DIR}/config_store/src/config_migration.cpp"
 )
 
+# ---- test_config_store_status ----
+add_host_test(test_config_store_status
+    test_config_store_status.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+)
+
 # ---- test_dedup ----
 add_host_test(test_dedup
     test_dedup.cpp

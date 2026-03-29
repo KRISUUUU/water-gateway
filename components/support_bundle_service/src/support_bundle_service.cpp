@@ -42,6 +42,22 @@ const char* ota_state_str(ota_manager::OtaState s) {
     return ota_manager::ota_state_to_string(s);
 }
 
+const char* config_load_source_str(config_store::ConfigLoadSource s) {
+    using config_store::ConfigLoadSource;
+    switch (s) {
+    case ConfigLoadSource::None:
+        return "none";
+    case ConfigLoadSource::PrimaryNvs:
+        return "primary_nvs";
+    case ConfigLoadSource::BackupNvs:
+        return "backup_nvs";
+    case ConfigLoadSource::Defaults:
+        return "defaults";
+    default:
+        return "unknown";
+    }
+}
+
 cJSON* build_redacted_config_json(const config_store::AppConfig& c) {
     cJSON* root = cJSON_CreateObject();
     if (!root) {
@@ -178,15 +194,59 @@ cJSON* build_diagnostics_json(const diagnostics_service::DiagnosticsSnapshot& sn
 }
 
 cJSON* build_config_or_error_json() {
+    const auto status = config_store::ConfigStore::instance().runtime_status();
     if (!config_store::ConfigStore::instance().is_initialized() ||
         !config_store::ConfigStore::instance().is_loaded()) {
         cJSON* err = cJSON_CreateObject();
         if (err) {
             cJSON_AddStringToObject(err, "error", "config_not_loaded");
+            cJSON* store = cJSON_AddObjectToObject(err, "store_status");
+            if (store) {
+                cJSON_AddStringToObject(store, "load_source",
+                                        config_load_source_str(status.load_source));
+                cJSON_AddStringToObject(store, "last_load_error",
+                                        common::error_code_to_string(status.last_load_error));
+            }
         }
         return err;
     }
-    return build_redacted_config_json(config_store::ConfigStore::instance().config());
+    cJSON* cfg = build_redacted_config_json(config_store::ConfigStore::instance().config());
+    if (!cfg) {
+        return nullptr;
+    }
+    cJSON* store = cJSON_AddObjectToObject(cfg, "store_status");
+    if (!store) {
+        return cfg;
+    }
+    cJSON_AddStringToObject(store, "load_source", config_load_source_str(status.load_source));
+    cJSON_AddBoolToObject(store, "used_defaults", status.used_defaults);
+    cJSON_AddBoolToObject(store, "loaded_from_backup", status.loaded_from_backup);
+    cJSON_AddBoolToObject(store, "defaults_persisted", status.defaults_persisted);
+    cJSON_AddBoolToObject(store, "defaults_persist_deferred", status.defaults_persist_deferred);
+    cJSON_AddStringToObject(store, "last_load_error",
+                            common::error_code_to_string(status.last_load_error));
+    cJSON_AddStringToObject(store, "last_persist_error",
+                            common::error_code_to_string(status.last_persist_error));
+    cJSON_AddStringToObject(store, "last_migration_error",
+                            common::error_code_to_string(status.last_migration_error));
+    cJSON_AddNumberToObject(store, "load_attempts", static_cast<double>(status.load_attempts));
+    cJSON_AddNumberToObject(store, "load_failures", static_cast<double>(status.load_failures));
+    cJSON_AddNumberToObject(store, "primary_read_failures",
+                            static_cast<double>(status.primary_read_failures));
+    cJSON_AddNumberToObject(store, "backup_read_failures",
+                            static_cast<double>(status.backup_read_failures));
+    cJSON_AddNumberToObject(store, "validation_failures",
+                            static_cast<double>(status.validation_failures));
+    cJSON_AddNumberToObject(store, "migration_attempts",
+                            static_cast<double>(status.migration_attempts));
+    cJSON_AddNumberToObject(store, "migration_failures",
+                            static_cast<double>(status.migration_failures));
+    cJSON_AddNumberToObject(store, "save_attempts", static_cast<double>(status.save_attempts));
+    cJSON_AddNumberToObject(store, "save_successes", static_cast<double>(status.save_successes));
+    cJSON_AddNumberToObject(store, "save_failures", static_cast<double>(status.save_failures));
+    cJSON_AddNumberToObject(store, "save_validation_rejects",
+                            static_cast<double>(status.save_validation_rejects));
+    return cfg;
 }
 
 bool add_owned_item(cJSON* parent, const char* key, cJSON* item) {

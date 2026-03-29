@@ -467,6 +467,22 @@ const char* ota_state_name(ota_manager::OtaState s) {
     }
 }
 
+const char* config_load_source_name(config_store::ConfigLoadSource s) {
+    using config_store::ConfigLoadSource;
+    switch (s) {
+    case ConfigLoadSource::None:
+        return "none";
+    case ConfigLoadSource::PrimaryNvs:
+        return "primary_nvs";
+    case ConfigLoadSource::BackupNvs:
+        return "backup_nvs";
+    case ConfigLoadSource::Defaults:
+        return "defaults";
+    default:
+        return "unknown";
+    }
+}
+
 std::string config_to_json_redacted(const config_store::AppConfig& c) {
     JsonPtr root = make_json_object();
     if (!root) {
@@ -776,6 +792,7 @@ esp_err_t handle_status(httpd_req_t* req) {
     const auto& radio = radio_cc1101::RadioCc1101::instance();
     const auto& rc = radio.counters();
     const auto ota = ota_manager::OtaManager::instance().status();
+    const auto cfg_runtime = config_store::ConfigStore::instance().runtime_status();
     const char* mode = cfg.wifi.is_configured() ? "normal" : "provisioning";
     JsonPtr root = make_json_object();
     if (!root) {
@@ -825,6 +842,36 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddBoolToObject(security_o, "provisioning_ap_open", !cfg.wifi.is_configured());
     cJSON_AddBoolToObject(security_o, "bootstrap_login_open",
                           !cfg.wifi.is_configured() && !cfg.auth.has_password());
+    cJSON* config_o = cJSON_AddObjectToObject(root.get(), "config_store");
+    cJSON_AddStringToObject(config_o, "load_source", config_load_source_name(cfg_runtime.load_source));
+    cJSON_AddBoolToObject(config_o, "used_defaults", cfg_runtime.used_defaults);
+    cJSON_AddBoolToObject(config_o, "loaded_from_backup", cfg_runtime.loaded_from_backup);
+    cJSON_AddBoolToObject(config_o, "defaults_persisted", cfg_runtime.defaults_persisted);
+    cJSON_AddBoolToObject(config_o, "defaults_persist_deferred",
+                          cfg_runtime.defaults_persist_deferred);
+    cJSON_AddStringToObject(config_o, "last_load_error",
+                            common::error_code_to_string(cfg_runtime.last_load_error));
+    cJSON_AddStringToObject(config_o, "last_persist_error",
+                            common::error_code_to_string(cfg_runtime.last_persist_error));
+    cJSON_AddStringToObject(config_o, "last_migration_error",
+                            common::error_code_to_string(cfg_runtime.last_migration_error));
+    cJSON_AddNumberToObject(config_o, "load_attempts", static_cast<double>(cfg_runtime.load_attempts));
+    cJSON_AddNumberToObject(config_o, "load_failures", static_cast<double>(cfg_runtime.load_failures));
+    cJSON_AddNumberToObject(config_o, "primary_read_failures",
+                            static_cast<double>(cfg_runtime.primary_read_failures));
+    cJSON_AddNumberToObject(config_o, "backup_read_failures",
+                            static_cast<double>(cfg_runtime.backup_read_failures));
+    cJSON_AddNumberToObject(config_o, "validation_failures",
+                            static_cast<double>(cfg_runtime.validation_failures));
+    cJSON_AddNumberToObject(config_o, "migration_attempts",
+                            static_cast<double>(cfg_runtime.migration_attempts));
+    cJSON_AddNumberToObject(config_o, "migration_failures",
+                            static_cast<double>(cfg_runtime.migration_failures));
+    cJSON_AddNumberToObject(config_o, "save_attempts", static_cast<double>(cfg_runtime.save_attempts));
+    cJSON_AddNumberToObject(config_o, "save_successes", static_cast<double>(cfg_runtime.save_successes));
+    cJSON_AddNumberToObject(config_o, "save_failures", static_cast<double>(cfg_runtime.save_failures));
+    cJSON_AddNumberToObject(config_o, "save_validation_rejects",
+                            static_cast<double>(cfg_runtime.save_validation_rejects));
 
     cJSON* wifi_o = cJSON_AddObjectToObject(root.get(), "wifi");
     cJSON_AddStringToObject(wifi_o, "state", wifi_state_name(wifi.state));

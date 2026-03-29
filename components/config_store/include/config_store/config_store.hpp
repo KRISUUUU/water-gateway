@@ -6,6 +6,36 @@
 
 namespace config_store {
 
+enum class ConfigLoadSource : uint8_t {
+    None = 0,
+    PrimaryNvs,
+    BackupNvs,
+    Defaults,
+};
+
+struct ConfigRuntimeStatus {
+    bool used_defaults = false;
+    bool defaults_persisted = false;
+    bool defaults_persist_deferred = false;
+    bool loaded_from_backup = false;
+    ConfigLoadSource load_source = ConfigLoadSource::None;
+    common::ErrorCode last_load_error = common::ErrorCode::OK;
+    common::ErrorCode last_persist_error = common::ErrorCode::OK;
+    common::ErrorCode last_migration_error = common::ErrorCode::OK;
+    uint32_t initialize_count = 0;
+    uint32_t load_attempts = 0;
+    uint32_t load_failures = 0;
+    uint32_t primary_read_failures = 0;
+    uint32_t backup_read_failures = 0;
+    uint32_t validation_failures = 0;
+    uint32_t migration_attempts = 0;
+    uint32_t migration_failures = 0;
+    uint32_t save_attempts = 0;
+    uint32_t save_successes = 0;
+    uint32_t save_failures = 0;
+    uint32_t save_validation_rejects = 0;
+};
+
 // Singleton configuration store backed by NVS.
 //
 // Lifecycle:
@@ -42,6 +72,7 @@ class ConfigStore {
     bool is_loaded() const {
         return loaded_;
     }
+    ConfigRuntimeStatus runtime_status() const;
 
   private:
     ConfigStore() = default;
@@ -52,6 +83,7 @@ class ConfigStore {
     bool initialized_ = false;
     bool loaded_ = false;
     AppConfig config_{};
+    ConfigRuntimeStatus runtime_status_{};
 
 #ifndef HOST_TEST_BUILD
     void* mutex_ = nullptr;
