@@ -1,5 +1,6 @@
 #include "support_bundle_service/support_bundle_service.hpp"
 #include "config_store/config_store.hpp"
+#include "common/security_posture.hpp"
 #include "diagnostics_service/diagnostics_service.hpp"
 #include "health_monitor/health_monitor.hpp"
 #include "meter_registry/meter_registry.hpp"
@@ -202,6 +203,22 @@ cJSON* build_ota_json() {
     return root;
 }
 
+cJSON* build_security_posture_json() {
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        return nullptr;
+    }
+    const auto sec = common::build_security_posture();
+    cJSON_AddBoolToObject(root, "secure_boot_enabled", sec.secure_boot_enabled);
+    cJSON_AddBoolToObject(root, "flash_encryption_enabled", sec.flash_encryption_enabled);
+    cJSON_AddBoolToObject(root, "nvs_encryption_enabled", sec.nvs_encryption_enabled);
+    cJSON_AddBoolToObject(root, "anti_rollback_enabled", sec.anti_rollback_enabled);
+    cJSON_AddBoolToObject(root, "ota_rollback_enabled", sec.ota_rollback_enabled);
+    cJSON_AddBoolToObject(root, "production_hardening_ready",
+                          common::build_is_hardened_for_production());
+    return root;
+}
+
 cJSON* build_diagnostics_json(const diagnostics_service::DiagnosticsSnapshot& snap) {
     const std::string diagnostics_json = diagnostics_service::DiagnosticsService::to_json(snap);
     cJSON* parsed = cJSON_Parse(diagnostics_json.c_str());
@@ -317,6 +334,7 @@ common::Result<std::string> SupportBundleService::generate_bundle_json() const {
     add_owned_item(root.get(), "logs", build_logs_json());
     add_owned_item(root.get(), "meters", build_meters_json());
     add_owned_item(root.get(), "ota", build_ota_json());
+    add_owned_item(root.get(), "security_posture", build_security_posture_json());
 
     JsonStringPtr printed(cJSON_PrintUnformatted(root.get()), cJSON_free);
     if (!printed) {

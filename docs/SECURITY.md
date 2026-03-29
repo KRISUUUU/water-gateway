@@ -160,3 +160,34 @@ add provisioning complexity:
 5. Regularly export config backups (with secrets redacted) for documentation.
 6. Monitor the device's MQTT status topic for unexpected offline events.
 7. Keep firmware updated via OTA when security patches are released.
+
+## Build-Time Security Posture Visibility
+
+The firmware reports compile-time hardening posture in diagnostics:
+
+- startup logs (`app_core`)
+- `GET /api/status` under `security.build`
+- support bundle under `security_posture`
+
+Reported fields:
+
+- `secure_boot_enabled`
+- `flash_encryption_enabled`
+- `nvs_encryption_enabled`
+- `anti_rollback_enabled`
+- `ota_rollback_enabled`
+- `production_hardening_ready` (all of the above enabled)
+
+This is a build-time signal only. It does not prove efuse state on a deployed
+device and must not be treated as manufacturing attestation.
+
+## Repository-Confirmed Security Posture
+
+From repository defaults (`sdkconfig.defaults`) only:
+
+- OTA rollback: enabled (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`)
+- NVS encryption: disabled by default (`CONFIG_NVS_ENCRYPTION=n`)
+- Secure Boot / Flash Encryption / anti-rollback: not explicitly enabled in repository defaults
+
+Production enablement of these features depends on release configuration and
+device provisioning decisions outside repository-only analysis.

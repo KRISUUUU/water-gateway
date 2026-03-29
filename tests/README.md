@@ -35,6 +35,7 @@ Requirements: CMake >= 3.16, C++17 compiler (g++ or clang++).
 | `test_metrics_service.cpp` | `metrics_service` | Queue/task metrics snapshots and reset behavior |
 | `test_diagnostics_service.cpp` | `diagnostics_service` | Diagnostics snapshot/JSON fields for observability |
 | `test_radio_state_machine.cpp` | `radio_state_machine` | Soft-failure escalation and recovery behavior |
+| `test_security_posture.cpp` | `common/security_posture` | Compile-time build hardening posture derivation and production-ready predicate |
 
 ## Fixtures
 

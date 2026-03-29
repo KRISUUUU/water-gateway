@@ -165,6 +165,11 @@ add_host_test(test_metrics_service
     "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
 )
 
+# ---- test_security_posture ----
+add_host_test(test_security_posture
+    test_security_posture.cpp
+)
+
 # ---- test_diagnostics_service ----
 add_host_test(test_diagnostics_service
     test_diagnostics_service.cpp

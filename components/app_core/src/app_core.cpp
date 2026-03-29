@@ -2,6 +2,7 @@
 
 #include "api_handlers/api_handlers.hpp"
 #include "auth_service/auth_service.hpp"
+#include "common/security_posture.hpp"
 #include "config_store/config_store.hpp"
 #include "event_bus/event_bus.hpp"
 #include "http_server/http_server.hpp"
@@ -28,6 +29,18 @@ namespace app_core {
 void AppCore::start() {
 #ifndef HOST_TEST_BUILD
     ESP_LOGI(TAG, "=== WMBus Gateway Starting ===");
+    const auto sec = common::build_security_posture();
+    ESP_LOGI(TAG,
+             "Build security posture: secure_boot=%s flash_enc=%s nvs_enc=%s anti_rollback=%s "
+             "ota_rollback=%s",
+             sec.secure_boot_enabled ? "on" : "off", sec.flash_encryption_enabled ? "on" : "off",
+             sec.nvs_encryption_enabled ? "on" : "off", sec.anti_rollback_enabled ? "on" : "off",
+             sec.ota_rollback_enabled ? "on" : "off");
+    if (!common::build_is_hardened_for_production()) {
+        ESP_LOGW(TAG,
+                 "Build is not fully hardened for production (expected secure boot + flash/NVS "
+                 "encryption + anti-rollback + OTA rollback)");
+    }
 #endif
 
     auto result = initialize_foundations();

@@ -30,6 +30,7 @@ tests/host/
   test_metrics_service.cpp
   test_diagnostics_service.cpp
   test_radio_state_machine.cpp
+  test_security_posture.cpp
 ```
 
 Host tests include component source files directly and provide minimal stubs
@@ -72,6 +73,7 @@ ctest --output-on-failure
 | `test_metrics_service.cpp` | `metrics_service` | Queue/task counters, task stack watermark reporting, and reset behavior of instrumentation snapshots |
 | `test_diagnostics_service.cpp` | `diagnostics_service` | Snapshot/JSON shape checks for time-source fallback and queue/task observability fields |
 | `test_radio_state_machine.cpp` | `radio_state_machine` | Soft-failure escalation, non-escalating faults, hard-fault transitions, and recovery counters |
+| `test_security_posture.cpp` | `common/security_posture` | Compile-time build hardening posture mapping and production-ready predicate |
 ### Fixture Data
 
 The `tests/fixtures/sample_frames.json` file contains captured or synthetic

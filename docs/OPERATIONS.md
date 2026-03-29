@@ -75,6 +75,7 @@ key counters, and quick actions.
 
 1. Open web panel → Support page → Download Support Bundle
 2. JSON file includes diagnostics, metrics, config (redacted), recent logs, and meter/watchlist counts
+   plus build-time security posture flags.
 3. Useful for remote troubleshooting
 
 ### Factory Reset

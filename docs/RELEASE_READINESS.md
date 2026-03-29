@@ -55,3 +55,22 @@ Collect and review trends every 1-2h:
 - [ ] Final binary size check against OTA partition margin
 - [ ] CI green on main workflows (host tests, format check, ESP-IDF build)
 - [ ] Tag release candidate after all above checks pass
+
+## Production Security Configuration Checklist
+
+Before production release candidate sign-off, confirm and archive evidence for:
+
+- [ ] Secure Boot enabled in release build configuration
+- [ ] Flash Encryption enabled in release build configuration
+- [ ] NVS encryption enabled with key provisioning flow
+- [ ] Anti-rollback policy enabled and app version strategy documented
+- [ ] OTA trust configuration documented (CA strategy and certificate lifecycle)
+- [ ] `/api/status` `security.build` fields reviewed on release artifact
+- [ ] Support bundle `security_posture` reviewed on release artifact
+
+Notes:
+
+- These checks require build profile and provisioning decisions that are outside
+  repository defaults.
+- Repository defaults are intentionally development-friendly and should not be
+  treated as production hardening proof.

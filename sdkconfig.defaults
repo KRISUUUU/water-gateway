@@ -1,6 +1,11 @@
 # =============================================================
 # water-gateway sdkconfig.defaults
 # =============================================================
+# NOTE:
+# - This file reflects development-friendly defaults.
+# - Production hardening (Secure Boot / Flash Encryption / NVS encryption /
+#   anti-rollback policy) must be applied in a dedicated release profile and
+#   provisioning process.
 
 # Flash
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y

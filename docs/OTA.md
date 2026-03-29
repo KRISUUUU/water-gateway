@@ -86,3 +86,20 @@ Boot-origin/rollback MQTT event payloads are not fully implemented yet and shoul
 - The OTA page groups current state, binary upload, and URL OTA in separate cards.
 - UI feedback is explicit for `ota_in_progress`, `image_too_large`, and content-type errors.
 - Upload flow remains raw binary body (not multipart form upload).
+
+## OTA Trust Posture (Repository-Confirmed)
+
+What is confirmed from code in this repository:
+
+- URL OTA requires HTTPS scheme at API layer (`/api/ota/url`).
+- OTA execution uses `esp_https_ota`.
+- Bootloader rollback support is enabled in defaults (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`).
+
+What is not explicitly configured in repository code/defaults:
+
+- certificate pinning
+- explicit custom root CA bundle attachment in `ota_manager`
+- anti-rollback policy enablement in `sdkconfig.defaults`
+
+Therefore, release trust posture depends on production build configuration and
+provisioning choices, and cannot be fully guaranteed from repository-only review.

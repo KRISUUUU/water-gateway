@@ -3,6 +3,7 @@
 #include "http_server/http_server.hpp"
 
 #include "auth_service/auth_service.hpp"
+#include "common/security_posture.hpp"
 #include "config_store/config_models.hpp"
 #include "config_store/config_store.hpp"
 #include "config_store/config_validation.hpp"
@@ -881,6 +882,15 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddBoolToObject(security_o, "provisioning_ap_open", !cfg.wifi.is_configured());
     cJSON_AddBoolToObject(security_o, "bootstrap_login_open",
                           !cfg.wifi.is_configured() && !cfg.auth.has_password());
+    const auto sec = common::build_security_posture();
+    cJSON* build_o = cJSON_AddObjectToObject(security_o, "build");
+    cJSON_AddBoolToObject(build_o, "secure_boot_enabled", sec.secure_boot_enabled);
+    cJSON_AddBoolToObject(build_o, "flash_encryption_enabled", sec.flash_encryption_enabled);
+    cJSON_AddBoolToObject(build_o, "nvs_encryption_enabled", sec.nvs_encryption_enabled);
+    cJSON_AddBoolToObject(build_o, "anti_rollback_enabled", sec.anti_rollback_enabled);
+    cJSON_AddBoolToObject(build_o, "ota_rollback_enabled", sec.ota_rollback_enabled);
+    cJSON_AddBoolToObject(build_o, "production_hardening_ready",
+                          common::build_is_hardened_for_production());
     cJSON* config_o = cJSON_AddObjectToObject(root.get(), "config_store");
     cJSON_AddStringToObject(config_o, "load_source", config_load_source_name(cfg_runtime.load_source));
     cJSON_AddBoolToObject(config_o, "used_defaults", cfg_runtime.used_defaults);
