@@ -104,7 +104,7 @@ class RadioCc1101 {
     uint8_t spi_strobe(uint8_t strobe_addr);
     uint8_t spi_read_register(uint8_t addr);
     void spi_write_register(uint8_t addr, uint8_t value);
-    void spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length);
+    bool spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length);
 
     common::Result<void> apply_tmode_config();
     int8_t convert_rssi(uint8_t raw_rssi);

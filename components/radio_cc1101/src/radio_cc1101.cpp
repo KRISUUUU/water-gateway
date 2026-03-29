@@ -1,5 +1,6 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_cc1101/cc1101_registers.hpp"
+#include "radio_cc1101/rx_frame_utils.hpp"
 
 #ifndef HOST_TEST_BUILD
 #include "driver/gpio.h"
@@ -137,27 +138,47 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     }
 
 #ifndef HOST_TEST_BUILD
+    auto read_register_checked = [this](uint8_t addr, uint8_t& value) -> bool {
+        const uint32_t spi_errors_before = counters_.spi_errors;
+        value = spi_read_register(addr);
+        return counters_.spi_errors == spi_errors_before;
+    };
+
+    auto abort_rx_read = [this](common::ErrorCode code, bool restart_rx,
+                                bool mark_error_state) -> common::Result<RawRadioFrame> {
+        if (restart_rx) {
+            flush_rx_fifo();
+            spi_strobe(registers::SRX);
+        }
+        if (mark_error_state) {
+            state_ = RadioState::Error;
+        }
+        return common::Result<RawRadioFrame>::error(code);
+    };
+
     // Check MARCSTATE for FIFO overflow
-    uint8_t marc = read_marcstate();
+    uint8_t marc = 0;
+    if (!read_register_checked(registers::MARCSTATE | registers::READ_BURST, marc)) {
+        return abort_rx_read(common::ErrorCode::RadioSpiError, false, true);
+    }
+    marc &= 0x1F;
     if (marc == registers::MARCSTATE_RXFIFO_OVERFLOW) {
         counters_.fifo_overflows++;
         ESP_LOGW(TAG, "RX FIFO overflow detected");
-        flush_rx_fifo();
-        spi_strobe(registers::SRX);
-        state_ = RadioState::Error;
-        return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
+        return abort_rx_read(common::ErrorCode::RadioFifoOverflow, true, true);
     }
 
     // Read number of bytes in RX FIFO
-    uint8_t rx_bytes = spi_read_register(registers::RXBYTES | registers::READ_BURST);
+    uint8_t rx_bytes = 0;
+    if (!read_register_checked(registers::RXBYTES | registers::READ_BURST, rx_bytes)) {
+        return abort_rx_read(common::ErrorCode::RadioSpiError, false, true);
+    }
     uint8_t num_bytes = rx_bytes & 0x7F; // Mask off overflow bit
     bool overflow = (rx_bytes & 0x80) != 0;
 
     if (overflow) {
         counters_.fifo_overflows++;
-        flush_rx_fifo();
-        spi_strobe(registers::SRX);
-        return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
+        return abort_rx_read(common::ErrorCode::RadioFifoOverflow, true, true);
     }
 
     if (num_bytes < 3) {
@@ -167,63 +188,68 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
     RawRadioFrame frame{};
 
-    // Read the first byte as packet length (T-mode convention)
-    uint8_t pkt_len = spi_read_register(registers::FIFO_RX | registers::READ_SINGLE);
-    if (pkt_len == 0 || pkt_len > RawRadioFrame::MAX_DATA_SIZE - 1) {
-        flush_rx_fifo();
-        return common::Result<RawRadioFrame>::error(common::ErrorCode::InvalidArgument);
+    // Once the length byte is consumed, drain exactly payload + appended status bytes.
+    // If the FIFO stalls or an SPI read fails, flush and restart RX so the next frame
+    // begins from a clean boundary instead of reusing a partially drained FIFO.
+    uint8_t pkt_len = 0;
+    if (!read_register_checked(registers::FIFO_RX | registers::READ_SINGLE, pkt_len)) {
+        return abort_rx_read(common::ErrorCode::RadioSpiError, true, true);
     }
 
-    // L-field + pkt_len payload bytes + 2 appended status bytes arrive in the RX FIFO.
-    // Drain in chunks (FIFO is 64 bytes); long frames require multiple reads with bounded wait.
-    frame.data[0] = pkt_len;
-    frame.length = static_cast<uint16_t>(pkt_len + 1);
+    auto drain_plan = plan_rx_frame_drain(pkt_len, RawRadioFrame::MAX_DATA_SIZE);
+    if (drain_plan.is_error()) {
+        if (pkt_len >= RawRadioFrame::MAX_DATA_SIZE) {
+            counters_.frames_dropped_too_long++;
+        } else {
+            counters_.frames_incomplete++;
+        }
+        return abort_rx_read(common::ErrorCode::InvalidArgument, true, false);
+    }
 
-    const uint16_t total_after_l = static_cast<uint16_t>(pkt_len + 2);
+    frame.data[0] = pkt_len;
+    frame.length = drain_plan.value().frame_length;
+
+    const uint16_t total_after_l = drain_plan.value().bytes_after_length;
     uint16_t received = 0;
     uint8_t status[2]{};
-    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(200);
+    const TickType_t start_tick = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(200);
+    const size_t max_burst_size = std::max<size_t>(
+        1U, std::min<size_t>(64U, static_cast<size_t>(bus_config_.max_transfer_size)));
 
     while (received < total_after_l) {
-        uint8_t rxb = spi_read_register(registers::RXBYTES | registers::READ_BURST);
+        uint8_t rxb = 0;
+        if (!read_register_checked(registers::RXBYTES | registers::READ_BURST, rxb)) {
+            return abort_rx_read(common::ErrorCode::RadioSpiError, true, true);
+        }
         uint8_t avail = rxb & 0x7F;
         if ((rxb & 0x80) != 0) {
             counters_.fifo_overflows++;
-            flush_rx_fifo();
-            spi_strobe(registers::SRX);
-            state_ = RadioState::Error;
-            return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
+            return abort_rx_read(common::ErrorCode::RadioFifoOverflow, true, true);
         }
         if (avail == 0) {
-            if (xTaskGetTickCount() >= deadline) {
+            if ((xTaskGetTickCount() - start_tick) >= timeout_ticks) {
                 counters_.frames_incomplete++;
 #ifndef HOST_TEST_BUILD
                 ESP_LOGW(TAG, "RX drain timeout need=%u got=%u pkt_len=%u",
                          static_cast<unsigned int>(total_after_l),
-                         static_cast<unsigned int>(received),
-                         static_cast<unsigned int>(pkt_len));
+                         static_cast<unsigned int>(received), static_cast<unsigned int>(pkt_len));
 #endif
-                flush_rx_fifo();
-                spi_strobe(registers::SRX);
-                return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
+                return abort_rx_read(common::ErrorCode::NotFound, true, false);
             }
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;
         }
         const uint16_t need = static_cast<uint16_t>(total_after_l - received);
-        uint16_t take = need;
-        if (avail < take) {
-            take = avail;
-        }
-        if (take > 64) {
-            take = 64;
-        }
+        const size_t take = next_rx_burst_size(need, avail, max_burst_size);
         uint8_t chunk[64];
-        spi_read_burst(registers::FIFO_RX | registers::READ_BURST, chunk, take);
-        for (uint16_t i = 0; i < take; ++i) {
+        if (!spi_read_burst(registers::FIFO_RX | registers::READ_BURST, chunk, take)) {
+            return abort_rx_read(common::ErrorCode::RadioSpiError, true, true);
+        }
+        for (size_t i = 0; i < take; ++i) {
             const uint16_t idx = static_cast<uint16_t>(received + i);
             if (idx < pkt_len) {
-                frame.data[1 + idx] = chunk[i];
+                frame.data[1U + idx] = chunk[i];
             } else {
                 status[idx - pkt_len] = chunk[i];
             }
@@ -358,16 +384,16 @@ void RadioCc1101::spi_write_register(uint8_t addr, uint8_t value) {
     }
 }
 
-void RadioCc1101::spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length) {
+bool RadioCc1101::spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length) {
     if (!buffer || length == 0)
-        return;
+        return false;
     // S1 fix: rx_buf[] is 65 bytes (1 status + 64 data). A length > 64 would overflow.
     // Treat this as an SPI error and abort rather than writing past the buffer end.
     if (length > 64) {
         counters_.spi_errors++;
         ESP_LOGE(TAG, "spi_read_burst: length %zu > 64, aborting to prevent buffer overflow",
                  length);
-        return;
+        return false;
     }
 
     uint8_t tx_buf[65]{};
@@ -382,9 +408,10 @@ void RadioCc1101::spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length) {
     esp_err_t err = spi_device_transmit(static_cast<spi_device_handle_t>(spi_handle_), &txn);
     if (err != ESP_OK) {
         counters_.spi_errors++;
-        return;
+        return false;
     }
     std::memcpy(buffer, &rx_buf[1], length);
+    return true;
 }
 
 common::Result<void> RadioCc1101::apply_tmode_config() {
