@@ -154,6 +154,13 @@ cJSON* build_ota_json() {
     cJSON_AddNumberToObject(root, "progress_pct", static_cast<double>(ota.progress_pct));
     cJSON_AddStringToObject(root, "message", ota.message);
     cJSON_AddStringToObject(root, "current_version", ota.current_version);
+    cJSON_AddBoolToObject(root, "boot_pending_verify", ota.boot_pending_verify);
+    cJSON_AddBoolToObject(root, "boot_marked_valid", ota.boot_marked_valid);
+    cJSON_AddNumberToObject(root, "boot_mark_attempts", static_cast<double>(ota.boot_mark_attempts));
+    cJSON_AddNumberToObject(root, "boot_mark_failures", static_cast<double>(ota.boot_mark_failures));
+    cJSON_AddNumberToObject(root, "last_boot_mark_error",
+                            static_cast<double>(ota.last_boot_mark_error));
+    cJSON_AddStringToObject(root, "boot_validation_note", ota.boot_validation_note);
     return root;
 }
 

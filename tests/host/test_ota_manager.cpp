@@ -11,6 +11,8 @@ int main() {
     auto& ota = ota_manager::OtaManager::instance();
     auto init = ota.initialize();
     assert(!init.is_error());
+    auto boot_valid = ota.mark_boot_valid();
+    assert(!boot_valid.is_error());
 
     constexpr uint8_t fw_stub[8] = {0xE9, 0x01, 0x02, 0x03, 0x10, 0x20, 0x30, 0x40};
     auto begin = ota.begin_upload(sizeof(fw_stub));
@@ -23,5 +25,8 @@ int main() {
     const auto st = ota.status();
     assert(st.progress_pct == 100);
     assert(st.state == ota_manager::OtaState::Rebooting);
+    assert(st.boot_mark_attempts >= 1);
+    assert(st.boot_mark_failures == 0);
+    assert(st.boot_marked_valid);
     return 0;
 }

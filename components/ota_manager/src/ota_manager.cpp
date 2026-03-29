@@ -24,6 +24,12 @@ common::Result<void> OtaManager::initialize() {
     }
 
     status_.state = OtaState::Idle;
+    status_.boot_pending_verify = false;
+    status_.boot_marked_valid = false;
+    status_.boot_mark_attempts = 0;
+    status_.boot_mark_failures = 0;
+    status_.last_boot_mark_error = 0;
+    std::strncpy(status_.boot_validation_note, "unknown", sizeof(status_.boot_validation_note) - 1);
 
 #ifndef HOST_TEST_BUILD
     const esp_app_desc_t* app_desc = esp_app_get_description();
@@ -31,8 +37,33 @@ common::Result<void> OtaManager::initialize() {
         std::strncpy(status_.current_version, app_desc->version,
                      sizeof(status_.current_version) - 1);
     }
+
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (running) {
+        esp_ota_img_states_t img_state{};
+        if (esp_ota_get_state_partition(running, &img_state) == ESP_OK) {
+            status_.boot_pending_verify = (img_state == ESP_OTA_IMG_PENDING_VERIFY);
+            if (status_.boot_pending_verify) {
+                std::strncpy(status_.boot_validation_note, "pending_verify",
+                             sizeof(status_.boot_validation_note) - 1);
+            } else {
+                std::strncpy(status_.boot_validation_note, "not_pending_verify",
+                             sizeof(status_.boot_validation_note) - 1);
+                status_.boot_marked_valid = true;
+            }
+        } else {
+            std::strncpy(status_.boot_validation_note, "state_unavailable",
+                         sizeof(status_.boot_validation_note) - 1);
+        }
+    } else {
+        std::strncpy(status_.boot_validation_note, "running_partition_unavailable",
+                     sizeof(status_.boot_validation_note) - 1);
+    }
 #else
     std::strncpy(status_.current_version, "0.1.0", sizeof(status_.current_version) - 1);
+    std::strncpy(status_.boot_validation_note, "host_build",
+                 sizeof(status_.boot_validation_note) - 1);
+    status_.boot_marked_valid = true;
 #endif
 
     initialized_ = true;
@@ -198,13 +229,40 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
 }
 
 common::Result<void> OtaManager::mark_boot_valid() {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    status_.boot_mark_attempts++;
+
+    if (!status_.boot_pending_verify) {
+        status_.boot_marked_valid = true;
+        std::strncpy(status_.boot_validation_note, "not_pending_verify",
+                     sizeof(status_.boot_validation_note) - 1);
+        return common::Result<void>::ok();
+    }
+
 #ifndef HOST_TEST_BUILD
     esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to mark app valid: %d", err);
+        status_.boot_mark_failures++;
+        status_.last_boot_mark_error = static_cast<int32_t>(err);
+        std::strncpy(status_.boot_validation_note, "mark_failed",
+                     sizeof(status_.boot_validation_note) - 1);
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
     ESP_LOGI(TAG, "App marked as valid, rollback cancelled");
+    status_.boot_pending_verify = false;
+    status_.boot_marked_valid = true;
+    status_.last_boot_mark_error = 0;
+    std::strncpy(status_.boot_validation_note, "marked_valid",
+                 sizeof(status_.boot_validation_note) - 1);
+#else
+    status_.boot_pending_verify = false;
+    status_.boot_marked_valid = true;
+    status_.last_boot_mark_error = 0;
+    std::strncpy(status_.boot_validation_note, "marked_valid_host",
+                 sizeof(status_.boot_validation_note) - 1);
 #endif
     return common::Result<void>::ok();
 }

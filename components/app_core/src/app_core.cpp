@@ -178,6 +178,28 @@ common::Result<void> AppCore::start_provisioning() {
     ESP_LOGI(TAG,
              "Provisioning mode active. Connect to WMBus-GW-Setup AP and open http://192.168.4.1/");
 #endif
+
+    // OTA boot-valid should be handled in provisioning mode too, otherwise a
+    // successful OTA boot into first-boot provisioning can be rolled back on reboot.
+    auto& ota = ota_manager::OtaManager::instance();
+    auto ota_init = ota.initialize();
+    if (ota_init.is_error() && ota_init.error() != common::ErrorCode::AlreadyInitialized) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "OTA initialize failed in provisioning mode (%s/%d), continuing",
+                 common::error_code_to_string(ota_init.error()),
+                 static_cast<int>(ota_init.error()));
+#endif
+    } else {
+        auto boot_valid = ota.mark_boot_valid();
+        if (boot_valid.is_error()) {
+#ifndef HOST_TEST_BUILD
+            ESP_LOGW(TAG, "mark_boot_valid failed in provisioning mode (%s/%d), continuing",
+                     common::error_code_to_string(boot_valid.error()),
+                     static_cast<int>(boot_valid.error()));
+#endif
+        }
+    }
+
     return common::Result<void>::ok();
 }
 
@@ -316,7 +338,7 @@ common::Result<void> AppCore::start_normal_runtime() {
 #endif
     auto& ota = ota_manager::OtaManager::instance();
     auto ota_init = ota.initialize();
-    if (ota_init.is_error()) {
+    if (ota_init.is_error() && ota_init.error() != common::ErrorCode::AlreadyInitialized) {
 #ifndef HOST_TEST_BUILD
         ESP_LOGW(TAG, "OTA initialize failed, continuing (%s/%d)",
                  common::error_code_to_string(ota_init.error()),

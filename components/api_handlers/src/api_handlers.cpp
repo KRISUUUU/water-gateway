@@ -1245,6 +1245,15 @@ esp_err_t handle_ota_status(httpd_req_t* req) {
     cJSON_AddStringToObject(root.get(), "message", st.message);
     cJSON_AddNumberToObject(root.get(), "progress_pct", static_cast<double>(st.progress_pct));
     cJSON_AddStringToObject(root.get(), "current_version", st.current_version);
+    cJSON_AddBoolToObject(root.get(), "boot_pending_verify", st.boot_pending_verify);
+    cJSON_AddBoolToObject(root.get(), "boot_marked_valid", st.boot_marked_valid);
+    cJSON_AddNumberToObject(root.get(), "boot_mark_attempts",
+                            static_cast<double>(st.boot_mark_attempts));
+    cJSON_AddNumberToObject(root.get(), "boot_mark_failures",
+                            static_cast<double>(st.boot_mark_failures));
+    cJSON_AddNumberToObject(root.get(), "last_boot_mark_error",
+                            static_cast<double>(st.last_boot_mark_error));
+    cJSON_AddStringToObject(root.get(), "boot_validation_note", st.boot_validation_note);
     return send_json_root(req, 200, root);
 }
 

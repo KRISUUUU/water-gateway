@@ -88,3 +88,6 @@
 2295	2539	7965156480919228	test_auth_helpers.exe	9db43f17fbed2644
 1153	2566	7965156469493339	CMakeFiles/test_health_logic.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/health_monitor/src/health_monitor.cpp.obj	b65722ce6f73e61b
 2567	2744	7965156483620224	test_health_logic.exe	c9cd26b456416e46
+14	706	7965158397726576	CMakeFiles/test_ota_manager.dir/test_ota_manager.cpp.obj	2a0c8a89ee61b1
+25	732	7965158397832109	CMakeFiles/test_ota_manager.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/ota_manager/src/ota_manager.cpp.obj	1c69dc902ffcb096
+732	943	7965158404878473	test_ota_manager.exe	b9e4d8b6a9eb7276
