@@ -346,6 +346,8 @@ static void mqtt_task(void* /*param*/) {
     auto& mqtt = mqtt_service::MqttService::instance();
     auto& wd = watchdog_service::WatchdogService::instance();
     MqttOutboxItem item{};
+    MqttOutboxItem carry{};
+    bool carry_pending = false;
 
     if (wd.register_task().is_error()) {
         watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
@@ -354,13 +356,26 @@ static void mqtt_task(void* /*param*/) {
 
     while (true) {
         mqtt_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
-        if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
+        if (carry_pending) {
+            if (mqtt.is_connected()) {
+                mqtt.publish(carry.topic, carry.payload, 0, false);
+                carry_pending = false;
+                mqtt.report_outbox_carry_pending(false);
+            } else {
+                mqtt.report_outbox_carry_retry_attempt();
+            }
+        } else if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
             sample_queue_levels();
             if (mqtt.is_connected()) {
                 mqtt.publish(item.topic, item.payload, 0, false);
             } else {
-                mqtt.report_outbox_dropped_disconnected();
+                std::memcpy(&carry, &item, sizeof(carry));
+                carry_pending = true;
+                mqtt.report_outbox_carry_pending(true);
+                mqtt.report_outbox_carry_retry_attempt();
             }
+        } else {
+            mqtt.report_outbox_carry_pending(false);
         }
         if (wd.feed().is_error()) {
             const uint32_t errors =

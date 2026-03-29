@@ -990,6 +990,12 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(mqtt.outbox_max_depth));
     cJSON_AddNumberToObject(mqtt_o, "outbox_dropped_disconnected",
                             static_cast<double>(mqtt.outbox_dropped_disconnected));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_carry_pending",
+                            static_cast<double>(mqtt.outbox_carry_pending));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_carry_retry_attempts",
+                            static_cast<double>(mqtt.outbox_carry_retry_attempts));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_carry_drops",
+                            static_cast<double>(mqtt.outbox_carry_drops));
 
     cJSON* radio_o = cJSON_AddObjectToObject(root.get(), "radio");
     cJSON_AddStringToObject(radio_o, "state", radio_state_name(radio.state()));
@@ -1041,6 +1047,12 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(mqtt.outbox_max_depth));
     cJSON_AddNumberToObject(outbox_o, "outbox_dropped_disconnected",
                             static_cast<double>(mqtt.outbox_dropped_disconnected));
+    cJSON_AddNumberToObject(outbox_o, "outbox_carry_pending",
+                            static_cast<double>(mqtt.outbox_carry_pending));
+    cJSON_AddNumberToObject(outbox_o, "outbox_carry_retry_attempts",
+                            static_cast<double>(mqtt.outbox_carry_retry_attempts));
+    cJSON_AddNumberToObject(outbox_o, "outbox_carry_drops",
+                            static_cast<double>(mqtt.outbox_carry_drops));
     return send_json_root(req, 200, root);
 }
 
@@ -1377,6 +1389,12 @@ esp_err_t handle_diagnostics_mqtt(httpd_req_t* req) {
                             static_cast<double>(st.outbox_max_depth));
     cJSON_AddNumberToObject(root.get(), "outbox_dropped_disconnected",
                             static_cast<double>(st.outbox_dropped_disconnected));
+    cJSON_AddNumberToObject(root.get(), "outbox_carry_pending",
+                            static_cast<double>(st.outbox_carry_pending));
+    cJSON_AddNumberToObject(root.get(), "outbox_carry_retry_attempts",
+                            static_cast<double>(st.outbox_carry_retry_attempts));
+    cJSON_AddNumberToObject(root.get(), "outbox_carry_drops",
+                            static_cast<double>(st.outbox_carry_drops));
     cJSON_AddNumberToObject(root.get(), "last_publish_epoch_ms",
                             static_cast<double>(st.last_publish_epoch_ms));
     cJSON_AddStringToObject(root.get(), "broker_uri", st.broker_uri);

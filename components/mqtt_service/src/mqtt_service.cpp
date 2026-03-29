@@ -30,6 +30,9 @@ common::Result<void> MqttService::initialize() {
     outbox_oversize_rejections_ = 0;
     outbox_max_depth_ = 0;
     outbox_dropped_disconnected_ = 0;
+    outbox_carry_pending_ = 0;
+    outbox_carry_retry_attempts_ = 0;
+    outbox_carry_drops_ = 0;
     last_publish_epoch_ms_ = 0;
     broker_uri_[0] = '\0';
     initialized_ = true;
@@ -173,6 +176,9 @@ MqttStatus MqttService::status() const {
     s.outbox_oversize_rejections = outbox_oversize_rejections_;
     s.outbox_max_depth = outbox_max_depth_;
     s.outbox_dropped_disconnected = outbox_dropped_disconnected_;
+    s.outbox_carry_pending = outbox_carry_pending_;
+    s.outbox_carry_retry_attempts = outbox_carry_retry_attempts_;
+    s.outbox_carry_drops = outbox_carry_drops_;
     s.last_publish_epoch_ms = last_publish_epoch_ms_;
     std::strncpy(s.broker_uri, broker_uri_, sizeof(s.broker_uri) - 1);
     return s;
@@ -193,6 +199,18 @@ void MqttService::report_outbox_depth(uint32_t depth) {
 
 void MqttService::report_outbox_dropped_disconnected() {
     ++outbox_dropped_disconnected_;
+}
+
+void MqttService::report_outbox_carry_pending(bool pending) {
+    outbox_carry_pending_ = pending ? 1U : 0U;
+}
+
+void MqttService::report_outbox_carry_retry_attempt() {
+    ++outbox_carry_retry_attempts_;
+}
+
+void MqttService::report_outbox_carry_drop() {
+    ++outbox_carry_drops_;
 }
 
 #ifndef HOST_TEST_BUILD

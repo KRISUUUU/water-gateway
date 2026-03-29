@@ -27,6 +27,9 @@ struct MqttStatus {
     uint32_t outbox_oversize_rejections;
     uint32_t outbox_max_depth;
     uint32_t outbox_dropped_disconnected;
+    uint32_t outbox_carry_pending;
+    uint32_t outbox_carry_retry_attempts;
+    uint32_t outbox_carry_drops;
     int64_t last_publish_epoch_ms;
     char broker_uri[160]; // "mqtt://host:port" (redacted in export)
 };
@@ -53,6 +56,9 @@ class MqttService {
     void report_outbox_enqueue_failure(bool oversize);
     void report_outbox_depth(uint32_t depth);
     void report_outbox_dropped_disconnected();
+    void report_outbox_carry_pending(bool pending);
+    void report_outbox_carry_retry_attempt();
+    void report_outbox_carry_drop();
     MqttState state() const {
         return state_;
     }
@@ -83,6 +89,9 @@ class MqttService {
     uint32_t outbox_oversize_rejections_ = 0;
     uint32_t outbox_max_depth_ = 0;
     uint32_t outbox_dropped_disconnected_ = 0;
+    uint32_t outbox_carry_pending_ = 0;
+    uint32_t outbox_carry_retry_attempts_ = 0;
+    uint32_t outbox_carry_drops_ = 0;
     int64_t last_publish_epoch_ms_ = 0;
     char broker_uri_[160] = {};
     char lwt_topic_[128] = {};

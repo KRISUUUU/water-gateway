@@ -168,6 +168,12 @@ void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.mqtt.outbox_max_depth));
     cJSON_AddNumberToObject(mqtt, "outbox_dropped_disconnected",
                             static_cast<double>(snap.mqtt.outbox_dropped_disconnected));
+    cJSON_AddNumberToObject(mqtt, "outbox_carry_pending",
+                            static_cast<double>(snap.mqtt.outbox_carry_pending));
+    cJSON_AddNumberToObject(mqtt, "outbox_carry_retry_attempts",
+                            static_cast<double>(snap.mqtt.outbox_carry_retry_attempts));
+    cJSON_AddNumberToObject(mqtt, "outbox_carry_drops",
+                            static_cast<double>(snap.mqtt.outbox_carry_drops));
     cJSON_AddNumberToObject(mqtt, "last_publish_epoch_ms",
                             static_cast<double>(snap.mqtt.last_publish_epoch_ms));
     cJSON_AddStringToObject(mqtt, "broker_uri", snap.mqtt.broker_uri);
@@ -336,6 +342,12 @@ void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
                                 static_cast<double>(snap.mqtt.outbox_max_depth));
         cJSON_AddNumberToObject(outbox, "outbox_dropped_disconnected",
                                 static_cast<double>(snap.mqtt.outbox_dropped_disconnected));
+        cJSON_AddNumberToObject(outbox, "outbox_carry_pending",
+                                static_cast<double>(snap.mqtt.outbox_carry_pending));
+        cJSON_AddNumberToObject(outbox, "outbox_carry_retry_attempts",
+                                static_cast<double>(snap.mqtt.outbox_carry_retry_attempts));
+        cJSON_AddNumberToObject(outbox, "outbox_carry_drops",
+                                static_cast<double>(snap.mqtt.outbox_carry_drops));
     }
 }
 

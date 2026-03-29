@@ -34,6 +34,9 @@ int main() {
     assert(json.find("\"outbox_oversize_rejections\"") != std::string::npos);
     assert(json.find("\"outbox_max_depth\"") != std::string::npos);
     assert(json.find("\"outbox_dropped_disconnected\"") != std::string::npos);
+    assert(json.find("\"outbox_carry_pending\"") != std::string::npos);
+    assert(json.find("\"outbox_carry_retry_attempts\"") != std::string::npos);
+    assert(json.find("\"outbox_carry_drops\"") != std::string::npos);
     assert(json.find("\"rx_read_calls\"") != std::string::npos);
     assert(json.find("\"rx_not_found\"") != std::string::npos);
     assert(json.find("\"rx_timeouts\"") != std::string::npos);
