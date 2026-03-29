@@ -1,5 +1,7 @@
 #include "metrics_service/metrics_service.hpp"
 
+#include <atomic>
+
 #ifndef HOST_TEST_BUILD
 #include "esp_heap_caps.h"
 #include "esp_system.h"
@@ -7,6 +9,22 @@
 #endif
 
 namespace metrics_service {
+
+namespace {
+
+std::atomic<std::uint32_t> g_frame_queue_depth{0};
+std::atomic<std::uint32_t> g_frame_queue_peak_depth{0};
+std::atomic<std::uint32_t> g_frame_enqueue_success{0};
+std::atomic<std::uint32_t> g_frame_enqueue_drop{0};
+std::atomic<std::uint32_t> g_frame_enqueue_errors{0};
+
+std::atomic<std::uint32_t> g_mqtt_outbox_depth{0};
+std::atomic<std::uint32_t> g_mqtt_outbox_peak_depth{0};
+std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_success{0};
+std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_drop{0};
+std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_errors{0};
+
+} // namespace
 
 MetricsService& MetricsService::instance() {
     static MetricsService service;
@@ -25,7 +43,48 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
         static_cast<std::uint32_t>(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
 #endif
 
+    m.queues.frame_queue_depth = g_frame_queue_depth.load(std::memory_order_relaxed);
+    m.queues.frame_queue_peak_depth = g_frame_queue_peak_depth.load(std::memory_order_relaxed);
+    m.queues.frame_enqueue_success = g_frame_enqueue_success.load(std::memory_order_relaxed);
+    m.queues.frame_enqueue_drop = g_frame_enqueue_drop.load(std::memory_order_relaxed);
+    m.queues.frame_enqueue_errors = g_frame_enqueue_errors.load(std::memory_order_relaxed);
+
+    m.queues.mqtt_outbox_depth = g_mqtt_outbox_depth.load(std::memory_order_relaxed);
+    m.queues.mqtt_outbox_peak_depth = g_mqtt_outbox_peak_depth.load(std::memory_order_relaxed);
+    m.queues.mqtt_outbox_enqueue_success =
+        g_mqtt_outbox_enqueue_success.load(std::memory_order_relaxed);
+    m.queues.mqtt_outbox_enqueue_drop = g_mqtt_outbox_enqueue_drop.load(std::memory_order_relaxed);
+    m.queues.mqtt_outbox_enqueue_errors =
+        g_mqtt_outbox_enqueue_errors.load(std::memory_order_relaxed);
+
     return common::Result<RuntimeMetrics>::ok(m);
+}
+
+void MetricsService::report_queue_metrics(std::uint32_t frame_queue_depth,
+                                          std::uint32_t frame_queue_peak_depth,
+                                          std::uint32_t frame_enqueue_success,
+                                          std::uint32_t frame_enqueue_drop,
+                                          std::uint32_t frame_enqueue_errors,
+                                          std::uint32_t mqtt_outbox_depth,
+                                          std::uint32_t mqtt_outbox_peak_depth,
+                                          std::uint32_t mqtt_outbox_enqueue_success,
+                                          std::uint32_t mqtt_outbox_enqueue_drop,
+                                          std::uint32_t mqtt_outbox_enqueue_errors) {
+    g_frame_queue_depth.store(frame_queue_depth, std::memory_order_relaxed);
+    g_frame_queue_peak_depth.store(frame_queue_peak_depth, std::memory_order_relaxed);
+    g_frame_enqueue_success.store(frame_enqueue_success, std::memory_order_relaxed);
+    g_frame_enqueue_drop.store(frame_enqueue_drop, std::memory_order_relaxed);
+    g_frame_enqueue_errors.store(frame_enqueue_errors, std::memory_order_relaxed);
+
+    g_mqtt_outbox_depth.store(mqtt_outbox_depth, std::memory_order_relaxed);
+    g_mqtt_outbox_peak_depth.store(mqtt_outbox_peak_depth, std::memory_order_relaxed);
+    g_mqtt_outbox_enqueue_success.store(mqtt_outbox_enqueue_success, std::memory_order_relaxed);
+    g_mqtt_outbox_enqueue_drop.store(mqtt_outbox_enqueue_drop, std::memory_order_relaxed);
+    g_mqtt_outbox_enqueue_errors.store(mqtt_outbox_enqueue_errors, std::memory_order_relaxed);
+}
+
+void MetricsService::reset_queue_metrics() {
+    report_queue_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 } // namespace metrics_service

@@ -1,0 +1,10 @@
+test_mqtt_payloads 2 0.0067816
+test_health_logic 2 0.00683815
+test_meter_registry 2 0.00761565
+test_ota_manager 2 0.00691515
+test_config_validation 1 0.0531095
+test_config_migration 1 0.0501413
+test_dedup 1 0.0502371
+test_auth_helpers 1 0.0596785
+test_wmbus_pipeline 1 0.0518268
+---

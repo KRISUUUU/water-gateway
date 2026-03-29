@@ -780,6 +780,31 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddNumberToObject(radio_o, "frames_dropped_too_long",
                             static_cast<double>(rc.frames_dropped_too_long));
     cJSON_AddNumberToObject(radio_o, "fifo_overflows", static_cast<double>(rc.fifo_overflows));
+
+    cJSON* queues_o = cJSON_AddObjectToObject(root.get(), "queues");
+    cJSON* frame_q_o = cJSON_AddObjectToObject(queues_o, "frame_queue");
+    cJSON_AddNumberToObject(frame_q_o, "depth",
+                            static_cast<double>(metrics.queues.frame_queue_depth));
+    cJSON_AddNumberToObject(frame_q_o, "peak_depth",
+                            static_cast<double>(metrics.queues.frame_queue_peak_depth));
+    cJSON_AddNumberToObject(frame_q_o, "enqueue_success",
+                            static_cast<double>(metrics.queues.frame_enqueue_success));
+    cJSON_AddNumberToObject(frame_q_o, "enqueue_drop",
+                            static_cast<double>(metrics.queues.frame_enqueue_drop));
+    cJSON_AddNumberToObject(frame_q_o, "enqueue_errors",
+                            static_cast<double>(metrics.queues.frame_enqueue_errors));
+
+    cJSON* outbox_o = cJSON_AddObjectToObject(queues_o, "mqtt_outbox");
+    cJSON_AddNumberToObject(outbox_o, "depth",
+                            static_cast<double>(metrics.queues.mqtt_outbox_depth));
+    cJSON_AddNumberToObject(outbox_o, "peak_depth",
+                            static_cast<double>(metrics.queues.mqtt_outbox_peak_depth));
+    cJSON_AddNumberToObject(outbox_o, "enqueue_success",
+                            static_cast<double>(metrics.queues.mqtt_outbox_enqueue_success));
+    cJSON_AddNumberToObject(outbox_o, "enqueue_drop",
+                            static_cast<double>(metrics.queues.mqtt_outbox_enqueue_drop));
+    cJSON_AddNumberToObject(outbox_o, "enqueue_errors",
+                            static_cast<double>(metrics.queues.mqtt_outbox_enqueue_errors));
     return send_json_root(req, 200, root);
 }
 

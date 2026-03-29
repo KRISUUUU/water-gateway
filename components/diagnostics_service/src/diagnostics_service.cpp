@@ -163,6 +163,41 @@ void fill_health(cJSON* root, const DiagnosticsSnapshot& snap) {
     cJSON_AddStringToObject(health, "last_error_msg", snap.health.last_error_msg.c_str());
 }
 
+void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON* q = cJSON_AddObjectToObject(root, "queues");
+    if (!q) {
+        return;
+    }
+
+    cJSON* frame = cJSON_AddObjectToObject(q, "frame_queue");
+    if (frame) {
+        cJSON_AddNumberToObject(frame, "depth",
+                                static_cast<double>(snap.metrics.queues.frame_queue_depth));
+        cJSON_AddNumberToObject(frame, "peak_depth",
+                                static_cast<double>(snap.metrics.queues.frame_queue_peak_depth));
+        cJSON_AddNumberToObject(frame, "enqueue_success",
+                                static_cast<double>(snap.metrics.queues.frame_enqueue_success));
+        cJSON_AddNumberToObject(frame, "enqueue_drop",
+                                static_cast<double>(snap.metrics.queues.frame_enqueue_drop));
+        cJSON_AddNumberToObject(frame, "enqueue_errors",
+                                static_cast<double>(snap.metrics.queues.frame_enqueue_errors));
+    }
+
+    cJSON* outbox = cJSON_AddObjectToObject(q, "mqtt_outbox");
+    if (outbox) {
+        cJSON_AddNumberToObject(outbox, "depth",
+                                static_cast<double>(snap.metrics.queues.mqtt_outbox_depth));
+        cJSON_AddNumberToObject(outbox, "peak_depth",
+                                static_cast<double>(snap.metrics.queues.mqtt_outbox_peak_depth));
+        cJSON_AddNumberToObject(outbox, "enqueue_success",
+                                static_cast<double>(snap.metrics.queues.mqtt_outbox_enqueue_success));
+        cJSON_AddNumberToObject(outbox, "enqueue_drop",
+                                static_cast<double>(snap.metrics.queues.mqtt_outbox_enqueue_drop));
+        cJSON_AddNumberToObject(outbox, "enqueue_errors",
+                                static_cast<double>(snap.metrics.queues.mqtt_outbox_enqueue_errors));
+    }
+}
+
 } // namespace
 
 DiagnosticsService& DiagnosticsService::instance() {
@@ -188,7 +223,6 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
         return common::Result<DiagnosticsSnapshot>::error(health_res.error());
     }
     s.health = health_res.value();
-
     return common::Result<DiagnosticsSnapshot>::ok(s);
 }
 
@@ -203,6 +237,7 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     fill_wifi(root.get(), snap);
     fill_metrics(root.get(), snap);
     fill_health(root.get(), snap);
+    fill_queues(root.get(), snap);
     return to_unformatted_json(root.get());
 }
 

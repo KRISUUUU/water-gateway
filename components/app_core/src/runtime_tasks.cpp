@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <ctime>
 #include <string>
@@ -33,20 +34,78 @@ static const char* TAG = "app_runtime";
 
 static QueueHandle_t frame_queue = nullptr;
 static QueueHandle_t mqtt_outbox = nullptr;
+static constexpr uint32_t kFrameQueueDepth = 16;
+static constexpr uint32_t kMqttOutboxDepth = 32;
+
+static std::atomic<uint32_t> frame_queue_peak_depth{0};
+static std::atomic<uint32_t> frame_enqueue_success{0};
+static std::atomic<uint32_t> frame_enqueue_drop{0};
+static std::atomic<uint32_t> frame_enqueue_errors{0};
+
+static std::atomic<uint32_t> mqtt_outbox_peak_depth{0};
+static std::atomic<uint32_t> mqtt_outbox_enqueue_success{0};
+static std::atomic<uint32_t> mqtt_outbox_enqueue_drop{0};
+static std::atomic<uint32_t> mqtt_outbox_enqueue_errors{0};
 
 struct MqttOutboxItem {
     char topic[128];
     char payload[896];
 };
 
+static void update_peak(std::atomic<uint32_t>& peak, uint32_t value) {
+    uint32_t current = peak.load(std::memory_order_relaxed);
+    while (value > current &&
+           !peak.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
+    }
+}
+
+static void sample_queue_levels() {
+    uint32_t frame_depth = 0;
+    uint32_t outbox_depth = 0;
+    if (frame_queue) {
+        frame_depth = static_cast<uint32_t>(uxQueueMessagesWaiting(frame_queue));
+        update_peak(frame_queue_peak_depth, frame_depth);
+    }
+    if (mqtt_outbox) {
+        outbox_depth = static_cast<uint32_t>(uxQueueMessagesWaiting(mqtt_outbox));
+        update_peak(mqtt_outbox_peak_depth, outbox_depth);
+    }
+    metrics_service::MetricsService::report_queue_metrics(
+        frame_depth, frame_queue_peak_depth.load(std::memory_order_relaxed),
+        frame_enqueue_success.load(std::memory_order_relaxed),
+        frame_enqueue_drop.load(std::memory_order_relaxed),
+        frame_enqueue_errors.load(std::memory_order_relaxed), outbox_depth,
+        mqtt_outbox_peak_depth.load(std::memory_order_relaxed),
+        mqtt_outbox_enqueue_success.load(std::memory_order_relaxed),
+        mqtt_outbox_enqueue_drop.load(std::memory_order_relaxed),
+        mqtt_outbox_enqueue_errors.load(std::memory_order_relaxed));
+}
+
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
     if (!mqtt_outbox) {
+        mqtt_outbox_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
     MqttOutboxItem item{};
     std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
     std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
-    return xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10)) == pdTRUE;
+    if (xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10)) == pdTRUE) {
+        mqtt_outbox_enqueue_success.fetch_add(1, std::memory_order_relaxed);
+        sample_queue_levels();
+        return true;
+    }
+
+    const uint32_t dropped = mqtt_outbox_enqueue_drop.fetch_add(1, std::memory_order_relaxed) + 1;
+    mqtt_outbox_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
+    if ((dropped % 32U) == 1U) {
+        ESP_LOGW(TAG,
+                 "MQTT outbox enqueue failed (drops=%lu depth=%lu/%lu topic=%s)",
+                 static_cast<unsigned long>(dropped),
+                 static_cast<unsigned long>(uxQueueMessagesWaiting(mqtt_outbox)),
+                 static_cast<unsigned long>(kMqttOutboxDepth), item.topic);
+    }
+    sample_queue_levels();
+    return false;
 }
 
 static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame) {
@@ -63,7 +122,21 @@ static void radio_rx_task(void* /*param*/) {
         auto result = radio.read_frame();
         if (result.is_ok() && frame_queue) {
             auto frame = result.value();
-            xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10));
+            if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
+                frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
+                sample_queue_levels();
+            } else {
+                const uint32_t dropped =
+                    frame_enqueue_drop.fetch_add(1, std::memory_order_relaxed) + 1;
+                frame_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
+                if ((dropped % 32U) == 1U) {
+                    ESP_LOGW(TAG, "Frame queue full/drop (drops=%lu depth=%lu/%lu)",
+                             static_cast<unsigned long>(dropped),
+                             static_cast<unsigned long>(uxQueueMessagesWaiting(frame_queue)),
+                             static_cast<unsigned long>(kFrameQueueDepth));
+                }
+                sample_queue_levels();
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -77,6 +150,7 @@ static void pipeline_task(void* /*param*/) {
     radio_cc1101::RawRadioFrame raw{};
     while (true) {
         if (frame_queue && xQueueReceive(frame_queue, &raw, pdMS_TO_TICKS(100)) == pdTRUE) {
+            sample_queue_levels();
             rx_count++;
 
             const int64_t ts = ntp_service::NtpService::instance().now_epoch_ms();
@@ -126,6 +200,7 @@ static void mqtt_task(void* /*param*/) {
 
     while (true) {
         if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
+            sample_queue_levels();
             if (mqtt.is_connected()) {
                 mqtt.publish(item.topic, item.payload, 0, false);
             }
@@ -180,8 +255,18 @@ static void health_task(void* /*param*/) {
 namespace app_core {
 
 common::Result<void> AppCore::create_runtime_tasks() {
-    frame_queue = xQueueCreate(16, sizeof(radio_cc1101::RawRadioFrame));
-    mqtt_outbox = xQueueCreate(32, sizeof(MqttOutboxItem));
+    frame_enqueue_success.store(0, std::memory_order_relaxed);
+    frame_enqueue_drop.store(0, std::memory_order_relaxed);
+    frame_enqueue_errors.store(0, std::memory_order_relaxed);
+    frame_queue_peak_depth.store(0, std::memory_order_relaxed);
+    mqtt_outbox_enqueue_success.store(0, std::memory_order_relaxed);
+    mqtt_outbox_enqueue_drop.store(0, std::memory_order_relaxed);
+    mqtt_outbox_enqueue_errors.store(0, std::memory_order_relaxed);
+    mqtt_outbox_peak_depth.store(0, std::memory_order_relaxed);
+    metrics_service::MetricsService::reset_queue_metrics();
+
+    frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(radio_cc1101::RawRadioFrame));
+    mqtt_outbox = xQueueCreate(kMqttOutboxDepth, sizeof(MqttOutboxItem));
     if (!frame_queue || !mqtt_outbox) {
         ESP_LOGE(TAG, "Runtime queue allocation failed (frame_queue=%p mqtt_outbox=%p)",
                  frame_queue, mqtt_outbox);
@@ -234,6 +319,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
     ESP_LOGI(
         TAG,
         "Runtime tasks created (radio_rx@Core1, pipeline@Core0, mqtt_pub@Core0, health@Core0)");
+    sample_queue_levels();
     return common::Result<void>::ok();
 }
 
