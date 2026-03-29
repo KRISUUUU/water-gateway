@@ -28,6 +28,39 @@ JsonPtr make_object() {
     return JsonPtr(cJSON_CreateObject(), cJSON_Delete);
 }
 
+#ifndef HOST_TEST_BUILD
+const char* reset_reason_str(unsigned int code) {
+    switch (static_cast<esp_reset_reason_t>(code)) {
+    case ESP_RST_UNKNOWN:
+        return "unknown";
+    case ESP_RST_POWERON:
+        return "poweron";
+    case ESP_RST_EXT:
+        return "external";
+    case ESP_RST_SW:
+        return "software";
+    case ESP_RST_PANIC:
+        return "panic";
+    case ESP_RST_INT_WDT:
+        return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT:
+        return "task_watchdog";
+    case ESP_RST_WDT:
+        return "other_watchdog";
+    case ESP_RST_DEEPSLEEP:
+        return "deepsleep";
+    case ESP_RST_BROWNOUT:
+        return "brownout";
+#ifdef ESP_RST_SDIO
+    case ESP_RST_SDIO:
+        return "sdio";
+#endif
+    default:
+        return "unknown";
+    }
+}
+#endif
+
 const char* log_severity_str(persistent_log_buffer::LogSeverity s) {
     using persistent_log_buffer::LogSeverity;
     switch (s) {
@@ -123,9 +156,7 @@ cJSON* build_metrics_json(const metrics_service::RuntimeMetrics& m) {
                             static_cast<double>(m.min_internal_heap_bytes));
     cJSON_AddNumberToObject(root, "reset_reason_code", static_cast<double>(m.reset_reason_code));
 #ifndef HOST_TEST_BUILD
-    cJSON_AddStringToObject(root, "reset_reason",
-                            esp_reset_reason_to_name(
-                                static_cast<esp_reset_reason_t>(m.reset_reason_code)));
+    cJSON_AddStringToObject(root, "reset_reason", reset_reason_str(m.reset_reason_code));
 #else
     cJSON_AddStringToObject(root, "reset_reason", "host_build");
 #endif

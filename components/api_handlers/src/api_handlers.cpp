@@ -40,6 +40,37 @@ static const char* TAG = "api_handlers";
 
 namespace {
 
+const char* reset_reason_str(unsigned int code) {
+    switch (static_cast<esp_reset_reason_t>(code)) {
+    case ESP_RST_UNKNOWN:
+        return "unknown";
+    case ESP_RST_POWERON:
+        return "poweron";
+    case ESP_RST_EXT:
+        return "external";
+    case ESP_RST_SW:
+        return "software";
+    case ESP_RST_PANIC:
+        return "panic";
+    case ESP_RST_INT_WDT:
+        return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT:
+        return "task_watchdog";
+    case ESP_RST_WDT:
+        return "other_watchdog";
+    case ESP_RST_DEEPSLEEP:
+        return "deepsleep";
+    case ESP_RST_BROWNOUT:
+        return "brownout";
+#ifdef ESP_RST_SDIO
+    case ESP_RST_SDIO:
+        return "sdio";
+#endif
+    default:
+        return "unknown";
+    }
+}
+
 void assign_admin_password_hash(config_store::AuthConfig& auth, const char* hash_cstr) {
     if (!hash_cstr) {
         auth.admin_password_hash[0] = '\0';
@@ -831,8 +862,7 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.reset_reason_code));
 #ifndef HOST_TEST_BUILD
     cJSON_AddStringToObject(metrics_o, "reset_reason",
-                            esp_reset_reason_to_name(
-                                static_cast<esp_reset_reason_t>(metrics.reset_reason_code)));
+                            reset_reason_str(metrics.reset_reason_code));
 #else
     cJSON_AddStringToObject(metrics_o, "reset_reason", "host_build");
 #endif

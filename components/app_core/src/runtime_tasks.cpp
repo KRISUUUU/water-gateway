@@ -14,6 +14,7 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
 #include "telegram_router/telegram_router.hpp"
+#include "watchdog_service/watchdog_service.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 

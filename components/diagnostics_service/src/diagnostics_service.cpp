@@ -26,6 +26,39 @@ JsonPtr make_object() {
     return JsonPtr(cJSON_CreateObject(), cJSON_Delete);
 }
 
+#ifndef HOST_TEST_BUILD
+const char* reset_reason_str(unsigned int code) {
+    switch (static_cast<esp_reset_reason_t>(code)) {
+    case ESP_RST_UNKNOWN:
+        return "unknown";
+    case ESP_RST_POWERON:
+        return "poweron";
+    case ESP_RST_EXT:
+        return "external";
+    case ESP_RST_SW:
+        return "software";
+    case ESP_RST_PANIC:
+        return "panic";
+    case ESP_RST_INT_WDT:
+        return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT:
+        return "task_watchdog";
+    case ESP_RST_WDT:
+        return "other_watchdog";
+    case ESP_RST_DEEPSLEEP:
+        return "deepsleep";
+    case ESP_RST_BROWNOUT:
+        return "brownout";
+#ifdef ESP_RST_SDIO
+    case ESP_RST_SDIO:
+        return "sdio";
+#endif
+    default:
+        return "unknown";
+    }
+}
+#endif
+
 const char* radio_state_str(radio_cc1101::RadioState s) {
     using radio_cc1101::RadioState;
     switch (s) {
@@ -165,8 +198,7 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.reset_reason_code));
 #ifndef HOST_TEST_BUILD
     cJSON_AddStringToObject(metrics, "reset_reason",
-                            esp_reset_reason_to_name(
-                                static_cast<esp_reset_reason_t>(snap.metrics.reset_reason_code)));
+                            reset_reason_str(snap.metrics.reset_reason_code));
 #else
     cJSON_AddStringToObject(metrics, "reset_reason", "host_build");
 #endif

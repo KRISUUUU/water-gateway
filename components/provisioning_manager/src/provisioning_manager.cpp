@@ -8,6 +8,7 @@
 #ifndef HOST_TEST_BUILD
 #include "esp_mac.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_system.h"
 static const char* TAG = "prov_mgr";
 #endif
