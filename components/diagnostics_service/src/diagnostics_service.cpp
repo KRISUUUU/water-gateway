@@ -241,6 +241,12 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.tasks.radio_not_found_streak));
     cJSON_AddNumberToObject(tasks, "radio_not_found_streak_peak",
                             static_cast<double>(snap.metrics.tasks.radio_not_found_streak_peak));
+    cJSON_AddNumberToObject(tasks, "radio_poll_iterations",
+                            static_cast<double>(snap.metrics.tasks.radio_poll_iterations));
+    cJSON_AddNumberToObject(tasks, "radio_timeout_streak",
+                            static_cast<double>(snap.metrics.tasks.radio_timeout_streak));
+    cJSON_AddNumberToObject(tasks, "radio_timeout_streak_peak",
+                            static_cast<double>(snap.metrics.tasks.radio_timeout_streak_peak));
     cJSON_AddNumberToObject(tasks, "radio_stall_count",
                             static_cast<double>(snap.metrics.tasks.radio_stall_count));
     cJSON_AddNumberToObject(tasks, "pipeline_stall_count",

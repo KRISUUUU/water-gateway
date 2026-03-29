@@ -36,6 +36,9 @@ std::atomic<std::uint32_t> g_radio_read_timeout_count{0};
 std::atomic<std::uint32_t> g_radio_read_error_count{0};
 std::atomic<std::uint32_t> g_radio_not_found_streak{0};
 std::atomic<std::uint32_t> g_radio_not_found_streak_peak{0};
+std::atomic<std::uint32_t> g_radio_poll_iterations{0};
+std::atomic<std::uint32_t> g_radio_timeout_streak{0};
+std::atomic<std::uint32_t> g_radio_timeout_streak_peak{0};
 std::atomic<std::uint32_t> g_radio_stall_count{0};
 std::atomic<std::uint32_t> g_pipeline_stall_count{0};
 std::atomic<std::uint32_t> g_mqtt_stall_count{0};
@@ -99,6 +102,10 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.tasks.radio_not_found_streak = g_radio_not_found_streak.load(std::memory_order_relaxed);
     m.tasks.radio_not_found_streak_peak =
         g_radio_not_found_streak_peak.load(std::memory_order_relaxed);
+    m.tasks.radio_poll_iterations = g_radio_poll_iterations.load(std::memory_order_relaxed);
+    m.tasks.radio_timeout_streak = g_radio_timeout_streak.load(std::memory_order_relaxed);
+    m.tasks.radio_timeout_streak_peak =
+        g_radio_timeout_streak_peak.load(std::memory_order_relaxed);
     m.tasks.radio_stall_count = g_radio_stall_count.load(std::memory_order_relaxed);
     m.tasks.pipeline_stall_count = g_pipeline_stall_count.load(std::memory_order_relaxed);
     m.tasks.mqtt_stall_count = g_mqtt_stall_count.load(std::memory_order_relaxed);
@@ -156,6 +163,9 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
                                          std::uint32_t radio_read_error_count,
                                          std::uint32_t radio_not_found_streak,
                                          std::uint32_t radio_not_found_streak_peak,
+                                         std::uint32_t radio_poll_iterations,
+                                         std::uint32_t radio_timeout_streak,
+                                         std::uint32_t radio_timeout_streak_peak,
                                          std::uint32_t radio_stall_count,
                                          std::uint32_t pipeline_stall_count,
                                          std::uint32_t mqtt_stall_count,
@@ -171,6 +181,9 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
     g_radio_read_error_count.store(radio_read_error_count, std::memory_order_relaxed);
     g_radio_not_found_streak.store(radio_not_found_streak, std::memory_order_relaxed);
     g_radio_not_found_streak_peak.store(radio_not_found_streak_peak, std::memory_order_relaxed);
+    g_radio_poll_iterations.store(radio_poll_iterations, std::memory_order_relaxed);
+    g_radio_timeout_streak.store(radio_timeout_streak, std::memory_order_relaxed);
+    g_radio_timeout_streak_peak.store(radio_timeout_streak_peak, std::memory_order_relaxed);
     g_radio_stall_count.store(radio_stall_count, std::memory_order_relaxed);
     g_pipeline_stall_count.store(pipeline_stall_count, std::memory_order_relaxed);
     g_mqtt_stall_count.store(mqtt_stall_count, std::memory_order_relaxed);
@@ -179,7 +192,7 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
 }
 
 void MetricsService::reset_task_metrics() {
-    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     report_task_stack_metrics(0, 0, 0, 0);
 }
 

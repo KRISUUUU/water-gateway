@@ -892,6 +892,12 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.tasks.radio_not_found_streak));
     cJSON_AddNumberToObject(tasks_o, "radio_not_found_streak_peak",
                             static_cast<double>(metrics.tasks.radio_not_found_streak_peak));
+    cJSON_AddNumberToObject(tasks_o, "radio_poll_iterations",
+                            static_cast<double>(metrics.tasks.radio_poll_iterations));
+    cJSON_AddNumberToObject(tasks_o, "radio_timeout_streak",
+                            static_cast<double>(metrics.tasks.radio_timeout_streak));
+    cJSON_AddNumberToObject(tasks_o, "radio_timeout_streak_peak",
+                            static_cast<double>(metrics.tasks.radio_timeout_streak_peak));
     cJSON_AddNumberToObject(tasks_o, "radio_stall_count",
                             static_cast<double>(metrics.tasks.radio_stall_count));
     cJSON_AddNumberToObject(tasks_o, "pipeline_stall_count",
@@ -938,6 +944,18 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddBoolToObject(build_o, "ota_rollback_enabled", sec.ota_rollback_enabled);
     cJSON_AddBoolToObject(build_o, "production_hardening_ready",
                           common::build_is_hardened_for_production());
+    cJSON* missing_o = cJSON_AddObjectToObject(build_o, "hardening_missing");
+    cJSON_AddBoolToObject(missing_o, "secure_boot", !sec.secure_boot_enabled);
+    cJSON_AddBoolToObject(missing_o, "flash_encryption", !sec.flash_encryption_enabled);
+    cJSON_AddBoolToObject(missing_o, "nvs_encryption", !sec.nvs_encryption_enabled);
+    cJSON_AddBoolToObject(missing_o, "anti_rollback", !sec.anti_rollback_enabled);
+    cJSON_AddBoolToObject(missing_o, "ota_rollback", !sec.ota_rollback_enabled);
+    const uint32_t missing_count = static_cast<uint32_t>((!sec.secure_boot_enabled ? 1U : 0U) +
+                                                         (!sec.flash_encryption_enabled ? 1U : 0U) +
+                                                         (!sec.nvs_encryption_enabled ? 1U : 0U) +
+                                                         (!sec.anti_rollback_enabled ? 1U : 0U) +
+                                                         (!sec.ota_rollback_enabled ? 1U : 0U));
+    cJSON_AddNumberToObject(build_o, "hardening_missing_count", static_cast<double>(missing_count));
     cJSON* config_o = cJSON_AddObjectToObject(root.get(), "config_store");
     cJSON_AddStringToObject(config_o, "load_source", config_load_source_name(cfg_runtime.load_source));
     cJSON_AddBoolToObject(config_o, "used_defaults", cfg_runtime.used_defaults);

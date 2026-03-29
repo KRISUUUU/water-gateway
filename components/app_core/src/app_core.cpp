@@ -40,6 +40,14 @@ void AppCore::start() {
         ESP_LOGW(TAG,
                  "Build is not fully hardened for production (expected secure boot + flash/NVS "
                  "encryption + anti-rollback + OTA rollback)");
+        ESP_LOGW(TAG,
+                 "Missing hardening flags: secure_boot=%s flash_encryption=%s nvs_encryption=%s "
+                 "anti_rollback=%s ota_rollback=%s",
+                 sec.secure_boot_enabled ? "ok" : "missing",
+                 sec.flash_encryption_enabled ? "ok" : "missing",
+                 sec.nvs_encryption_enabled ? "ok" : "missing",
+                 sec.anti_rollback_enabled ? "ok" : "missing",
+                 sec.ota_rollback_enabled ? "ok" : "missing");
     }
 #endif
 
@@ -57,6 +65,7 @@ void AppCore::start() {
     ESP_LOGI(TAG, "Startup mode selected: %s",
              mode == common::SystemMode::Provisioning ? "provisioning" : "normal");
 #endif
+    attempt_boot_validation_early(mode);
 
     if (mode == common::SystemMode::Provisioning) {
         auto prov_result = start_provisioning();
@@ -137,6 +146,29 @@ common::SystemMode AppCore::determine_start_mode() {
     return common::SystemMode::Normal;
 }
 
+void AppCore::attempt_boot_validation_early(common::SystemMode mode) {
+    const char* mode_name = mode == common::SystemMode::Provisioning ? "provisioning" : "normal";
+    auto& ota = ota_manager::OtaManager::instance();
+    auto ota_init = ota.initialize();
+    if (ota_init.is_error() && ota_init.error() != common::ErrorCode::AlreadyInitialized) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "OTA initialize failed before %s startup (%s/%d), continuing", mode_name,
+                 common::error_code_to_string(ota_init.error()),
+                 static_cast<int>(ota_init.error()));
+#endif
+        return;
+    }
+
+    auto boot_valid = ota.mark_boot_valid();
+    if (boot_valid.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "mark_boot_valid failed before %s startup (%s/%d), continuing", mode_name,
+                 common::error_code_to_string(boot_valid.error()),
+                 static_cast<int>(boot_valid.error()));
+#endif
+    }
+}
+
 common::Result<void> AppCore::start_provisioning() {
 #ifndef HOST_TEST_BUILD
     ESP_LOGI(TAG, "[BOOT] Provisioning: WiFi manager init");
@@ -191,27 +223,6 @@ common::Result<void> AppCore::start_provisioning() {
     ESP_LOGI(TAG,
              "Provisioning mode active. Connect to the provisioning AP and open http://192.168.4.1/");
 #endif
-
-    // OTA boot-valid should be handled in provisioning mode too, otherwise a
-    // successful OTA boot into first-boot provisioning can be rolled back on reboot.
-    auto& ota = ota_manager::OtaManager::instance();
-    auto ota_init = ota.initialize();
-    if (ota_init.is_error() && ota_init.error() != common::ErrorCode::AlreadyInitialized) {
-#ifndef HOST_TEST_BUILD
-        ESP_LOGW(TAG, "OTA initialize failed in provisioning mode (%s/%d), continuing",
-                 common::error_code_to_string(ota_init.error()),
-                 static_cast<int>(ota_init.error()));
-#endif
-    } else {
-        auto boot_valid = ota.mark_boot_valid();
-        if (boot_valid.is_error()) {
-#ifndef HOST_TEST_BUILD
-            ESP_LOGW(TAG, "mark_boot_valid failed in provisioning mode (%s/%d), continuing",
-                     common::error_code_to_string(boot_valid.error()),
-                     static_cast<int>(boot_valid.error()));
-#endif
-        }
-    }
 
     return common::Result<void>::ok();
 }
@@ -345,28 +356,11 @@ common::Result<void> AppCore::start_normal_runtime() {
     }
 #endif
 
-    // Init OTA
+    // Boot-valid is attempted earlier in AppCore::start() after foundations initialize and mode
+    // selection, to reduce false rollback risk from non-critical startup dependencies.
 #ifndef HOST_TEST_BUILD
-    ESP_LOGI(TAG, "[BOOT] Normal mode: OTA init + boot-valid");
+    ESP_LOGI(TAG, "[BOOT] Normal mode: boot-valid already evaluated");
 #endif
-    auto& ota = ota_manager::OtaManager::instance();
-    auto ota_init = ota.initialize();
-    if (ota_init.is_error() && ota_init.error() != common::ErrorCode::AlreadyInitialized) {
-#ifndef HOST_TEST_BUILD
-        ESP_LOGW(TAG, "OTA initialize failed, continuing (%s/%d)",
-                 common::error_code_to_string(ota_init.error()),
-                 static_cast<int>(ota_init.error()));
-#endif
-    } else {
-        auto boot_valid = ota.mark_boot_valid();
-        if (boot_valid.is_error()) {
-#ifndef HOST_TEST_BUILD
-            ESP_LOGW(TAG, "mark_boot_valid failed, continuing (%s/%d)",
-                     common::error_code_to_string(boot_valid.error()),
-                     static_cast<int>(boot_valid.error()));
-#endif
-        }
-    }
 
     // Init watchdog
 #ifndef HOST_TEST_BUILD

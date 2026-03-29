@@ -199,6 +199,8 @@ Reported fields:
 - `anti_rollback_enabled`
 - `ota_rollback_enabled`
 - `production_hardening_ready` (all of the above enabled)
+- `hardening_missing` (per-control booleans showing what is still missing)
+- `hardening_missing_count` (number of missing hardening controls)
 
 This is a build-time signal only. It does not prove efuse state on a deployed
 device and must not be treated as manufacturing attestation.

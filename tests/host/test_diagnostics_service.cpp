@@ -24,6 +24,9 @@ int main() {
     assert(json.find("\"radio_stack_hwm_words\"") != std::string::npos);
     assert(json.find("\"radio_read_not_found_count\"") != std::string::npos);
     assert(json.find("\"radio_not_found_streak_peak\"") != std::string::npos);
+    assert(json.find("\"radio_poll_iterations\"") != std::string::npos);
+    assert(json.find("\"radio_timeout_streak\"") != std::string::npos);
+    assert(json.find("\"radio_timeout_streak_peak\"") != std::string::npos);
     assert(json.find("\"frame_queue\"") != std::string::npos);
     assert(json.find("\"mqtt_outbox\"") != std::string::npos);
     assert(json.find("\"frame_queue_max_depth\"") != std::string::npos);

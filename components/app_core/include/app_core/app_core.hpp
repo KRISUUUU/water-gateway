@@ -18,6 +18,9 @@ class AppCore {
     // Phase 2: Determine startup mode (normal vs provisioning)
     common::SystemMode determine_start_mode();
 
+    // Attempt OTA boot validation as soon as foundations are ready and startup mode is known.
+    void attempt_boot_validation_early(common::SystemMode mode);
+
     // Phase 3a: Start provisioning mode (AP + config form)
     common::Result<void> start_provisioning();
 

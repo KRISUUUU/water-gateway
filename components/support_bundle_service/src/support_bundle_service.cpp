@@ -247,6 +247,18 @@ cJSON* build_security_posture_json() {
     cJSON_AddBoolToObject(root, "ota_rollback_enabled", sec.ota_rollback_enabled);
     cJSON_AddBoolToObject(root, "production_hardening_ready",
                           common::build_is_hardened_for_production());
+    cJSON* missing = cJSON_AddObjectToObject(root, "hardening_missing");
+    cJSON_AddBoolToObject(missing, "secure_boot", !sec.secure_boot_enabled);
+    cJSON_AddBoolToObject(missing, "flash_encryption", !sec.flash_encryption_enabled);
+    cJSON_AddBoolToObject(missing, "nvs_encryption", !sec.nvs_encryption_enabled);
+    cJSON_AddBoolToObject(missing, "anti_rollback", !sec.anti_rollback_enabled);
+    cJSON_AddBoolToObject(missing, "ota_rollback", !sec.ota_rollback_enabled);
+    const uint32_t missing_count = static_cast<uint32_t>((!sec.secure_boot_enabled ? 1U : 0U) +
+                                                         (!sec.flash_encryption_enabled ? 1U : 0U) +
+                                                         (!sec.nvs_encryption_enabled ? 1U : 0U) +
+                                                         (!sec.anti_rollback_enabled ? 1U : 0U) +
+                                                         (!sec.ota_rollback_enabled ? 1U : 0U));
+    cJSON_AddNumberToObject(root, "hardening_missing_count", static_cast<double>(missing_count));
     return root;
 }
 

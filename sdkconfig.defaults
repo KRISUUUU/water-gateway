@@ -6,6 +6,8 @@
 # - Production hardening (Secure Boot / Flash Encryption / NVS encryption /
 #   anti-rollback policy) must be applied in a dedicated release profile and
 #   provisioning process.
+# - Repository defaults intentionally do not enable Secure Boot, Flash
+#   Encryption, or anti-rollback. Treat this file as non-production baseline.
 
 # Flash
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y

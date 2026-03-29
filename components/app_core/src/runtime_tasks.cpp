@@ -66,6 +66,9 @@ static std::atomic<uint32_t> radio_read_timeout_count{0};
 static std::atomic<uint32_t> radio_read_error_count{0};
 static std::atomic<uint32_t> radio_not_found_streak{0};
 static std::atomic<uint32_t> radio_not_found_streak_peak{0};
+static std::atomic<uint32_t> radio_poll_iterations{0};
+static std::atomic<uint32_t> radio_timeout_streak{0};
+static std::atomic<uint32_t> radio_timeout_streak_peak{0};
 static std::atomic<uint32_t> radio_stall_count{0};
 static std::atomic<uint32_t> pipeline_stall_count{0};
 static std::atomic<uint32_t> mqtt_stall_count{0};
@@ -124,6 +127,9 @@ static void sample_queue_levels() {
         radio_read_error_count.load(std::memory_order_relaxed),
         radio_not_found_streak.load(std::memory_order_relaxed),
         radio_not_found_streak_peak.load(std::memory_order_relaxed),
+        radio_poll_iterations.load(std::memory_order_relaxed),
+        radio_timeout_streak.load(std::memory_order_relaxed),
+        radio_timeout_streak_peak.load(std::memory_order_relaxed),
         radio_stall_count.load(std::memory_order_relaxed),
         pipeline_stall_count.load(std::memory_order_relaxed),
         mqtt_stall_count.load(std::memory_order_relaxed),
@@ -211,6 +217,7 @@ static void radio_rx_task(void* /*param*/) {
 
     while (true) {
         radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
+        radio_poll_iterations.fetch_add(1, std::memory_order_relaxed);
         rsm.tick();
 
         auto result = radio.read_frame();
@@ -218,6 +225,7 @@ static void radio_rx_task(void* /*param*/) {
             rsm.on_read_success();
             radio_read_success_count.fetch_add(1, std::memory_order_relaxed);
             radio_not_found_streak.store(0, std::memory_order_relaxed);
+            radio_timeout_streak.store(0, std::memory_order_relaxed);
             auto frame = result.value();
             if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
                 frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
@@ -242,10 +250,16 @@ static void radio_rx_task(void* /*param*/) {
                 const uint32_t streak =
                     radio_not_found_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
                 update_peak(radio_not_found_streak_peak, streak);
+                radio_timeout_streak.store(0, std::memory_order_relaxed);
             } else {
                 radio_not_found_streak.store(0, std::memory_order_relaxed);
                 if (err == common::ErrorCode::Timeout) {
                     radio_read_timeout_count.fetch_add(1, std::memory_order_relaxed);
+                    const uint32_t timeout_streak =
+                        radio_timeout_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
+                    update_peak(radio_timeout_streak_peak, timeout_streak);
+                } else {
+                    radio_timeout_streak.store(0, std::memory_order_relaxed);
                 }
                 radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
             }
@@ -261,6 +275,8 @@ static void radio_rx_task(void* /*param*/) {
             }
         }
 
+        // Polling keeps RX logic simple and deterministic; interrupt-driven GDO handling can be
+        // added later as an optional path once validated on real ESP32 + CC1101 hardware.
         vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
@@ -485,6 +501,9 @@ common::Result<void> AppCore::create_runtime_tasks() {
     radio_read_error_count.store(0, std::memory_order_relaxed);
     radio_not_found_streak.store(0, std::memory_order_relaxed);
     radio_not_found_streak_peak.store(0, std::memory_order_relaxed);
+    radio_poll_iterations.store(0, std::memory_order_relaxed);
+    radio_timeout_streak.store(0, std::memory_order_relaxed);
+    radio_timeout_streak_peak.store(0, std::memory_order_relaxed);
     radio_stall_count.store(0, std::memory_order_relaxed);
     pipeline_stall_count.store(0, std::memory_order_relaxed);
     mqtt_stall_count.store(0, std::memory_order_relaxed);
