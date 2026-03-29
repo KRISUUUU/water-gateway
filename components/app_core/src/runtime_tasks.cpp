@@ -56,6 +56,12 @@ static std::atomic<uint32_t> radio_loop_last_ms{0};
 static std::atomic<uint32_t> pipeline_loop_last_ms{0};
 static std::atomic<uint32_t> mqtt_loop_last_ms{0};
 static std::atomic<uint32_t> pipeline_frames_processed{0};
+static std::atomic<uint32_t> radio_read_success_count{0};
+static std::atomic<uint32_t> radio_read_not_found_count{0};
+static std::atomic<uint32_t> radio_read_timeout_count{0};
+static std::atomic<uint32_t> radio_read_error_count{0};
+static std::atomic<uint32_t> radio_not_found_streak{0};
+static std::atomic<uint32_t> radio_not_found_streak_peak{0};
 static std::atomic<uint32_t> radio_stall_count{0};
 static std::atomic<uint32_t> pipeline_stall_count{0};
 static std::atomic<uint32_t> mqtt_stall_count{0};
@@ -105,6 +111,12 @@ static void sample_queue_levels() {
     const uint32_t mqtt_age = now - mqtt_loop_last_ms.load(std::memory_order_relaxed);
     metrics_service::MetricsService::report_task_metrics(
         radio_age, pipeline_age, mqtt_age, pipeline_frames_processed.load(std::memory_order_relaxed),
+        radio_read_success_count.load(std::memory_order_relaxed),
+        radio_read_not_found_count.load(std::memory_order_relaxed),
+        radio_read_timeout_count.load(std::memory_order_relaxed),
+        radio_read_error_count.load(std::memory_order_relaxed),
+        radio_not_found_streak.load(std::memory_order_relaxed),
+        radio_not_found_streak_peak.load(std::memory_order_relaxed),
         radio_stall_count.load(std::memory_order_relaxed),
         pipeline_stall_count.load(std::memory_order_relaxed),
         mqtt_stall_count.load(std::memory_order_relaxed),
@@ -181,6 +193,8 @@ static void radio_rx_task(void* /*param*/) {
         auto result = radio.read_frame();
         if (result.is_ok() && frame_queue) {
             rsm.on_read_success();
+            radio_read_success_count.fetch_add(1, std::memory_order_relaxed);
+            radio_not_found_streak.store(0, std::memory_order_relaxed);
             auto frame = result.value();
             if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
                 frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
@@ -198,6 +212,19 @@ static void radio_rx_task(void* /*param*/) {
                 sample_queue_levels();
             }
         } else if (result.is_error()) {
+            const auto err = result.error();
+            if (err == common::ErrorCode::NotFound) {
+                radio_read_not_found_count.fetch_add(1, std::memory_order_relaxed);
+                const uint32_t streak =
+                    radio_not_found_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
+                update_peak(radio_not_found_streak_peak, streak);
+            } else {
+                radio_not_found_streak.store(0, std::memory_order_relaxed);
+                if (err == common::ErrorCode::Timeout) {
+                    radio_read_timeout_count.fetch_add(1, std::memory_order_relaxed);
+                }
+                radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
+            }
             rsm.on_read_failure(result.error());
         }
 
@@ -385,6 +412,7 @@ static void health_task(void* /*param*/) {
                                  ms.publish_count, ms.publish_failures, ""));
             }
         }
+        sample_queue_levels();
         sample_task_stack_watermarks();
 
         vTaskDelay(pdMS_TO_TICKS(30000));
@@ -409,6 +437,12 @@ common::Result<void> AppCore::create_runtime_tasks() {
     pipeline_loop_last_ms.store(now, std::memory_order_relaxed);
     mqtt_loop_last_ms.store(now, std::memory_order_relaxed);
     pipeline_frames_processed.store(0, std::memory_order_relaxed);
+    radio_read_success_count.store(0, std::memory_order_relaxed);
+    radio_read_not_found_count.store(0, std::memory_order_relaxed);
+    radio_read_timeout_count.store(0, std::memory_order_relaxed);
+    radio_read_error_count.store(0, std::memory_order_relaxed);
+    radio_not_found_streak.store(0, std::memory_order_relaxed);
+    radio_not_found_streak_peak.store(0, std::memory_order_relaxed);
     radio_stall_count.store(0, std::memory_order_relaxed);
     pipeline_stall_count.store(0, std::memory_order_relaxed);
     mqtt_stall_count.store(0, std::memory_order_relaxed);

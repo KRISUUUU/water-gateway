@@ -136,6 +136,8 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         return common::Result<RawRadioFrame>::error(common::ErrorCode::NotInitialized);
     }
 
+    counters_.rx_read_calls++;
+
 #ifndef HOST_TEST_BUILD
     // Check MARCSTATE for FIFO overflow
     uint8_t marc = read_marcstate();
@@ -163,6 +165,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
     if (num_bytes < 3) {
         // Need at least [L-field + status bytes].
+        counters_.rx_not_found++;
         return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
     }
 
@@ -202,6 +205,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         }
         if (avail == 0) {
             if (xTaskGetTickCount() >= deadline) {
+                counters_.rx_timeouts++;
                 counters_.frames_incomplete++;
 #ifndef HOST_TEST_BUILD
                 ESP_LOGW(TAG, "RX drain timeout need=%u got=%u pkt_len=%u",

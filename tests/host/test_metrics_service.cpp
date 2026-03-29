@@ -8,7 +8,8 @@ int main() {
     metrics_service::MetricsService::reset_task_metrics();
 
     metrics_service::MetricsService::report_queue_metrics(3, 7, 100, 4, 4, 2, 9, 55, 6, 6);
-    metrics_service::MetricsService::report_task_metrics(120, 80, 60, 1234, 2, 1, 3, 1, 5);
+    metrics_service::MetricsService::report_task_metrics(120, 80, 60, 1234, 77, 900, 12, 34, 11,
+                                                         123, 2, 1, 3, 1, 5);
     metrics_service::MetricsService::report_task_stack_metrics(512, 768, 1024, 640);
 
     auto snap_res = metrics_service::MetricsService::instance().snapshot();
@@ -30,6 +31,12 @@ int main() {
     assert(snap.tasks.pipeline_loop_age_ms == 80);
     assert(snap.tasks.mqtt_loop_age_ms == 60);
     assert(snap.tasks.pipeline_frames_processed == 1234);
+    assert(snap.tasks.radio_read_success_count == 77);
+    assert(snap.tasks.radio_read_not_found_count == 900);
+    assert(snap.tasks.radio_read_timeout_count == 12);
+    assert(snap.tasks.radio_read_error_count == 34);
+    assert(snap.tasks.radio_not_found_streak == 11);
+    assert(snap.tasks.radio_not_found_streak_peak == 123);
     assert(snap.tasks.radio_stall_count == 2);
     assert(snap.tasks.pipeline_stall_count == 1);
     assert(snap.tasks.mqtt_stall_count == 3);

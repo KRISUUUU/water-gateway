@@ -22,8 +22,13 @@ int main() {
     assert(json.find("\"timestamp_source\":\"monotonic\"") != std::string::npos);
     assert(json.find("\"reset_reason\"") != std::string::npos);
     assert(json.find("\"radio_stack_hwm_words\"") != std::string::npos);
+    assert(json.find("\"radio_read_not_found_count\"") != std::string::npos);
+    assert(json.find("\"radio_not_found_streak_peak\"") != std::string::npos);
     assert(json.find("\"frame_queue\"") != std::string::npos);
     assert(json.find("\"mqtt_outbox\"") != std::string::npos);
+    assert(json.find("\"rx_read_calls\"") != std::string::npos);
+    assert(json.find("\"rx_not_found\"") != std::string::npos);
+    assert(json.find("\"rx_timeouts\"") != std::string::npos);
     assert(json.find("\"enqueue_drop\":7") != std::string::npos);
     assert(json.find("\"enqueue_drop\":9") != std::string::npos);
     assert(json.find("\"peak_depth\":15") != std::string::npos);

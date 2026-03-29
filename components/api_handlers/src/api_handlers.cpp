@@ -845,6 +845,18 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.tasks.mqtt_loop_age_ms));
     cJSON_AddNumberToObject(tasks_o, "pipeline_frames_processed",
                             static_cast<double>(metrics.tasks.pipeline_frames_processed));
+    cJSON_AddNumberToObject(tasks_o, "radio_read_success_count",
+                            static_cast<double>(metrics.tasks.radio_read_success_count));
+    cJSON_AddNumberToObject(tasks_o, "radio_read_not_found_count",
+                            static_cast<double>(metrics.tasks.radio_read_not_found_count));
+    cJSON_AddNumberToObject(tasks_o, "radio_read_timeout_count",
+                            static_cast<double>(metrics.tasks.radio_read_timeout_count));
+    cJSON_AddNumberToObject(tasks_o, "radio_read_error_count",
+                            static_cast<double>(metrics.tasks.radio_read_error_count));
+    cJSON_AddNumberToObject(tasks_o, "radio_not_found_streak",
+                            static_cast<double>(metrics.tasks.radio_not_found_streak));
+    cJSON_AddNumberToObject(tasks_o, "radio_not_found_streak_peak",
+                            static_cast<double>(metrics.tasks.radio_not_found_streak_peak));
     cJSON_AddNumberToObject(tasks_o, "radio_stall_count",
                             static_cast<double>(metrics.tasks.radio_stall_count));
     cJSON_AddNumberToObject(tasks_o, "pipeline_stall_count",
@@ -938,6 +950,9 @@ esp_err_t handle_status(httpd_req_t* req) {
 
     cJSON* radio_o = cJSON_AddObjectToObject(root.get(), "radio");
     cJSON_AddStringToObject(radio_o, "state", radio_state_name(radio.state()));
+    cJSON_AddNumberToObject(radio_o, "rx_read_calls", static_cast<double>(rc.rx_read_calls));
+    cJSON_AddNumberToObject(radio_o, "rx_not_found", static_cast<double>(rc.rx_not_found));
+    cJSON_AddNumberToObject(radio_o, "rx_timeouts", static_cast<double>(rc.rx_timeouts));
     cJSON_AddNumberToObject(radio_o, "frames_received", static_cast<double>(rc.frames_received));
     cJSON_AddNumberToObject(radio_o, "frames_crc_ok", static_cast<double>(rc.frames_crc_ok));
     cJSON_AddNumberToObject(radio_o, "frames_crc_fail", static_cast<double>(rc.frames_crc_fail));
