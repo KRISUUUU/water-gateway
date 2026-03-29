@@ -17,7 +17,7 @@ int main() {
     const auto snap = snap_res.value();
 
     assert(snap.queues.frame_queue_depth == 3);
-    assert(snap.queues.frame_queue_peak_depth == 7);
+    assert(snap.queues.frame_queue_peak_depth == 11);
     assert(snap.queues.frame_queue_max_depth == 11);
     assert(snap.queues.frame_enqueue_success == 100);
     assert(snap.queues.frame_enqueue_drop == 4);

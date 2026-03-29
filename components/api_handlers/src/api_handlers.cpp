@@ -1015,6 +1015,7 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON* frame_q_o = cJSON_AddObjectToObject(queues_o, "frame_queue");
     cJSON_AddNumberToObject(frame_q_o, "depth",
                             static_cast<double>(metrics.queues.frame_queue_depth));
+    // `peak_depth` is retained for backward compatibility and mirrors `frame_queue_max_depth`.
     cJSON_AddNumberToObject(frame_q_o, "peak_depth",
                             static_cast<double>(metrics.queues.frame_queue_peak_depth));
     cJSON_AddNumberToObject(frame_q_o, "enqueue_success",

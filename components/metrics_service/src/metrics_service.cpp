@@ -124,9 +124,12 @@ void MetricsService::report_queue_metrics(std::uint32_t frame_queue_depth,
                                           std::uint32_t mqtt_outbox_enqueue_success,
                                           std::uint32_t mqtt_outbox_enqueue_drop,
                                           std::uint32_t mqtt_outbox_enqueue_errors) {
+    const std::uint32_t collapsed_frame_queue_depth =
+        frame_queue_peak_depth > frame_queue_max_depth ? frame_queue_peak_depth
+                                                       : frame_queue_max_depth;
     g_frame_queue_depth.store(frame_queue_depth, std::memory_order_relaxed);
-    g_frame_queue_peak_depth.store(frame_queue_peak_depth, std::memory_order_relaxed);
-    g_frame_queue_max_depth.store(frame_queue_max_depth, std::memory_order_relaxed);
+    g_frame_queue_peak_depth.store(collapsed_frame_queue_depth, std::memory_order_relaxed);
+    g_frame_queue_max_depth.store(collapsed_frame_queue_depth, std::memory_order_relaxed);
     g_frame_enqueue_success.store(frame_enqueue_success, std::memory_order_relaxed);
     g_frame_enqueue_drop.store(frame_enqueue_drop, std::memory_order_relaxed);
     g_frame_enqueue_errors.store(frame_enqueue_errors, std::memory_order_relaxed);

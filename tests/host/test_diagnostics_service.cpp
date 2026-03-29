@@ -42,7 +42,7 @@ int main() {
     assert(json.find("\"rx_timeouts\"") != std::string::npos);
     assert(json.find("\"enqueue_drop\":7") != std::string::npos);
     assert(json.find("\"enqueue_drop\":9") != std::string::npos);
-    assert(json.find("\"peak_depth\":15") != std::string::npos);
+    assert(json.find("\"peak_depth\":16") != std::string::npos);
     assert(json.find("\"peak_depth\":12") != std::string::npos);
     return 0;
 }

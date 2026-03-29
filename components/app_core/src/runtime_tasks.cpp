@@ -45,7 +45,6 @@ static constexpr uint32_t kCriticalTaskStallMs = 5000;
 static constexpr size_t kMqttOutboxTopicCapacity = 128;
 static constexpr size_t kMqttOutboxPayloadCapacity = 896;
 
-static std::atomic<uint32_t> frame_queue_peak_depth{0};
 static std::atomic<uint32_t> frame_queue_max_depth{0};
 static std::atomic<uint32_t> frame_enqueue_success{0};
 static std::atomic<uint32_t> frame_enqueue_drop{0};
@@ -94,7 +93,6 @@ static void sample_queue_levels() {
     uint32_t outbox_depth = 0;
     if (frame_queue) {
         frame_depth = static_cast<uint32_t>(uxQueueMessagesWaiting(frame_queue));
-        update_peak(frame_queue_peak_depth, frame_depth);
         update_peak(frame_queue_max_depth, frame_depth);
     }
     if (mqtt_outbox) {
@@ -103,7 +101,7 @@ static void sample_queue_levels() {
         mqtt_service::MqttService::instance().report_outbox_depth(outbox_depth);
     }
     metrics_service::MetricsService::report_queue_metrics(
-        frame_depth, frame_queue_peak_depth.load(std::memory_order_relaxed),
+        frame_depth, frame_queue_max_depth.load(std::memory_order_relaxed),
         frame_queue_max_depth.load(std::memory_order_relaxed),
         frame_enqueue_success.load(std::memory_order_relaxed),
         frame_enqueue_drop.load(std::memory_order_relaxed),
@@ -470,7 +468,6 @@ common::Result<void> AppCore::create_runtime_tasks() {
     frame_enqueue_success.store(0, std::memory_order_relaxed);
     frame_enqueue_drop.store(0, std::memory_order_relaxed);
     frame_enqueue_errors.store(0, std::memory_order_relaxed);
-    frame_queue_peak_depth.store(0, std::memory_order_relaxed);
     frame_queue_max_depth.store(0, std::memory_order_relaxed);
     frame_queue_send_failures.store(0, std::memory_order_relaxed);
     mqtt_outbox_enqueue_success.store(0, std::memory_order_relaxed);

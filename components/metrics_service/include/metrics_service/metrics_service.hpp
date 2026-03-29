@@ -7,6 +7,7 @@ namespace metrics_service {
 
 struct RuntimeQueueMetrics {
     std::uint32_t frame_queue_depth{0};
+    // Legacy compatibility field. Mirrors frame_queue_max_depth.
     std::uint32_t frame_queue_peak_depth{0};
     std::uint32_t frame_queue_max_depth{0};
     std::uint32_t frame_enqueue_success{0};

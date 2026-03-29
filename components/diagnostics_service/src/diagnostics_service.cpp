@@ -308,6 +308,7 @@ void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
     if (frame) {
         cJSON_AddNumberToObject(frame, "depth",
                                 static_cast<double>(snap.metrics.queues.frame_queue_depth));
+        // `peak_depth` is retained for backward compatibility and mirrors `frame_queue_max_depth`.
         cJSON_AddNumberToObject(frame, "peak_depth",
                                 static_cast<double>(snap.metrics.queues.frame_queue_peak_depth));
         cJSON_AddNumberToObject(frame, "enqueue_success",
