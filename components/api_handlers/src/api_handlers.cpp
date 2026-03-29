@@ -752,6 +752,25 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.min_free_heap_bytes));
     cJSON_AddNumberToObject(metrics_o, "largest_free_block",
                             static_cast<double>(metrics.largest_free_block));
+    cJSON* tasks_o = cJSON_AddObjectToObject(metrics_o, "tasks");
+    cJSON_AddNumberToObject(tasks_o, "radio_loop_age_ms",
+                            static_cast<double>(metrics.tasks.radio_loop_age_ms));
+    cJSON_AddNumberToObject(tasks_o, "pipeline_loop_age_ms",
+                            static_cast<double>(metrics.tasks.pipeline_loop_age_ms));
+    cJSON_AddNumberToObject(tasks_o, "mqtt_loop_age_ms",
+                            static_cast<double>(metrics.tasks.mqtt_loop_age_ms));
+    cJSON_AddNumberToObject(tasks_o, "pipeline_frames_processed",
+                            static_cast<double>(metrics.tasks.pipeline_frames_processed));
+    cJSON_AddNumberToObject(tasks_o, "radio_stall_count",
+                            static_cast<double>(metrics.tasks.radio_stall_count));
+    cJSON_AddNumberToObject(tasks_o, "pipeline_stall_count",
+                            static_cast<double>(metrics.tasks.pipeline_stall_count));
+    cJSON_AddNumberToObject(tasks_o, "mqtt_stall_count",
+                            static_cast<double>(metrics.tasks.mqtt_stall_count));
+    cJSON_AddNumberToObject(tasks_o, "watchdog_register_errors",
+                            static_cast<double>(metrics.tasks.watchdog_register_errors));
+    cJSON_AddNumberToObject(tasks_o, "watchdog_feed_errors",
+                            static_cast<double>(metrics.tasks.watchdog_feed_errors));
 
     cJSON_AddStringToObject(root.get(), "mode", mode);
     cJSON_AddStringToObject(root.get(), "firmware_version", ota.current_version);

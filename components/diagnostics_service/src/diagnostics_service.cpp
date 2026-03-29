@@ -146,6 +146,29 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.min_free_heap_bytes));
     cJSON_AddNumberToObject(metrics, "largest_free_block",
                             static_cast<double>(snap.metrics.largest_free_block));
+
+    cJSON* tasks = cJSON_AddObjectToObject(metrics, "tasks");
+    if (!tasks) {
+        return;
+    }
+    cJSON_AddNumberToObject(tasks, "radio_loop_age_ms",
+                            static_cast<double>(snap.metrics.tasks.radio_loop_age_ms));
+    cJSON_AddNumberToObject(tasks, "pipeline_loop_age_ms",
+                            static_cast<double>(snap.metrics.tasks.pipeline_loop_age_ms));
+    cJSON_AddNumberToObject(tasks, "mqtt_loop_age_ms",
+                            static_cast<double>(snap.metrics.tasks.mqtt_loop_age_ms));
+    cJSON_AddNumberToObject(tasks, "pipeline_frames_processed",
+                            static_cast<double>(snap.metrics.tasks.pipeline_frames_processed));
+    cJSON_AddNumberToObject(tasks, "radio_stall_count",
+                            static_cast<double>(snap.metrics.tasks.radio_stall_count));
+    cJSON_AddNumberToObject(tasks, "pipeline_stall_count",
+                            static_cast<double>(snap.metrics.tasks.pipeline_stall_count));
+    cJSON_AddNumberToObject(tasks, "mqtt_stall_count",
+                            static_cast<double>(snap.metrics.tasks.mqtt_stall_count));
+    cJSON_AddNumberToObject(tasks, "watchdog_register_errors",
+                            static_cast<double>(snap.metrics.tasks.watchdog_register_errors));
+    cJSON_AddNumberToObject(tasks, "watchdog_feed_errors",
+                            static_cast<double>(snap.metrics.tasks.watchdog_feed_errors));
 }
 
 void fill_health(cJSON* root, const DiagnosticsSnapshot& snap) {

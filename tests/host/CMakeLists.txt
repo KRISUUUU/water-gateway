@@ -135,3 +135,9 @@ add_host_test(test_ota_manager
     "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/ota_manager/src/ota_manager.cpp"
 )
+
+# ---- test_metrics_service ----
+add_host_test(test_metrics_service
+    test_metrics_service.cpp
+    "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
+)

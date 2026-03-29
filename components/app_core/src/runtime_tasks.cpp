@@ -36,6 +36,7 @@ static QueueHandle_t frame_queue = nullptr;
 static QueueHandle_t mqtt_outbox = nullptr;
 static constexpr uint32_t kFrameQueueDepth = 16;
 static constexpr uint32_t kMqttOutboxDepth = 32;
+static constexpr uint32_t kCriticalTaskStallMs = 5000;
 
 static std::atomic<uint32_t> frame_queue_peak_depth{0};
 static std::atomic<uint32_t> frame_enqueue_success{0};
@@ -46,6 +47,20 @@ static std::atomic<uint32_t> mqtt_outbox_peak_depth{0};
 static std::atomic<uint32_t> mqtt_outbox_enqueue_success{0};
 static std::atomic<uint32_t> mqtt_outbox_enqueue_drop{0};
 static std::atomic<uint32_t> mqtt_outbox_enqueue_errors{0};
+
+static std::atomic<uint32_t> radio_loop_last_ms{0};
+static std::atomic<uint32_t> pipeline_loop_last_ms{0};
+static std::atomic<uint32_t> mqtt_loop_last_ms{0};
+static std::atomic<uint32_t> pipeline_frames_processed{0};
+static std::atomic<uint32_t> radio_stall_count{0};
+static std::atomic<uint32_t> pipeline_stall_count{0};
+static std::atomic<uint32_t> mqtt_stall_count{0};
+static std::atomic<uint32_t> watchdog_register_errors{0};
+static std::atomic<uint32_t> watchdog_feed_errors{0};
+
+static uint32_t now_ms() {
+    return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
 
 struct MqttOutboxItem {
     char topic[128];
@@ -79,6 +94,18 @@ static void sample_queue_levels() {
         mqtt_outbox_enqueue_success.load(std::memory_order_relaxed),
         mqtt_outbox_enqueue_drop.load(std::memory_order_relaxed),
         mqtt_outbox_enqueue_errors.load(std::memory_order_relaxed));
+
+    const uint32_t now = now_ms();
+    const uint32_t radio_age = now - radio_loop_last_ms.load(std::memory_order_relaxed);
+    const uint32_t pipeline_age = now - pipeline_loop_last_ms.load(std::memory_order_relaxed);
+    const uint32_t mqtt_age = now - mqtt_loop_last_ms.load(std::memory_order_relaxed);
+    metrics_service::MetricsService::report_task_metrics(
+        radio_age, pipeline_age, mqtt_age, pipeline_frames_processed.load(std::memory_order_relaxed),
+        radio_stall_count.load(std::memory_order_relaxed),
+        pipeline_stall_count.load(std::memory_order_relaxed),
+        mqtt_stall_count.load(std::memory_order_relaxed),
+        watchdog_register_errors.load(std::memory_order_relaxed),
+        watchdog_feed_errors.load(std::memory_order_relaxed));
 }
 
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
@@ -115,8 +142,15 @@ static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& fr
 static void radio_rx_task(void* /*param*/) {
     auto& radio = radio_cc1101::RadioCc1101::instance();
     auto& rsm = radio_state_machine::RadioStateMachine::instance();
+    auto& wd = watchdog_service::WatchdogService::instance();
+
+    if (wd.register_task().is_error()) {
+        watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
+        ESP_LOGW(TAG, "watchdog register failed for radio_rx");
+    }
 
     while (true) {
+        radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         rsm.tick();
 
         auto result = radio.read_frame();
@@ -139,19 +173,36 @@ static void radio_rx_task(void* /*param*/) {
             }
         }
 
+        if (wd.feed().is_error()) {
+            const uint32_t errors =
+                watchdog_feed_errors.fetch_add(1, std::memory_order_relaxed) + 1U;
+            if ((errors % 64U) == 1U) {
+                ESP_LOGW(TAG, "watchdog feed failed in radio_rx (errors=%lu)",
+                         static_cast<unsigned long>(errors));
+            }
+        }
+
         vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
 static void pipeline_task(void* /*param*/) {
     auto& router = telegram_router::TelegramRouter::instance();
+    auto& wd = watchdog_service::WatchdogService::instance();
     uint32_t rx_count = 0;
+
+    if (wd.register_task().is_error()) {
+        watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
+        ESP_LOGW(TAG, "watchdog register failed for pipeline");
+    }
 
     radio_cc1101::RawRadioFrame raw{};
     while (true) {
+        pipeline_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         if (frame_queue && xQueueReceive(frame_queue, &raw, pdMS_TO_TICKS(100)) == pdTRUE) {
             sample_queue_levels();
             rx_count++;
+            pipeline_frames_processed.fetch_add(1, std::memory_order_relaxed);
 
             const int64_t ts = ntp_service::NtpService::instance().now_epoch_ms();
 
@@ -191,18 +242,41 @@ static void pipeline_task(void* /*param*/) {
                     mqtt_service::payload_event("radio_event", "warning", route.event_message, ""));
             }
         }
+        if (wd.feed().is_error()) {
+            const uint32_t errors =
+                watchdog_feed_errors.fetch_add(1, std::memory_order_relaxed) + 1U;
+            if ((errors % 64U) == 1U) {
+                ESP_LOGW(TAG, "watchdog feed failed in pipeline (errors=%lu)",
+                         static_cast<unsigned long>(errors));
+            }
+        }
     }
 }
 
 static void mqtt_task(void* /*param*/) {
     auto& mqtt = mqtt_service::MqttService::instance();
+    auto& wd = watchdog_service::WatchdogService::instance();
     MqttOutboxItem item{};
 
+    if (wd.register_task().is_error()) {
+        watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
+        ESP_LOGW(TAG, "watchdog register failed for mqtt_pub");
+    }
+
     while (true) {
+        mqtt_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
             sample_queue_levels();
             if (mqtt.is_connected()) {
                 mqtt.publish(item.topic, item.payload, 0, false);
+            }
+        }
+        if (wd.feed().is_error()) {
+            const uint32_t errors =
+                watchdog_feed_errors.fetch_add(1, std::memory_order_relaxed) + 1U;
+            if ((errors % 64U) == 1U) {
+                ESP_LOGW(TAG, "watchdog feed failed in mqtt_pub (errors=%lu)",
+                         static_cast<unsigned long>(errors));
             }
         }
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -211,16 +285,46 @@ static void mqtt_task(void* /*param*/) {
 
 static void health_task(void* /*param*/) {
     // Low-frequency telemetry (30s cadence) must not subscribe to TWDT: default timeout is 5s.
+    bool radio_stalled = false;
+    bool pipeline_stalled = false;
+    bool mqtt_stalled = false;
+
     while (true) {
         auto& wifi = wifi_manager::WifiManager::instance();
         auto& mqtt = mqtt_service::MqttService::instance();
         auto& health = health_monitor::HealthMonitor::instance();
+        const uint32_t now = now_ms();
 
-        if (wifi.state() == wifi_manager::WifiState::Connected && mqtt.is_connected()) {
+        const bool radio_now_stalled =
+            (now - radio_loop_last_ms.load(std::memory_order_relaxed)) > kCriticalTaskStallMs;
+        const bool pipeline_now_stalled =
+            (now - pipeline_loop_last_ms.load(std::memory_order_relaxed)) > kCriticalTaskStallMs;
+        const bool mqtt_now_stalled =
+            (now - mqtt_loop_last_ms.load(std::memory_order_relaxed)) > kCriticalTaskStallMs;
+
+        if (radio_now_stalled && !radio_stalled) {
+            radio_stall_count.fetch_add(1, std::memory_order_relaxed);
+            health.report_warning("radio_rx task heartbeat stalled");
+        }
+        if (pipeline_now_stalled && !pipeline_stalled) {
+            pipeline_stall_count.fetch_add(1, std::memory_order_relaxed);
+            health.report_warning("pipeline task heartbeat stalled");
+        }
+        if (mqtt_now_stalled && !mqtt_stalled) {
+            mqtt_stall_count.fetch_add(1, std::memory_order_relaxed);
+            health.report_warning("mqtt task heartbeat stalled");
+        }
+        radio_stalled = radio_now_stalled;
+        pipeline_stalled = pipeline_now_stalled;
+        mqtt_stalled = mqtt_now_stalled;
+
+        const bool any_critical_stalled = radio_stalled || pipeline_stalled || mqtt_stalled;
+        if (!any_critical_stalled && wifi.state() == wifi_manager::WifiState::Connected &&
+            mqtt.is_connected()) {
             health.report_healthy();
         } else if (wifi.state() == wifi_manager::WifiState::Disconnected) {
             health.report_warning("WiFi disconnected");
-        } else if (!mqtt.is_connected()) {
+        } else if (!any_critical_stalled && !mqtt.is_connected()) {
             health.report_warning("MQTT disconnected");
         }
 
@@ -263,7 +367,18 @@ common::Result<void> AppCore::create_runtime_tasks() {
     mqtt_outbox_enqueue_drop.store(0, std::memory_order_relaxed);
     mqtt_outbox_enqueue_errors.store(0, std::memory_order_relaxed);
     mqtt_outbox_peak_depth.store(0, std::memory_order_relaxed);
+    const uint32_t now = now_ms();
+    radio_loop_last_ms.store(now, std::memory_order_relaxed);
+    pipeline_loop_last_ms.store(now, std::memory_order_relaxed);
+    mqtt_loop_last_ms.store(now, std::memory_order_relaxed);
+    pipeline_frames_processed.store(0, std::memory_order_relaxed);
+    radio_stall_count.store(0, std::memory_order_relaxed);
+    pipeline_stall_count.store(0, std::memory_order_relaxed);
+    mqtt_stall_count.store(0, std::memory_order_relaxed);
+    watchdog_register_errors.store(0, std::memory_order_relaxed);
+    watchdog_feed_errors.store(0, std::memory_order_relaxed);
     metrics_service::MetricsService::reset_queue_metrics();
+    metrics_service::MetricsService::reset_task_metrics();
 
     frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(radio_cc1101::RawRadioFrame));
     mqtt_outbox = xQueueCreate(kMqttOutboxDepth, sizeof(MqttOutboxItem));

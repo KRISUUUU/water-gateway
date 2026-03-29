@@ -24,6 +24,16 @@ std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_success{0};
 std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_drop{0};
 std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_errors{0};
 
+std::atomic<std::uint32_t> g_radio_loop_age_ms{0};
+std::atomic<std::uint32_t> g_pipeline_loop_age_ms{0};
+std::atomic<std::uint32_t> g_mqtt_loop_age_ms{0};
+std::atomic<std::uint32_t> g_pipeline_frames_processed{0};
+std::atomic<std::uint32_t> g_radio_stall_count{0};
+std::atomic<std::uint32_t> g_pipeline_stall_count{0};
+std::atomic<std::uint32_t> g_mqtt_stall_count{0};
+std::atomic<std::uint32_t> g_watchdog_register_errors{0};
+std::atomic<std::uint32_t> g_watchdog_feed_errors{0};
+
 } // namespace
 
 MetricsService& MetricsService::instance() {
@@ -57,6 +67,16 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.queues.mqtt_outbox_enqueue_errors =
         g_mqtt_outbox_enqueue_errors.load(std::memory_order_relaxed);
 
+    m.tasks.radio_loop_age_ms = g_radio_loop_age_ms.load(std::memory_order_relaxed);
+    m.tasks.pipeline_loop_age_ms = g_pipeline_loop_age_ms.load(std::memory_order_relaxed);
+    m.tasks.mqtt_loop_age_ms = g_mqtt_loop_age_ms.load(std::memory_order_relaxed);
+    m.tasks.pipeline_frames_processed = g_pipeline_frames_processed.load(std::memory_order_relaxed);
+    m.tasks.radio_stall_count = g_radio_stall_count.load(std::memory_order_relaxed);
+    m.tasks.pipeline_stall_count = g_pipeline_stall_count.load(std::memory_order_relaxed);
+    m.tasks.mqtt_stall_count = g_mqtt_stall_count.load(std::memory_order_relaxed);
+    m.tasks.watchdog_register_errors = g_watchdog_register_errors.load(std::memory_order_relaxed);
+    m.tasks.watchdog_feed_errors = g_watchdog_feed_errors.load(std::memory_order_relaxed);
+
     return common::Result<RuntimeMetrics>::ok(m);
 }
 
@@ -85,6 +105,30 @@ void MetricsService::report_queue_metrics(std::uint32_t frame_queue_depth,
 
 void MetricsService::reset_queue_metrics() {
     report_queue_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
+                                         std::uint32_t pipeline_loop_age_ms,
+                                         std::uint32_t mqtt_loop_age_ms,
+                                         std::uint32_t pipeline_frames_processed,
+                                         std::uint32_t radio_stall_count,
+                                         std::uint32_t pipeline_stall_count,
+                                         std::uint32_t mqtt_stall_count,
+                                         std::uint32_t watchdog_register_errors,
+                                         std::uint32_t watchdog_feed_errors) {
+    g_radio_loop_age_ms.store(radio_loop_age_ms, std::memory_order_relaxed);
+    g_pipeline_loop_age_ms.store(pipeline_loop_age_ms, std::memory_order_relaxed);
+    g_mqtt_loop_age_ms.store(mqtt_loop_age_ms, std::memory_order_relaxed);
+    g_pipeline_frames_processed.store(pipeline_frames_processed, std::memory_order_relaxed);
+    g_radio_stall_count.store(radio_stall_count, std::memory_order_relaxed);
+    g_pipeline_stall_count.store(pipeline_stall_count, std::memory_order_relaxed);
+    g_mqtt_stall_count.store(mqtt_stall_count, std::memory_order_relaxed);
+    g_watchdog_register_errors.store(watchdog_register_errors, std::memory_order_relaxed);
+    g_watchdog_feed_errors.store(watchdog_feed_errors, std::memory_order_relaxed);
+}
+
+void MetricsService::reset_task_metrics() {
+    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 } // namespace metrics_service

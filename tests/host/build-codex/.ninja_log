@@ -35,3 +35,9 @@
 1686	1907	7965150534686508	test_wmbus_pipeline.exe	6d0c0a28e9c36cd0
 124	1908	7965150519065572	CMakeFiles/test_auth_helpers.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/auth_service/src/auth_service.cpp.obj	4d21e15976c23d2e
 1908	2092	7965150536909292	test_auth_helpers.exe	9db43f17fbed2644
+11	416	7965153622779711	build.ninja	3d8a0ed098ce408a
+11	416	7965153622779711	C:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/build-codex/cmake_install.cmake	3d8a0ed098ce408a
+11	416	7965153622779711	C:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/build-codex/CTestTestfile.cmake	3d8a0ed098ce408a
+59	397	7965153624004243	CMakeFiles/test_metrics_service.dir/test_metrics_service.cpp.obj	899a56011a84b188
+71	450	7965153624111511	CMakeFiles/test_metrics_service.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/metrics_service/src/metrics_service.cpp.obj	2cbb385b06ded2eb
+451	660	7965153627909769	test_metrics_service.exe	2b775f482b2e6e73

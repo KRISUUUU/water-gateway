@@ -19,6 +19,18 @@ struct RuntimeQueueMetrics {
     std::uint32_t mqtt_outbox_enqueue_errors{0};
 };
 
+struct RuntimeTaskMetrics {
+    std::uint32_t radio_loop_age_ms{0};
+    std::uint32_t pipeline_loop_age_ms{0};
+    std::uint32_t mqtt_loop_age_ms{0};
+    std::uint32_t pipeline_frames_processed{0};
+    std::uint32_t radio_stall_count{0};
+    std::uint32_t pipeline_stall_count{0};
+    std::uint32_t mqtt_stall_count{0};
+    std::uint32_t watchdog_register_errors{0};
+    std::uint32_t watchdog_feed_errors{0};
+};
+
 /// Heap and uptime figures sampled from ESP-IDF (see snapshot()).
 struct RuntimeMetrics {
     std::uint32_t uptime_s{0};
@@ -26,6 +38,7 @@ struct RuntimeMetrics {
     std::uint32_t min_free_heap_bytes{0};
     std::uint32_t largest_free_block{0};
     RuntimeQueueMetrics queues{};
+    RuntimeTaskMetrics tasks{};
 };
 
 class MetricsService {
@@ -45,7 +58,17 @@ class MetricsService {
                                      std::uint32_t mqtt_outbox_enqueue_success,
                                      std::uint32_t mqtt_outbox_enqueue_drop,
                                      std::uint32_t mqtt_outbox_enqueue_errors);
+    static void report_task_metrics(std::uint32_t radio_loop_age_ms,
+                                    std::uint32_t pipeline_loop_age_ms,
+                                    std::uint32_t mqtt_loop_age_ms,
+                                    std::uint32_t pipeline_frames_processed,
+                                    std::uint32_t radio_stall_count,
+                                    std::uint32_t pipeline_stall_count,
+                                    std::uint32_t mqtt_stall_count,
+                                    std::uint32_t watchdog_register_errors,
+                                    std::uint32_t watchdog_feed_errors);
     static void reset_queue_metrics();
+    static void reset_task_metrics();
 
   private:
     MetricsService() = default;
