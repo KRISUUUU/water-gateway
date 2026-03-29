@@ -19,6 +19,7 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/config_store/include"
     "${COMP_DIR}/storage_service/include"
     "${COMP_DIR}/radio_cc1101/include"
+    "${COMP_DIR}/radio_state_machine/include"
     "${COMP_DIR}/wmbus_minimal_pipeline/include"
     "${COMP_DIR}/dedup_service/include"
     "${COMP_DIR}/telegram_router/include"
@@ -140,4 +141,12 @@ add_host_test(test_ota_manager
 add_host_test(test_metrics_service
     test_metrics_service.cpp
     "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
+)
+
+# ---- test_radio_state_machine ----
+add_host_test(test_radio_state_machine
+    test_radio_state_machine.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
+    "${COMP_DIR}/radio_state_machine/src/radio_state_machine.cpp"
 )

@@ -36,6 +36,11 @@ common::Result<void> RadioStateMachine::initialize(const radio_cc1101::SpiPins& 
     }
 
     initialized_ = true;
+    consecutive_errors_ = 0;
+    soft_failure_streak_ = 0;
+    recovery_attempts_ = 0;
+    recovery_failures_ = 0;
+    last_recovery_reason_ = common::ErrorCode::OK;
     transition_to(RsmState::Receiving);
     return common::Result<void>::ok();
 }
@@ -52,13 +57,14 @@ common::Result<void> RadioStateMachine::start_receiving() {
         ESP_LOGE(TAG, "Failed to enter RX mode");
 #endif
         consecutive_errors_++;
+        last_recovery_reason_ = result.error();
         transition_to(RsmState::Error);
-        event_bus::EventBus::instance().publish(event_bus::EventType::RadioError,
-                                                static_cast<int32_t>(result.error()));
+        publish_radio_error(result.error());
         return result;
     }
 
     consecutive_errors_ = 0;
+    soft_failure_streak_ = 0;
     transition_to(RsmState::Receiving);
     return common::Result<void>::ok();
 }
@@ -69,16 +75,20 @@ common::Result<void> RadioStateMachine::recover() {
     }
 
     transition_to(RsmState::Recovering);
+    recovery_attempts_++;
 
 #ifndef HOST_TEST_BUILD
-    ESP_LOGW(TAG, "Attempting radio recovery (error count: %lu)",
-             (unsigned long)consecutive_errors_);
+    ESP_LOGW(TAG, "Attempting radio recovery (reason=%s/%d, hard=%lu, soft=%lu, attempts=%lu)",
+             common::error_code_to_string(last_recovery_reason_),
+             static_cast<int>(last_recovery_reason_), (unsigned long)consecutive_errors_,
+             (unsigned long)soft_failure_streak_, (unsigned long)recovery_attempts_);
 #endif
 
     auto& radio = radio_cc1101::RadioCc1101::instance();
     auto result = radio.recover();
     if (result.is_error()) {
         consecutive_errors_++;
+        recovery_failures_++;
 #ifndef HOST_TEST_BUILD
         ESP_LOGE(TAG, "Radio recovery failed");
 #endif
@@ -87,11 +97,74 @@ common::Result<void> RadioStateMachine::recover() {
     }
 
     consecutive_errors_ = 0;
+    soft_failure_streak_ = 0;
     transition_to(RsmState::Receiving);
 
     event_bus::EventBus::instance().publish(event_bus::EventType::RadioRecovered);
 
     return common::Result<void>::ok();
+}
+
+void RadioStateMachine::on_read_success() {
+    if (!initialized_) {
+        return;
+    }
+    soft_failure_streak_ = 0;
+}
+
+bool RadioStateMachine::is_escalating_soft_failure(common::ErrorCode error) const {
+    return error == common::ErrorCode::Timeout || error == common::ErrorCode::InvalidArgument ||
+           error == common::ErrorCode::RadioSpiError;
+}
+
+void RadioStateMachine::publish_radio_error(common::ErrorCode error) {
+    event_bus::EventBus::instance().publish(event_bus::EventType::RadioError,
+                                            static_cast<int32_t>(error));
+}
+
+void RadioStateMachine::on_read_failure(common::ErrorCode error) {
+    if (!initialized_) {
+        return;
+    }
+    if (error == common::ErrorCode::NotFound) {
+        // Expected "no frame available" path.
+        return;
+    }
+
+    if (error == common::ErrorCode::RadioFifoOverflow) {
+        consecutive_errors_++;
+        soft_failure_streak_ = 0;
+        last_recovery_reason_ = error;
+        transition_to(RsmState::Error);
+        publish_radio_error(error);
+        return;
+    }
+
+    if (is_escalating_soft_failure(error)) {
+        soft_failure_streak_++;
+        last_recovery_reason_ = error;
+        if (soft_failure_streak_ >= kSoftFailureEscalationThreshold) {
+#ifndef HOST_TEST_BUILD
+            ESP_LOGW(TAG,
+                     "Escalating repeated soft radio failures (reason=%s/%d, streak=%lu, "
+                     "threshold=%lu)",
+                     common::error_code_to_string(error), static_cast<int>(error),
+                     (unsigned long)soft_failure_streak_,
+                     (unsigned long)kSoftFailureEscalationThreshold);
+#endif
+            transition_to(RsmState::Error);
+            publish_radio_error(error);
+            recover();
+        }
+        return;
+    }
+
+    // Any other radio error is treated as hard and recovered via normal path.
+    consecutive_errors_++;
+    soft_failure_streak_ = 0;
+    last_recovery_reason_ = error;
+    transition_to(RsmState::Error);
+    publish_radio_error(error);
 }
 
 void RadioStateMachine::tick() {

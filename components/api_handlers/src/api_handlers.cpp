@@ -1109,6 +1109,16 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
     cJSON_AddStringToObject(rsm_obj, "state", rsm_state_name(rsm.state()));
     cJSON_AddNumberToObject(rsm_obj, "consecutive_errors",
                             static_cast<double>(rsm.consecutive_errors()));
+    cJSON_AddNumberToObject(rsm_obj, "soft_failure_streak",
+                            static_cast<double>(rsm.soft_failure_streak()));
+    cJSON_AddNumberToObject(rsm_obj, "recovery_attempts",
+                            static_cast<double>(rsm.recovery_attempts()));
+    cJSON_AddNumberToObject(rsm_obj, "recovery_failures",
+                            static_cast<double>(rsm.recovery_failures()));
+    cJSON_AddStringToObject(rsm_obj, "last_recovery_reason",
+                            common::error_code_to_string(rsm.last_recovery_reason()));
+    cJSON_AddNumberToObject(rsm_obj, "last_recovery_reason_code",
+                            static_cast<double>(static_cast<int>(rsm.last_recovery_reason())));
     const std::string diag_json = diagnostics_service::DiagnosticsService::to_json(snap);
     cJSON* diag_obj = cJSON_Parse(diag_json.c_str());
     if (!diag_obj) {

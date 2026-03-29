@@ -157,6 +157,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         counters_.fifo_overflows++;
         flush_rx_fifo();
         spi_strobe(registers::SRX);
+        state_ = RadioState::Error;
         return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
     }
 
@@ -170,6 +171,11 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     // Read the first byte as packet length (T-mode convention)
     uint8_t pkt_len = spi_read_register(registers::FIFO_RX | registers::READ_SINGLE);
     if (pkt_len == 0 || pkt_len > RawRadioFrame::MAX_DATA_SIZE - 1) {
+        counters_.frames_dropped_too_long++;
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "Dropping invalid/oversized frame length: %u",
+                 static_cast<unsigned int>(pkt_len));
+#endif
         flush_rx_fifo();
         return common::Result<RawRadioFrame>::error(common::ErrorCode::InvalidArgument);
     }
@@ -205,7 +211,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 #endif
                 flush_rx_fifo();
                 spi_strobe(registers::SRX);
-                return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
+                return common::Result<RawRadioFrame>::error(common::ErrorCode::Timeout);
             }
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;

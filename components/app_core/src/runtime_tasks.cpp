@@ -155,6 +155,7 @@ static void radio_rx_task(void* /*param*/) {
 
         auto result = radio.read_frame();
         if (result.is_ok() && frame_queue) {
+            rsm.on_read_success();
             auto frame = result.value();
             if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
                 frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
@@ -171,6 +172,8 @@ static void radio_rx_task(void* /*param*/) {
                 }
                 sample_queue_levels();
             }
+        } else if (result.is_error()) {
+            rsm.on_read_failure(result.error());
         }
 
         if (wd.feed().is_error()) {
