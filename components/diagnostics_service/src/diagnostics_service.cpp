@@ -311,9 +311,9 @@ void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
         cJSON_AddNumberToObject(frame, "enqueue_errors",
                                 static_cast<double>(snap.metrics.queues.frame_enqueue_errors));
         cJSON_AddNumberToObject(frame, "frame_queue_max_depth",
-                                static_cast<double>(snap.metrics.queues.frame_queue_peak_depth));
+                                static_cast<double>(snap.metrics.queues.frame_queue_max_depth));
         cJSON_AddNumberToObject(frame, "frame_queue_send_failures",
-                                static_cast<double>(snap.metrics.queues.frame_enqueue_errors));
+                                static_cast<double>(snap.metrics.queues.frame_queue_send_failures));
     }
 
     cJSON* outbox = cJSON_AddObjectToObject(q, "mqtt_outbox");

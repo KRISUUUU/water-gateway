@@ -1018,9 +1018,9 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddNumberToObject(frame_q_o, "enqueue_errors",
                             static_cast<double>(metrics.queues.frame_enqueue_errors));
     cJSON_AddNumberToObject(frame_q_o, "frame_queue_max_depth",
-                            static_cast<double>(metrics.queues.frame_queue_peak_depth));
+                            static_cast<double>(metrics.queues.frame_queue_max_depth));
     cJSON_AddNumberToObject(frame_q_o, "frame_queue_send_failures",
-                            static_cast<double>(metrics.queues.frame_enqueue_errors));
+                            static_cast<double>(metrics.queues.frame_queue_send_failures));
 
     cJSON* outbox_o = cJSON_AddObjectToObject(queues_o, "mqtt_outbox");
     cJSON_AddNumberToObject(outbox_o, "depth",

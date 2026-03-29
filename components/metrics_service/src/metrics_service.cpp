@@ -14,9 +14,11 @@ namespace {
 
 std::atomic<std::uint32_t> g_frame_queue_depth{0};
 std::atomic<std::uint32_t> g_frame_queue_peak_depth{0};
+std::atomic<std::uint32_t> g_frame_queue_max_depth{0};
 std::atomic<std::uint32_t> g_frame_enqueue_success{0};
 std::atomic<std::uint32_t> g_frame_enqueue_drop{0};
 std::atomic<std::uint32_t> g_frame_enqueue_errors{0};
+std::atomic<std::uint32_t> g_frame_queue_send_failures{0};
 
 std::atomic<std::uint32_t> g_mqtt_outbox_depth{0};
 std::atomic<std::uint32_t> g_mqtt_outbox_peak_depth{0};
@@ -70,9 +72,12 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
 
     m.queues.frame_queue_depth = g_frame_queue_depth.load(std::memory_order_relaxed);
     m.queues.frame_queue_peak_depth = g_frame_queue_peak_depth.load(std::memory_order_relaxed);
+    m.queues.frame_queue_max_depth = g_frame_queue_max_depth.load(std::memory_order_relaxed);
     m.queues.frame_enqueue_success = g_frame_enqueue_success.load(std::memory_order_relaxed);
     m.queues.frame_enqueue_drop = g_frame_enqueue_drop.load(std::memory_order_relaxed);
     m.queues.frame_enqueue_errors = g_frame_enqueue_errors.load(std::memory_order_relaxed);
+    m.queues.frame_queue_send_failures =
+        g_frame_queue_send_failures.load(std::memory_order_relaxed);
 
     m.queues.mqtt_outbox_depth = g_mqtt_outbox_depth.load(std::memory_order_relaxed);
     m.queues.mqtt_outbox_peak_depth = g_mqtt_outbox_peak_depth.load(std::memory_order_relaxed);
@@ -109,9 +114,11 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
 
 void MetricsService::report_queue_metrics(std::uint32_t frame_queue_depth,
                                           std::uint32_t frame_queue_peak_depth,
+                                          std::uint32_t frame_queue_max_depth,
                                           std::uint32_t frame_enqueue_success,
                                           std::uint32_t frame_enqueue_drop,
                                           std::uint32_t frame_enqueue_errors,
+                                          std::uint32_t frame_queue_send_failures,
                                           std::uint32_t mqtt_outbox_depth,
                                           std::uint32_t mqtt_outbox_peak_depth,
                                           std::uint32_t mqtt_outbox_enqueue_success,
@@ -119,9 +126,11 @@ void MetricsService::report_queue_metrics(std::uint32_t frame_queue_depth,
                                           std::uint32_t mqtt_outbox_enqueue_errors) {
     g_frame_queue_depth.store(frame_queue_depth, std::memory_order_relaxed);
     g_frame_queue_peak_depth.store(frame_queue_peak_depth, std::memory_order_relaxed);
+    g_frame_queue_max_depth.store(frame_queue_max_depth, std::memory_order_relaxed);
     g_frame_enqueue_success.store(frame_enqueue_success, std::memory_order_relaxed);
     g_frame_enqueue_drop.store(frame_enqueue_drop, std::memory_order_relaxed);
     g_frame_enqueue_errors.store(frame_enqueue_errors, std::memory_order_relaxed);
+    g_frame_queue_send_failures.store(frame_queue_send_failures, std::memory_order_relaxed);
 
     g_mqtt_outbox_depth.store(mqtt_outbox_depth, std::memory_order_relaxed);
     g_mqtt_outbox_peak_depth.store(mqtt_outbox_peak_depth, std::memory_order_relaxed);
@@ -131,7 +140,7 @@ void MetricsService::report_queue_metrics(std::uint32_t frame_queue_depth,
 }
 
 void MetricsService::reset_queue_metrics() {
-    report_queue_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    report_queue_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,

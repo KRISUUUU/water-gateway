@@ -104,9 +104,11 @@ static void sample_queue_levels() {
     }
     metrics_service::MetricsService::report_queue_metrics(
         frame_depth, frame_queue_peak_depth.load(std::memory_order_relaxed),
+        frame_queue_max_depth.load(std::memory_order_relaxed),
         frame_enqueue_success.load(std::memory_order_relaxed),
         frame_enqueue_drop.load(std::memory_order_relaxed),
-        frame_enqueue_errors.load(std::memory_order_relaxed), outbox_depth,
+        frame_enqueue_errors.load(std::memory_order_relaxed),
+        frame_queue_send_failures.load(std::memory_order_relaxed), outbox_depth,
         mqtt_outbox_peak_depth.load(std::memory_order_relaxed),
         mqtt_outbox_enqueue_success.load(std::memory_order_relaxed),
         mqtt_outbox_enqueue_drop.load(std::memory_order_relaxed),

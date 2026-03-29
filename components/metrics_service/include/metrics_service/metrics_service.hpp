@@ -8,9 +8,11 @@ namespace metrics_service {
 struct RuntimeQueueMetrics {
     std::uint32_t frame_queue_depth{0};
     std::uint32_t frame_queue_peak_depth{0};
+    std::uint32_t frame_queue_max_depth{0};
     std::uint32_t frame_enqueue_success{0};
     std::uint32_t frame_enqueue_drop{0};
     std::uint32_t frame_enqueue_errors{0};
+    std::uint32_t frame_queue_send_failures{0};
 
     std::uint32_t mqtt_outbox_depth{0};
     std::uint32_t mqtt_outbox_peak_depth{0};
@@ -63,9 +65,11 @@ class MetricsService {
     // Runtime queue instrumentation hooks used by app_core runtime tasks.
     static void report_queue_metrics(std::uint32_t frame_queue_depth,
                                      std::uint32_t frame_queue_peak_depth,
+                                     std::uint32_t frame_queue_max_depth,
                                      std::uint32_t frame_enqueue_success,
                                      std::uint32_t frame_enqueue_drop,
                                      std::uint32_t frame_enqueue_errors,
+                                     std::uint32_t frame_queue_send_failures,
                                      std::uint32_t mqtt_outbox_depth,
                                      std::uint32_t mqtt_outbox_peak_depth,
                                      std::uint32_t mqtt_outbox_enqueue_success,

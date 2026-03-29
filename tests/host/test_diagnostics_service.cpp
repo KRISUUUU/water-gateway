@@ -6,7 +6,7 @@
 
 int main() {
     metrics_service::MetricsService::reset_queue_metrics();
-    metrics_service::MetricsService::report_queue_metrics(4, 15, 100, 7, 2, 6, 12, 80, 9, 3);
+    metrics_service::MetricsService::report_queue_metrics(4, 15, 16, 100, 7, 2, 5, 6, 12, 80, 9, 3);
 
     auto snap_res = diagnostics_service::DiagnosticsService::instance().snapshot();
     assert(!snap_res.is_error());
@@ -28,6 +28,8 @@ int main() {
     assert(json.find("\"mqtt_outbox\"") != std::string::npos);
     assert(json.find("\"frame_queue_max_depth\"") != std::string::npos);
     assert(json.find("\"frame_queue_send_failures\"") != std::string::npos);
+    assert(json.find("\"frame_queue_max_depth\":16") != std::string::npos);
+    assert(json.find("\"frame_queue_send_failures\":5") != std::string::npos);
     assert(json.find("\"outbox_enqueue_failures\"") != std::string::npos);
     assert(json.find("\"outbox_oversize_rejections\"") != std::string::npos);
     assert(json.find("\"outbox_max_depth\"") != std::string::npos);
