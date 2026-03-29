@@ -160,6 +160,14 @@ void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.mqtt.publish_failures));
     cJSON_AddNumberToObject(mqtt, "reconnect_count",
                             static_cast<double>(snap.mqtt.reconnect_count));
+    cJSON_AddNumberToObject(mqtt, "outbox_enqueue_failures",
+                            static_cast<double>(snap.mqtt.outbox_enqueue_failures));
+    cJSON_AddNumberToObject(mqtt, "outbox_oversize_rejections",
+                            static_cast<double>(snap.mqtt.outbox_oversize_rejections));
+    cJSON_AddNumberToObject(mqtt, "outbox_max_depth",
+                            static_cast<double>(snap.mqtt.outbox_max_depth));
+    cJSON_AddNumberToObject(mqtt, "outbox_dropped_disconnected",
+                            static_cast<double>(snap.mqtt.outbox_dropped_disconnected));
     cJSON_AddNumberToObject(mqtt, "last_publish_epoch_ms",
                             static_cast<double>(snap.mqtt.last_publish_epoch_ms));
     cJSON_AddStringToObject(mqtt, "broker_uri", snap.mqtt.broker_uri);
@@ -302,6 +310,10 @@ void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
                                 static_cast<double>(snap.metrics.queues.frame_enqueue_drop));
         cJSON_AddNumberToObject(frame, "enqueue_errors",
                                 static_cast<double>(snap.metrics.queues.frame_enqueue_errors));
+        cJSON_AddNumberToObject(frame, "frame_queue_max_depth",
+                                static_cast<double>(snap.metrics.queues.frame_queue_peak_depth));
+        cJSON_AddNumberToObject(frame, "frame_queue_send_failures",
+                                static_cast<double>(snap.metrics.queues.frame_enqueue_errors));
     }
 
     cJSON* outbox = cJSON_AddObjectToObject(q, "mqtt_outbox");
@@ -316,6 +328,14 @@ void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
                                 static_cast<double>(snap.metrics.queues.mqtt_outbox_enqueue_drop));
         cJSON_AddNumberToObject(outbox, "enqueue_errors",
                                 static_cast<double>(snap.metrics.queues.mqtt_outbox_enqueue_errors));
+        cJSON_AddNumberToObject(outbox, "outbox_enqueue_failures",
+                                static_cast<double>(snap.mqtt.outbox_enqueue_failures));
+        cJSON_AddNumberToObject(outbox, "outbox_oversize_rejections",
+                                static_cast<double>(snap.mqtt.outbox_oversize_rejections));
+        cJSON_AddNumberToObject(outbox, "outbox_max_depth",
+                                static_cast<double>(snap.mqtt.outbox_max_depth));
+        cJSON_AddNumberToObject(outbox, "outbox_dropped_disconnected",
+                                static_cast<double>(snap.mqtt.outbox_dropped_disconnected));
     }
 }
 

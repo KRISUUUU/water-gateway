@@ -119,6 +119,7 @@ esp_err_t send_json(httpd_req_t* req, int status_code, const char* body);
 bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len);
 void apply_config_json(const cJSON* root, config_store::AppConfig& cfg);
 bool request_content_type_is_json(httpd_req_t* req);
+void apply_json_security_headers(httpd_req_t* req);
 
 using JsonPtr = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
 using JsonStringPtr = std::unique_ptr<char, decltype(&cJSON_free)>;
@@ -181,9 +182,7 @@ std::string query_param(const char* uri, const char* key) {
     return query.substr(pos, end - pos);
 }
 
-esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
-    httpd_resp_set_type(req, "application/json");
-    // Harden API responses against caching and content-type confusion.
+void apply_json_security_headers(httpd_req_t* req) {
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
     httpd_resp_set_hdr(req, "Expires", "0");
@@ -191,6 +190,12 @@ esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "no-referrer");
     httpd_resp_set_hdr(req, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+}
+
+esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
+    httpd_resp_set_type(req, "application/json");
+    // Harden API JSON responses against caching and content-type confusion.
+    apply_json_security_headers(req);
     const char* status = "200 OK";
     switch (status_code) {
     case 200:
@@ -977,6 +982,14 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddNumberToObject(mqtt_o, "publish_count", static_cast<double>(mqtt.publish_count));
     cJSON_AddNumberToObject(mqtt_o, "publish_failures", static_cast<double>(mqtt.publish_failures));
     cJSON_AddNumberToObject(mqtt_o, "reconnect_count", static_cast<double>(mqtt.reconnect_count));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_enqueue_failures",
+                            static_cast<double>(mqtt.outbox_enqueue_failures));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_oversize_rejections",
+                            static_cast<double>(mqtt.outbox_oversize_rejections));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_max_depth",
+                            static_cast<double>(mqtt.outbox_max_depth));
+    cJSON_AddNumberToObject(mqtt_o, "outbox_dropped_disconnected",
+                            static_cast<double>(mqtt.outbox_dropped_disconnected));
 
     cJSON* radio_o = cJSON_AddObjectToObject(root.get(), "radio");
     cJSON_AddStringToObject(radio_o, "state", radio_state_name(radio.state()));
@@ -1004,6 +1017,10 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.queues.frame_enqueue_drop));
     cJSON_AddNumberToObject(frame_q_o, "enqueue_errors",
                             static_cast<double>(metrics.queues.frame_enqueue_errors));
+    cJSON_AddNumberToObject(frame_q_o, "frame_queue_max_depth",
+                            static_cast<double>(metrics.queues.frame_queue_peak_depth));
+    cJSON_AddNumberToObject(frame_q_o, "frame_queue_send_failures",
+                            static_cast<double>(metrics.queues.frame_enqueue_errors));
 
     cJSON* outbox_o = cJSON_AddObjectToObject(queues_o, "mqtt_outbox");
     cJSON_AddNumberToObject(outbox_o, "depth",
@@ -1016,6 +1033,14 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.queues.mqtt_outbox_enqueue_drop));
     cJSON_AddNumberToObject(outbox_o, "enqueue_errors",
                             static_cast<double>(metrics.queues.mqtt_outbox_enqueue_errors));
+    cJSON_AddNumberToObject(outbox_o, "outbox_enqueue_failures",
+                            static_cast<double>(mqtt.outbox_enqueue_failures));
+    cJSON_AddNumberToObject(outbox_o, "outbox_oversize_rejections",
+                            static_cast<double>(mqtt.outbox_oversize_rejections));
+    cJSON_AddNumberToObject(outbox_o, "outbox_max_depth",
+                            static_cast<double>(mqtt.outbox_max_depth));
+    cJSON_AddNumberToObject(outbox_o, "outbox_dropped_disconnected",
+                            static_cast<double>(mqtt.outbox_dropped_disconnected));
     return send_json_root(req, 200, root);
 }
 
@@ -1039,6 +1064,7 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
     const auto telegrams = meter_registry::MeterRegistry::instance().recent_telegrams(filter);
 
     httpd_resp_set_type(req, "application/json");
+    apply_json_security_headers(req);
     httpd_resp_set_status(req, "200 OK");
 
     esp_err_t e = httpd_resp_send_chunk(req, "{\"telegrams\":[", HTTPD_RESP_USE_STRLEN);
@@ -1100,6 +1126,7 @@ esp_err_t handle_meters_detected(httpd_req_t* req) {
     const std::string filter = query_param(req->uri, "filter");
 
     httpd_resp_set_type(req, "application/json");
+    apply_json_security_headers(req);
     httpd_resp_set_status(req, "200 OK");
 
     esp_err_t e = httpd_resp_send_chunk(req, "{\"meters\":[", HTTPD_RESP_USE_STRLEN);
@@ -1174,6 +1201,7 @@ esp_err_t handle_watchlist_get(httpd_req_t* req) {
     const auto entries = meter_registry::MeterRegistry::instance().watchlist();
 
     httpd_resp_set_type(req, "application/json");
+    apply_json_security_headers(req);
     httpd_resp_set_status(req, "200 OK");
 
     esp_err_t e = httpd_resp_send_chunk(req, "{\"watchlist\":[", HTTPD_RESP_USE_STRLEN);
@@ -1341,6 +1369,14 @@ esp_err_t handle_diagnostics_mqtt(httpd_req_t* req) {
     cJSON_AddNumberToObject(root.get(), "publish_failures",
                             static_cast<double>(st.publish_failures));
     cJSON_AddNumberToObject(root.get(), "reconnect_count", static_cast<double>(st.reconnect_count));
+    cJSON_AddNumberToObject(root.get(), "outbox_enqueue_failures",
+                            static_cast<double>(st.outbox_enqueue_failures));
+    cJSON_AddNumberToObject(root.get(), "outbox_oversize_rejections",
+                            static_cast<double>(st.outbox_oversize_rejections));
+    cJSON_AddNumberToObject(root.get(), "outbox_max_depth",
+                            static_cast<double>(st.outbox_max_depth));
+    cJSON_AddNumberToObject(root.get(), "outbox_dropped_disconnected",
+                            static_cast<double>(st.outbox_dropped_disconnected));
     cJSON_AddNumberToObject(root.get(), "last_publish_epoch_ms",
                             static_cast<double>(st.last_publish_epoch_ms));
     cJSON_AddStringToObject(root.get(), "broker_uri", st.broker_uri);

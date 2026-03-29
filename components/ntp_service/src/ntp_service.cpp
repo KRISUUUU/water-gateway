@@ -3,10 +3,12 @@
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include <ctime>
 #include <sys/time.h>
-
 static const char* TAG = "ntp_svc";
+#else
+#include <chrono>
 #endif
 
 namespace ntp_service {
@@ -91,11 +93,11 @@ int64_t NtpService::now_epoch_ms() const {
 
 int64_t NtpService::monotonic_now_ms() const {
 #ifndef HOST_TEST_BUILD
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return static_cast<int64_t>(tv.tv_sec) * 1000 + static_cast<int64_t>(tv.tv_usec) / 1000;
+    return static_cast<int64_t>(esp_timer_get_time() / 1000ULL);
 #else
-    return 0;
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<int64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
 #endif
 }
 

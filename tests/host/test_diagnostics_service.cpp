@@ -26,6 +26,12 @@ int main() {
     assert(json.find("\"radio_not_found_streak_peak\"") != std::string::npos);
     assert(json.find("\"frame_queue\"") != std::string::npos);
     assert(json.find("\"mqtt_outbox\"") != std::string::npos);
+    assert(json.find("\"frame_queue_max_depth\"") != std::string::npos);
+    assert(json.find("\"frame_queue_send_failures\"") != std::string::npos);
+    assert(json.find("\"outbox_enqueue_failures\"") != std::string::npos);
+    assert(json.find("\"outbox_oversize_rejections\"") != std::string::npos);
+    assert(json.find("\"outbox_max_depth\"") != std::string::npos);
+    assert(json.find("\"outbox_dropped_disconnected\"") != std::string::npos);
     assert(json.find("\"rx_read_calls\"") != std::string::npos);
     assert(json.find("\"rx_not_found\"") != std::string::npos);
     assert(json.find("\"rx_timeouts\"") != std::string::npos);

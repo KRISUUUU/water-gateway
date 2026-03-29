@@ -23,6 +23,15 @@ common::Result<void> MqttService::initialize() {
         return common::Result<void>::error(common::ErrorCode::AlreadyInitialized);
     }
     state_ = MqttState::Disconnected;
+    publish_count_ = 0;
+    publish_failures_ = 0;
+    reconnect_count_ = 0;
+    outbox_enqueue_failures_ = 0;
+    outbox_oversize_rejections_ = 0;
+    outbox_max_depth_ = 0;
+    outbox_dropped_disconnected_ = 0;
+    last_publish_epoch_ms_ = 0;
+    broker_uri_[0] = '\0';
     initialized_ = true;
     return common::Result<void>::ok();
 }
@@ -160,9 +169,30 @@ MqttStatus MqttService::status() const {
     s.publish_count = publish_count_;
     s.publish_failures = publish_failures_;
     s.reconnect_count = reconnect_count_;
+    s.outbox_enqueue_failures = outbox_enqueue_failures_;
+    s.outbox_oversize_rejections = outbox_oversize_rejections_;
+    s.outbox_max_depth = outbox_max_depth_;
+    s.outbox_dropped_disconnected = outbox_dropped_disconnected_;
     s.last_publish_epoch_ms = last_publish_epoch_ms_;
     std::strncpy(s.broker_uri, broker_uri_, sizeof(s.broker_uri) - 1);
     return s;
+}
+
+void MqttService::report_outbox_enqueue_failure(bool oversize) {
+    ++outbox_enqueue_failures_;
+    if (oversize) {
+        ++outbox_oversize_rejections_;
+    }
+}
+
+void MqttService::report_outbox_depth(uint32_t depth) {
+    if (depth > outbox_max_depth_) {
+        outbox_max_depth_ = depth;
+    }
+}
+
+void MqttService::report_outbox_dropped_disconnected() {
+    ++outbox_dropped_disconnected_;
 }
 
 #ifndef HOST_TEST_BUILD
