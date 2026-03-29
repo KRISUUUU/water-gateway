@@ -112,6 +112,10 @@ static esp_err_t static_spiffs_handler(httpd_req_t* req) {
     // Avoid stale web assets after firmware updates; onboarding/login flow depends on
     // synchronized index.html + app.js versions.
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
+    httpd_resp_set_hdr(req, "Referrer-Policy", "no-referrer");
 
     if (sz == 0) {
         std::fclose(f);

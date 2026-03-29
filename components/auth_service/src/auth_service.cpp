@@ -81,6 +81,11 @@ common::Result<SessionInfo> AuthService::login(const char* password) {
     const int64_t now_s = now_epoch_seconds();
 
     if (failed_login_count_ >= 5 && (now_s - last_failed_login_s_) < 60) {
+#ifndef HOST_TEST_BUILD
+        const int64_t retry_after = 60 - (now_s - last_failed_login_s_);
+        ESP_LOGW(TAG, "Login rate-limited (failed=%lu retry_after=%llds)",
+                 (unsigned long)failed_login_count_, static_cast<long long>(retry_after));
+#endif
         return common::Result<SessionInfo>::error(common::ErrorCode::AuthRateLimited);
     }
 
@@ -224,7 +229,7 @@ bool AuthService::verify_password(const char* password, const char* stored_hash)
 
     std::string computed_hash = sha256_hex(input.data(), input.size());
 
-    return computed_hash == expected_hash;
+    return secure_equals(computed_hash.c_str(), expected_hash);
 }
 
 void AuthService::generate_random_hex(char* out, size_t hex_len) {

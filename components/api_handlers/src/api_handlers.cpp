@@ -85,6 +85,7 @@ esp_err_t send_json_chunk_row(httpd_req_t* req, std::string& row) {
 esp_err_t send_json(httpd_req_t* req, int status_code, const char* body);
 bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len);
 void apply_config_json(const cJSON* root, config_store::AppConfig& cfg);
+bool request_content_type_is_json(httpd_req_t* req);
 
 using JsonPtr = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
 using JsonStringPtr = std::unique_ptr<char, decltype(&cJSON_free)>;
@@ -149,6 +150,14 @@ std::string query_param(const char* uri, const char* key) {
 
 esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
     httpd_resp_set_type(req, "application/json");
+    // Harden API responses against caching and content-type confusion.
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    httpd_resp_set_hdr(req, "Expires", "0");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
+    httpd_resp_set_hdr(req, "Referrer-Policy", "no-referrer");
+    httpd_resp_set_hdr(req, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
     const char* status = "200 OK";
     switch (status_code) {
     case 200:
@@ -192,6 +201,25 @@ esp_err_t send_json(httpd_req_t* req, int status_code, const char* body) {
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
+bool request_content_type_is_json(httpd_req_t* req) {
+    const size_t len = httpd_req_get_hdr_value_len(req, "Content-Type");
+    if (len == 0) {
+        // Keep backward compatibility for existing clients that omit Content-Type.
+        return true;
+    }
+    std::string value;
+    value.resize(len + 1, '\0');
+    if (httpd_req_get_hdr_value_str(req, "Content-Type", value.data(), value.size()) != ESP_OK) {
+        return false;
+    }
+    std::string lower = value.c_str();
+    for (char& c : lower) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return lower.find("application/json") != std::string::npos ||
+           lower.find("text/json") != std::string::npos;
+}
+
 esp_err_t require_auth(httpd_req_t* req) {
     if (!http_server::HttpServer::instance().authorize_request(req)) {
         return send_json(req, 401, "{\"error\":\"unauthorized\"}");
@@ -221,6 +249,10 @@ esp_err_t handle_bootstrap_setup(httpd_req_t* req) {
         return send_json(
             req, 409,
             "{\"error\":\"bootstrap_setup_not_allowed\",\"detail\":\"already_configured\"}");
+    }
+
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
     }
 
     std::string body;
@@ -606,6 +638,9 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
 }
 
 esp_err_t handle_auth_login(httpd_req_t* req) {
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
+    }
     std::string body;
     if (!read_request_body(req, body, 4096)) {
         return send_json(req, 413, "{\"error\":\"body_too_large\"}");
@@ -627,6 +662,10 @@ esp_err_t handle_auth_login(httpd_req_t* req) {
             }
             cJSON_AddStringToObject(rate.get(), "error", "rate_limited");
             cJSON_AddNumberToObject(rate.get(), "retry_after_s", static_cast<double>(retry_after));
+            char retry_after_hdr[16];
+            std::snprintf(retry_after_hdr, sizeof(retry_after_hdr), "%ld",
+                          static_cast<long>(retry_after));
+            httpd_resp_set_hdr(req, "Retry-After", retry_after_hdr);
             return send_json_root(req, 429, rate);
         }
         return send_json(req, 401, "{\"error\":\"login_failed\"}");
@@ -659,6 +698,9 @@ esp_err_t handle_auth_password(httpd_req_t* req) {
     esp_err_t g = require_auth(req);
     if (g != ESP_OK) {
         return g;
+    }
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
     }
     std::string body;
     if (!read_request_body(req, body, 4096)) {
@@ -1025,6 +1067,9 @@ esp_err_t handle_watchlist_post(httpd_req_t* req) {
     if (g != ESP_OK) {
         return g;
     }
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
+    }
     std::string body;
     if (!read_request_body(req, body, 4096)) {
         return send_json(req, 413, "{\"error\":\"body_too_large\"}");
@@ -1068,6 +1113,9 @@ esp_err_t handle_watchlist_delete(httpd_req_t* req) {
     esp_err_t g = require_auth(req);
     if (g != ESP_OK) {
         return g;
+    }
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
     }
     std::string body;
     if (!read_request_body(req, body, 2048)) {
@@ -1163,6 +1211,9 @@ esp_err_t handle_config_post(httpd_req_t* req) {
     esp_err_t g = require_auth(req);
     if (g != ESP_OK) {
         return g;
+    }
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
     }
     std::string body;
     if (!read_request_body(req, body, 32768)) {
@@ -1318,6 +1369,9 @@ esp_err_t handle_ota_url(httpd_req_t* req) {
     esp_err_t g = require_auth(req);
     if (g != ESP_OK) {
         return g;
+    }
+    if (!request_content_type_is_json(req)) {
+        return send_json(req, 415, "{\"error\":\"unsupported_content_type\",\"detail\":\"use application/json\"}");
     }
     std::string body;
     if (!read_request_body(req, body, 4096)) {
