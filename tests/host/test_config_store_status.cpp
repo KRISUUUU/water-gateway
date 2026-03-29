@@ -67,11 +67,34 @@ static void test_save_normalizes_non_terminated_strings() {
     std::printf("  PASS: string normalization prevents unterminated config strings\n");
 }
 
+static void test_save_reports_migration_failure_status() {
+    auto cfg = ConfigStore::instance().config();
+    cfg.mqtt.enabled = false;
+    std::strncpy(cfg.device.name, "GW-Host", sizeof(cfg.device.name) - 1);
+    cfg.device.name[sizeof(cfg.device.name) - 1] = '\0';
+    std::strncpy(cfg.device.hostname, "gw-host", sizeof(cfg.device.hostname) - 1);
+    cfg.device.hostname[sizeof(cfg.device.hostname) - 1] = '\0';
+    cfg.version = 999; // Future schema should be rejected by migration.
+
+    const ConfigRuntimeStatus before = ConfigStore::instance().runtime_status();
+
+    auto save = ConfigStore::instance().save(cfg);
+    assert(save.is_error());
+    assert(save.error() == common::ErrorCode::ConfigVersionMismatch);
+
+    const ConfigRuntimeStatus after = ConfigStore::instance().runtime_status();
+    assert(after.migration_failures >= (before.migration_failures + 1));
+    assert(after.save_failures >= (before.save_failures + 1));
+    assert(after.last_migration_error == common::ErrorCode::ConfigVersionMismatch);
+    std::printf("  PASS: migration failure is surfaced in runtime status counters\n");
+}
+
 int main() {
     std::printf("=== test_config_store_status ===\n");
     test_initialize_reports_default_fallback_status();
     test_save_status_counters();
     test_save_normalizes_non_terminated_strings();
+    test_save_reports_migration_failure_status();
     std::printf("All config store status tests passed.\n");
     return 0;
 }

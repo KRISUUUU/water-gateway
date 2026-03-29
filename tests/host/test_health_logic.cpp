@@ -48,11 +48,16 @@ static void test_report_error() {
 static void test_warning_does_not_override_error() {
     auto& hm = HealthMonitor::instance();
     hm.report_error("critical");
+    auto before = hm.snapshot();
+    assert(before.is_ok());
+    const auto warnings_before = before.value().warning_count;
     hm.report_warning("just a warning");
     auto snap = hm.snapshot();
     assert(snap.is_ok());
     // Error should not be downgraded to Warning
     assert(snap.value().state == HealthState::Error);
+    assert(snap.value().warning_count == warnings_before + 1);
+    assert(snap.value().last_warning_msg == "just a warning");
     printf("  PASS: warning does not override error\n");
 }
 
@@ -74,6 +79,14 @@ static void test_null_warning_rejected() {
     printf("  PASS: null warning rejected\n");
 }
 
+static void test_null_error_rejected() {
+    auto& hm = HealthMonitor::instance();
+    auto result = hm.report_error(nullptr);
+    assert(result.is_error());
+    assert(result.error() == common::ErrorCode::InvalidArgument);
+    printf("  PASS: null error rejected\n");
+}
+
 static void test_state_to_string() {
     assert(std::string(HealthMonitor::state_to_string(HealthState::Starting)) == "Starting");
     assert(std::string(HealthMonitor::state_to_string(HealthState::Healthy)) == "Healthy");
@@ -91,6 +104,7 @@ int main() {
     test_warning_does_not_override_error();
     test_healthy_recovers_from_warning();
     test_null_warning_rejected();
+    test_null_error_rejected();
     test_state_to_string();
     printf("All health logic tests passed.\n");
     return 0;

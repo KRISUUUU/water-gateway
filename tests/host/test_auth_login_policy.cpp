@@ -79,6 +79,41 @@ void test_password_hash_login_still_works() {
     std::printf("  PASS: hash-based login unchanged\n");
 }
 
+void test_login_rate_limit_enforced_after_repeated_failures() {
+    auto cfg = config_store::ConfigStore::instance().config();
+    disable_mqtt_for_validation(cfg);
+    std::strncpy(cfg.wifi.ssid, "HomeWiFi", sizeof(cfg.wifi.ssid) - 1);
+    cfg.wifi.ssid[sizeof(cfg.wifi.ssid) - 1] = '\0';
+
+    auto hash = auth_service::AuthService::hash_password("RateLimitSecret");
+    assert(hash.is_ok());
+    std::strncpy(cfg.auth.admin_password_hash, hash.value().c_str(),
+                 sizeof(cfg.auth.admin_password_hash) - 1);
+    cfg.auth.admin_password_hash[sizeof(cfg.auth.admin_password_hash) - 1] = '\0';
+
+    auto save = config_store::ConfigStore::instance().save(cfg);
+    assert(save.is_ok());
+    assert(save.value().valid);
+
+    for (int i = 0; i < 5; ++i) {
+        auto wrong = auth_service::AuthService::instance().login("wrong-password");
+        assert(wrong.is_error());
+        assert(wrong.error() == common::ErrorCode::AuthFailed);
+    }
+
+    auto blocked = auth_service::AuthService::instance().login("wrong-password");
+    assert(blocked.is_error());
+    assert(blocked.error() == common::ErrorCode::AuthRateLimited);
+    const int32_t retry_after = auth_service::AuthService::instance().retry_after_seconds();
+    assert(retry_after > 0);
+    assert(retry_after <= 60);
+
+    auto blocked_correct = auth_service::AuthService::instance().login("RateLimitSecret");
+    assert(blocked_correct.is_error());
+    assert(blocked_correct.error() == common::ErrorCode::AuthRateLimited);
+    std::printf("  PASS: login rate limiting activates after repeated failures\n");
+}
+
 } // namespace
 
 int main() {
@@ -93,6 +128,7 @@ int main() {
     test_passwordless_login_allowed_in_provisioning();
     test_passwordless_login_rejected_in_normal_mode();
     test_password_hash_login_still_works();
+    test_login_rate_limit_enforced_after_repeated_failures();
 
     std::printf("All auth login policy tests passed.\n");
     return 0;

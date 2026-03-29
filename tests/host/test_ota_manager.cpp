@@ -9,18 +9,47 @@ int main() {
     assert(!bus_init.is_error());
 
     auto& ota = ota_manager::OtaManager::instance();
+    auto begin_without_init = ota.begin_upload(16);
+    assert(begin_without_init.is_error());
+    assert(begin_without_init.error() == common::ErrorCode::NotInitialized);
+
     auto init = ota.initialize();
     assert(!init.is_error());
+
+    auto write_before_begin = ota.write_chunk(reinterpret_cast<const uint8_t*>("x"), 1);
+    assert(write_before_begin.is_error());
+    assert(write_before_begin.error() == common::ErrorCode::InvalidArgument);
+
+    auto finalize_before_begin = ota.finalize_upload();
+    assert(finalize_before_begin.is_error());
+    assert(finalize_before_begin.error() == common::ErrorCode::InvalidArgument);
+
+    auto url_null = ota.begin_url_ota(nullptr);
+    assert(url_null.is_error());
+    assert(url_null.error() == common::ErrorCode::InvalidArgument);
+
+    auto url_empty = ota.begin_url_ota("");
+    assert(url_empty.is_error());
+    assert(url_empty.error() == common::ErrorCode::InvalidArgument);
+
     auto boot_valid = ota.mark_boot_valid();
     assert(!boot_valid.is_error());
 
     constexpr uint8_t fw_stub[8] = {0xE9, 0x01, 0x02, 0x03, 0x10, 0x20, 0x30, 0x40};
     auto begin = ota.begin_upload(sizeof(fw_stub));
     assert(!begin.is_error());
+    auto begin_again = ota.begin_upload(sizeof(fw_stub));
+    assert(begin_again.is_error());
+    assert(begin_again.error() == common::ErrorCode::OtaAlreadyInProgress);
+
     auto write = ota.write_chunk(fw_stub, sizeof(fw_stub));
     assert(!write.is_error());
     auto fin = ota.finalize_upload();
     assert(!fin.is_error());
+
+    auto write_after_finalize = ota.write_chunk(fw_stub, sizeof(fw_stub));
+    assert(write_after_finalize.is_error());
+    assert(write_after_finalize.error() == common::ErrorCode::InvalidArgument);
 
     const auto st = ota.status();
     assert(st.progress_pct == 100);
