@@ -1,15 +1,20 @@
 # ESP32 CC1101 Water-Gateway - Full Audit Report
 
 **Date:** 2026-03-29
+**Audited commit:** `8a97cd52` (branch `codex/make-appcore-lifetime-explicit`)
 **Scope:** Full codebase audit (firmware, web UI, tests, CI/CD, security, architecture)
+
+> **Note:** Some issues reference code that contains partial fix attempts (e.g., `// O1 fix` comments in ota_manager).
+> Where such attempts exist, this report evaluates whether the fix is complete and correct.
+> Issues are listed only if they remain exploitable or incorrect at the audited commit.
 
 ---
 
 ## Executive Summary
 
-The project is **well-architected and mature** with clean layered components, strong documentation, and good firmware test coverage. However, the audit identified **~50 issues** across security, concurrency, memory safety, web UI, testing, and CI/CD. The most critical findings involve a potential buffer overflow in the radio driver, authentication bypass on first boot, race conditions in shared state, and near-zero web UI test coverage.
+The project is **well-architected and mature** with clean layered components, strong documentation, and good firmware test coverage. However, the audit identified **35 issues** across security, concurrency, memory safety, web UI, testing, and CI/CD. The most critical findings involve a potential buffer overflow in the radio driver, authentication bypass on first boot, race conditions in shared state, and near-zero web UI test coverage.
 
-**Verdict:** Not production-ready yet. Requires fixes for critical/high issues before deployment.
+**Verdict:** Not production-ready yet. Requires fixes for 7 critical/high issues before deployment.
 
 ---
 
@@ -363,16 +368,21 @@ Only `ui_banner.js` has tests (72 lines). The following critical modules have **
 
 ## Summary Statistics
 
-| Category | Critical | High | Medium | Low | Total |
-|----------|----------|------|--------|-----|-------|
-| Security | 1 | 2 | 3 | 0 | 6 |
-| Memory Safety | 1 | 1 | 1 | 1 | 4 |
-| Concurrency | 0 | 2 | 1 | 1 | 4 |
-| Error Handling | 0 | 0 | 0 | 3 | 3 |
-| Performance | 0 | 0 | 1 | 2 | 3 |
-| Code Quality | 0 | 0 | 0 | 5 | 5 |
-| Web UI | 0 | 0 | 3 | 4 | 7 |
-| Testing | 0 | 1 | 3 | 0 | 4 |
-| CI/CD | 0 | 1 | 2 | 5 | 8 |
-| ESP32-Specific | 0 | 0 | 2 | 2 | 4 |
-| **Total** | **2** | **7** | **16** | **23** | **48** |
+Issues are categorized by their primary domain. Severity is assigned per issue in the sections above.
+
+| Category | Critical | High | Medium | Low | Total | Sections |
+|----------|----------|------|--------|-----|-------|----------|
+| Security | 1 (1.2) | 1 (1.6) | 2 (2.4, 2.5) | 0 | 4 | 1, 2 |
+| Memory Safety | 1 (1.1) | 2 (1.4, 1.5) | 0 | 1 (3.10) | 4 | 1, 3 |
+| Concurrency | 0 | 1 (1.3) | 1 (2.7) | 0 | 2 | 1, 2 |
+| Web UI / UX | 0 | 0 | 2 (2.4, 2.6) | 4 (3.6-3.9) | 6 | 2, 3 |
+| ESP32-Specific | 0 | 0 | 2 (2.1, 2.2) | 2 (3.1, 3.4) | 4 | 2, 3 |
+| Performance | 0 | 0 | 1 (2.3) | 0 | 1 | 2 |
+| Code Quality | 0 | 0 | 0 | 3 (3.2, 3.3, 3.5) | 3 | 3 |
+| Testing gaps | 0 | 0 | 3 (4.1-4.3) | 0 | 3 | 4 |
+| CI/CD | 0 | 1 (5.1) | 2 (5.2, 5.3) | 5 (5.4-5.8) | 8 | 5 |
+| **Total** | **2** | **5** | **13** | **15** | **35** | |
+
+> Note: Some issues span multiple categories (e.g., session token is both Security and Web UI).
+> Each issue is counted once under its primary category. Section 6 (proposals) contains
+> 8 enhancement ideas not counted as issues.
