@@ -14,8 +14,8 @@ static constexpr size_t kMaxPasswordLength = 64;
 
 // PBKDF2-HMAC-SHA256 parameters (new password hashes only)
 static constexpr unsigned int kPbkdf2Iterations = 10000;
-static constexpr size_t kPbkdf2SaltBytes = 16;  // 16 raw bytes → 32 hex chars
-static constexpr size_t kPbkdf2DkBytes = 32;    // 32 raw bytes → 64 hex chars
+static constexpr size_t kPbkdf2SaltBytes = 16; // 16 raw bytes → 32 hex chars
+static constexpr size_t kPbkdf2DkBytes = 32;   // 32 raw bytes → 64 hex chars
 
 struct SessionInfo {
     char token[kTokenLength + 1];
@@ -65,9 +65,8 @@ class AuthService {
 
     // PBKDF2-HMAC-SHA256: derives kPbkdf2DkBytes into out[].
     // Returns false on error (e.g. MBedTLS unavailable in stubs).
-    static bool pbkdf2_sha256(const uint8_t* password, size_t pwd_len,
-                              const uint8_t* salt, size_t salt_len,
-                              uint8_t* out);
+    static bool pbkdf2_sha256(const uint8_t* password, size_t pwd_len, const uint8_t* salt,
+                              size_t salt_len, uint8_t* out);
 
     // Returns true if stored_hash starts with the PBKDF2 prefix.
     static bool is_pbkdf2_hash(const char* stored_hash);

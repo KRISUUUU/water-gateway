@@ -105,8 +105,8 @@ common::Result<SessionInfo> AuthService::login(const char* password) {
     // This ensures only someone with physical access can log in on first boot.
     bool authenticated = false;
     if (!cfg.auth.has_password()) {
-        authenticated = (provisioning_pin_[0] != '\0') &&
-                        secure_equals(password, provisioning_pin_);
+        authenticated =
+            (provisioning_pin_[0] != '\0') && secure_equals(password, provisioning_pin_);
     } else {
         authenticated = verify_password(password, cfg.auth.admin_password_hash);
     }
@@ -176,9 +176,8 @@ int32_t AuthService::retry_after_seconds() const {
 // PBKDF2 helpers
 // ---------------------------------------------------------------------------
 
-bool AuthService::pbkdf2_sha256(const uint8_t* password, size_t pwd_len,
-                                const uint8_t* salt, size_t salt_len,
-                                uint8_t* out) {
+bool AuthService::pbkdf2_sha256(const uint8_t* password, size_t pwd_len, const uint8_t* salt,
+                                size_t salt_len, uint8_t* out) {
 #ifndef HOST_TEST_BUILD
     mbedtls_md_context_t ctx;
     mbedtls_md_init(&ctx);
@@ -191,9 +190,8 @@ bool AuthService::pbkdf2_sha256(const uint8_t* password, size_t pwd_len,
         mbedtls_md_free(&ctx);
         return false;
     }
-    int rc = mbedtls_pkcs5_pbkdf2_hmac(&ctx, password, pwd_len, salt, salt_len,
-                                        kPbkdf2Iterations,
-                                        static_cast<uint32_t>(kPbkdf2DkBytes), out);
+    int rc = mbedtls_pkcs5_pbkdf2_hmac(&ctx, password, pwd_len, salt, salt_len, kPbkdf2Iterations,
+                                       static_cast<uint32_t>(kPbkdf2DkBytes), out);
     mbedtls_md_free(&ctx);
     return rc == 0;
 #else
@@ -290,8 +288,8 @@ bool AuthService::verify_pbkdf2(const char* password, const char* stored_hash) {
 
     // Derive key
     uint8_t dk[kPbkdf2DkBytes] = {};
-    if (!pbkdf2_sha256(reinterpret_cast<const uint8_t*>(password),
-                       std::strlen(password), salt_bytes, kPbkdf2SaltBytes, dk)) {
+    if (!pbkdf2_sha256(reinterpret_cast<const uint8_t*>(password), std::strlen(password),
+                       salt_bytes, kPbkdf2SaltBytes, dk)) {
         return false;
     }
 
@@ -329,8 +327,8 @@ common::Result<std::string> AuthService::hash_password(const char* password) {
     }
 
     uint8_t dk[kPbkdf2DkBytes] = {};
-    if (!pbkdf2_sha256(reinterpret_cast<const uint8_t*>(password),
-                       std::strlen(password), salt_bytes, kPbkdf2SaltBytes, dk)) {
+    if (!pbkdf2_sha256(reinterpret_cast<const uint8_t*>(password), std::strlen(password),
+                       salt_bytes, kPbkdf2SaltBytes, dk)) {
         return common::Result<std::string>::error(common::ErrorCode::Unknown);
     }
 
@@ -341,8 +339,7 @@ common::Result<std::string> AuthService::hash_password(const char* password) {
 
     // Format: "pbkdf2$<iter>$<salt_hex>$<dk_hex>"
     char result[128] = {};
-    std::snprintf(result, sizeof(result), "pbkdf2$%u$%s$%s",
-                  kPbkdf2Iterations, salt_hex, dk_hex);
+    std::snprintf(result, sizeof(result), "pbkdf2$%u$%s$%s", kPbkdf2Iterations, salt_hex, dk_hex);
     return common::Result<std::string>::ok(std::string(result));
 }
 
