@@ -111,7 +111,7 @@ Main sections:
 
 | Method | Path | Auth | Notes |
 | ------ | ---- | ---- | ----- |
-| GET | `/api/bootstrap` | No | Returns `{ mode, provisioning, password_set }` for startup UX routing |
+| GET | `/api/bootstrap` | No | Returns `{ mode, provisioning, password_set, provisioning_ap_open, bootstrap_login_open, provisioning_insecure_window }` for startup UX routing and security hints |
 | POST | `/api/auth/login` | No | Returns bearer token |
 | POST | `/api/auth/logout` | Yes | Invalidates current session |
 | POST | `/api/auth/password` | Yes | Change admin password (requires current password when already set) |
@@ -139,8 +139,8 @@ Main sections:
 - UI startup calls `/api/bootstrap` to choose between:
   - Initial Setup (first boot, no admin hash)
   - Normal Sign In (already configured auth)
-- Backend compatibility note: if no admin hash exists, login accepts any non-empty password.
-- UI intentionally avoids exposing that behavior as a generic login step on first boot.
+- Backend compatibility note: if no admin hash exists, passwordless login is allowed only in provisioning mode.
+- UI keeps first boot on Initial Setup and avoids exposing passwordless bootstrap as a generic login step.
 - After initial setup save, reboot is required before normal operations.
 
 ## Static Asset Delivery

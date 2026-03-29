@@ -315,6 +315,87 @@ build test_auth_helpers.exe: CXX_EXECUTABLE_LINKER__test_auth_helpers_ CMakeFile
   TARGET_SUPPORT_DIR = CMakeFiles\test_auth_helpers.dir
 
 # =============================================================================
+# Object build statements for EXECUTABLE target test_auth_login_policy
+
+
+#############################################
+# Order-only phony target for test_auth_login_policy
+
+build cmake_object_order_depends_target_test_auth_login_policy: phony || .
+
+build CMakeFiles/test_auth_login_policy.dir/test_auth_login_policy.cpp.obj: CXX_COMPILER__test_auth_login_policy_unscanned_ C$:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/test_auth_login_policy.cpp || cmake_object_order_depends_target_test_auth_login_policy
+  DEFINES = -DHOST_TEST_BUILD
+  DEP_FILE = CMakeFiles\test_auth_login_policy.dir\test_auth_login_policy.cpp.obj.d
+  FLAGS = -std=gnu++17 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/common/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/event_bus/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/config_store/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/storage_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_cc1101/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_state_machine/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/wmbus_minimal_pipeline/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/dedup_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/telegram_router/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/meter_registry/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/mqtt_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/auth_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/ota_manager/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/health_monitor/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/metrics_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/persistent_log_buffer/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host -IE:/Espressif/v5.2/esp-idf/components/json/cJSON
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  OBJECT_FILE_DIR = CMakeFiles\test_auth_login_policy.dir
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+build CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/event_bus/src/event_bus.cpp.obj: CXX_COMPILER__test_auth_login_policy_unscanned_ C$:/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/event_bus/src/event_bus.cpp || cmake_object_order_depends_target_test_auth_login_policy
+  DEFINES = -DHOST_TEST_BUILD
+  DEP_FILE = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\event_bus\src\event_bus.cpp.obj.d
+  FLAGS = -std=gnu++17 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/common/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/event_bus/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/config_store/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/storage_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_cc1101/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_state_machine/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/wmbus_minimal_pipeline/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/dedup_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/telegram_router/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/meter_registry/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/mqtt_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/auth_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/ota_manager/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/health_monitor/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/metrics_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/persistent_log_buffer/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host -IE:/Espressif/v5.2/esp-idf/components/json/cJSON
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  OBJECT_FILE_DIR = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\event_bus\src
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+build CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/auth_service/src/auth_service.cpp.obj: CXX_COMPILER__test_auth_login_policy_unscanned_ C$:/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/auth_service/src/auth_service.cpp || cmake_object_order_depends_target_test_auth_login_policy
+  DEFINES = -DHOST_TEST_BUILD
+  DEP_FILE = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\auth_service\src\auth_service.cpp.obj.d
+  FLAGS = -std=gnu++17 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/common/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/event_bus/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/config_store/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/storage_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_cc1101/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_state_machine/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/wmbus_minimal_pipeline/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/dedup_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/telegram_router/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/meter_registry/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/mqtt_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/auth_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/ota_manager/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/health_monitor/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/metrics_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/persistent_log_buffer/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host -IE:/Espressif/v5.2/esp-idf/components/json/cJSON
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  OBJECT_FILE_DIR = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\auth_service\src
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+build CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_store.cpp.obj: CXX_COMPILER__test_auth_login_policy_unscanned_ C$:/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_store.cpp || cmake_object_order_depends_target_test_auth_login_policy
+  DEFINES = -DHOST_TEST_BUILD
+  DEP_FILE = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\config_store\src\config_store.cpp.obj.d
+  FLAGS = -std=gnu++17 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/common/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/event_bus/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/config_store/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/storage_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_cc1101/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_state_machine/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/wmbus_minimal_pipeline/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/dedup_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/telegram_router/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/meter_registry/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/mqtt_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/auth_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/ota_manager/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/health_monitor/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/metrics_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/persistent_log_buffer/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host -IE:/Espressif/v5.2/esp-idf/components/json/cJSON
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  OBJECT_FILE_DIR = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\config_store\src
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+build CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_validation.cpp.obj: CXX_COMPILER__test_auth_login_policy_unscanned_ C$:/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_validation.cpp || cmake_object_order_depends_target_test_auth_login_policy
+  DEFINES = -DHOST_TEST_BUILD
+  DEP_FILE = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\config_store\src\config_validation.cpp.obj.d
+  FLAGS = -std=gnu++17 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/common/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/event_bus/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/config_store/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/storage_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_cc1101/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_state_machine/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/wmbus_minimal_pipeline/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/dedup_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/telegram_router/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/meter_registry/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/mqtt_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/auth_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/ota_manager/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/health_monitor/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/metrics_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/persistent_log_buffer/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host -IE:/Espressif/v5.2/esp-idf/components/json/cJSON
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  OBJECT_FILE_DIR = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\config_store\src
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+build CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_migration.cpp.obj: CXX_COMPILER__test_auth_login_policy_unscanned_ C$:/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_migration.cpp || cmake_object_order_depends_target_test_auth_login_policy
+  DEFINES = -DHOST_TEST_BUILD
+  DEP_FILE = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\config_store\src\config_migration.cpp.obj.d
+  FLAGS = -std=gnu++17 -Wall -Wextra -Wpedantic
+  INCLUDES = -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/common/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/event_bus/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/config_store/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/storage_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_cc1101/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/radio_state_machine/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/wmbus_minimal_pipeline/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/dedup_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/telegram_router/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/meter_registry/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/mqtt_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/auth_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/ota_manager/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/health_monitor/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/metrics_service/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/../../components/persistent_log_buffer/include -IC:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host -IE:/Espressif/v5.2/esp-idf/components/json/cJSON
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  OBJECT_FILE_DIR = CMakeFiles\test_auth_login_policy.dir\C_\Users\krzyc\.codex\worktrees\54f1\water-gateway\components\config_store\src
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target test_auth_login_policy
+
+
+#############################################
+# Link the executable test_auth_login_policy.exe
+
+build test_auth_login_policy.exe: CXX_EXECUTABLE_LINKER__test_auth_login_policy_ CMakeFiles/test_auth_login_policy.dir/test_auth_login_policy.cpp.obj CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/event_bus/src/event_bus.cpp.obj CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/auth_service/src/auth_service.cpp.obj CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_store.cpp.obj CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_validation.cpp.obj CMakeFiles/test_auth_login_policy.dir/C_/Users/krzyc/.codex/worktrees/54f1/water-gateway/components/config_store/src/config_migration.cpp.obj
+  LINK_LIBRARIES = -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\test_auth_login_policy.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = test_auth_login_policy.exe
+  TARGET_IMPLIB = libtest_auth_login_policy.dll.a
+  TARGET_PDB = test_auth_login_policy.exe.dbg
+  TARGET_SUPPORT_DIR = CMakeFiles\test_auth_login_policy.dir
+
+# =============================================================================
 # Object build statements for EXECUTABLE target test_health_logic
 
 
@@ -669,6 +750,8 @@ build rebuild_cache: phony CMakeFiles/rebuild_cache.util
 
 build test_auth_helpers: phony test_auth_helpers.exe
 
+build test_auth_login_policy: phony test_auth_login_policy.exe
+
 build test_config_migration: phony test_config_migration.exe
 
 build test_config_validation: phony test_config_validation.exe
@@ -697,7 +780,7 @@ build test_wmbus_pipeline: phony test_wmbus_pipeline.exe
 #############################################
 # Folder: C:/Users/krzyc/.codex/worktrees/54f1/water-gateway/tests/host/build-codex
 
-build all: phony test_config_validation.exe test_config_migration.exe test_dedup.exe test_mqtt_payloads.exe test_auth_helpers.exe test_health_logic.exe test_wmbus_pipeline.exe test_meter_registry.exe test_ota_manager.exe test_metrics_service.exe test_radio_state_machine.exe
+build all: phony test_config_validation.exe test_config_migration.exe test_dedup.exe test_mqtt_payloads.exe test_auth_helpers.exe test_auth_login_policy.exe test_health_logic.exe test_wmbus_pipeline.exe test_meter_registry.exe test_ota_manager.exe test_metrics_service.exe test_radio_state_machine.exe
 
 # =============================================================================
 # Built-in targets

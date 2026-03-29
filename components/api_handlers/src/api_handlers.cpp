@@ -231,6 +231,7 @@ esp_err_t handle_bootstrap(httpd_req_t* req) {
     const auto cfg = config_store::ConfigStore::instance().config();
     const bool provisioning = !cfg.wifi.is_configured();
     const bool password_set = cfg.auth.has_password();
+    const bool bootstrap_login_open = provisioning && !password_set;
     JsonPtr root = make_json_object();
     if (!root) {
         return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
@@ -238,6 +239,9 @@ esp_err_t handle_bootstrap(httpd_req_t* req) {
     cJSON_AddStringToObject(root.get(), "mode", provisioning ? "provisioning" : "normal");
     cJSON_AddBoolToObject(root.get(), "provisioning", provisioning);
     cJSON_AddBoolToObject(root.get(), "password_set", password_set);
+    cJSON_AddBoolToObject(root.get(), "provisioning_ap_open", provisioning);
+    cJSON_AddBoolToObject(root.get(), "bootstrap_login_open", bootstrap_login_open);
+    cJSON_AddBoolToObject(root.get(), "provisioning_insecure_window", bootstrap_login_open);
     return send_json_root(req, 200, root);
 }
 
@@ -816,6 +820,11 @@ esp_err_t handle_status(httpd_req_t* req) {
 
     cJSON_AddStringToObject(root.get(), "mode", mode);
     cJSON_AddStringToObject(root.get(), "firmware_version", ota.current_version);
+    cJSON* security_o = cJSON_AddObjectToObject(root.get(), "security");
+    cJSON_AddBoolToObject(security_o, "admin_password_set", cfg.auth.has_password());
+    cJSON_AddBoolToObject(security_o, "provisioning_ap_open", !cfg.wifi.is_configured());
+    cJSON_AddBoolToObject(security_o, "bootstrap_login_open",
+                          !cfg.wifi.is_configured() && !cfg.auth.has_password());
 
     cJSON* wifi_o = cJSON_AddObjectToObject(root.get(), "wifi");
     cJSON_AddStringToObject(wifi_o, "state", wifi_state_name(wifi.state));

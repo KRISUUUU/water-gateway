@@ -110,6 +110,16 @@ add_host_test(test_auth_helpers
     "${COMP_DIR}/config_store/src/config_migration.cpp"
 )
 
+# ---- test_auth_login_policy ----
+add_host_test(test_auth_login_policy
+    test_auth_login_policy.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/auth_service/src/auth_service.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+)
+
 # ---- test_health_logic ----
 add_host_test(test_health_logic
     test_health_logic.cpp

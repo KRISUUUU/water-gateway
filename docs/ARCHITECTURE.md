@@ -602,7 +602,7 @@ Detailed in `docs/SECURITY.md`. Summary:
 
 ### Safe Defaults
 - Auth enabled by default
-- First-boot provisioning has no fixed default password; backend login compatibility accepts any non-empty password until admin hash is set, while UI enforces explicit Initial Setup flow
+- First-boot provisioning has no fixed default password; backend passwordless bootstrap login is limited to provisioning mode only until admin hash is set, while UI enforces explicit Initial Setup flow
 - MQTT TLS disabled by default (most local brokers don't use it) but configurable
 - Radio auto-recovery enabled by default
 

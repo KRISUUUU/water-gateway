@@ -51,7 +51,7 @@
   - Session token is 32 random bytes (hex-encoded), not guessable
   - Session expires after configurable timeout (default 1 hour)
   - Failed login attempts are rate-limited (max 5 per minute)
-  - If no admin password hash exists yet, first provisioning login accepts any non-empty password
+  - If no admin password hash exists yet, passwordless bootstrap login is allowed only while provisioning mode is active
   - Operator should set `auth.admin_password` immediately and reboot
   - Password change endpoint requires current password when a password is already set
 
@@ -110,7 +110,7 @@
 
 ## Security Design Rules
 
-1. **Auth required for management API.** All management endpoints require a bearer token. Only `/api/bootstrap` and `/api/auth/login` are unauthenticated startup/auth endpoints. First provisioning login compatibility remains (non-empty password accepted until `auth.admin_password` is set), but UI routes first boot through explicit Initial Setup flow.
+1. **Auth required for management API.** All management endpoints require a bearer token. Only `/api/bootstrap` and `/api/auth/login` are unauthenticated startup/auth endpoints. Passwordless bootstrap login is limited to provisioning mode (`wifi` not configured and no admin hash); normal-mode passwordless login is rejected.
 2. **Secrets never logged.** Any `ESP_LOG*` call involving config data must use redacted versions.
 3. **Secrets never exported.** Config export, support bundle, and API responses replace secret fields with `"***"`.
 4. **Validate before persist.** No config change is saved without passing validation.

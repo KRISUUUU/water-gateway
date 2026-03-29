@@ -88,6 +88,9 @@ common::Result<void> WifiManager::start_ap(const char* ap_ssid) {
         return common::Result<void>::error(common::ErrorCode::InvalidArgument);
     }
 
+    std::strncpy(current_ssid_, ap_ssid, sizeof(current_ssid_) - 1);
+    current_ssid_[sizeof(current_ssid_) - 1] = '\0';
+
 #ifndef HOST_TEST_BUILD
     wifi_config_t wifi_config{};
     std::strncpy(reinterpret_cast<char*>(wifi_config.ap.ssid), ap_ssid,
@@ -120,6 +123,7 @@ common::Result<void> WifiManager::stop() {
 
     state_ = WifiState::Disconnected;
     ip_address_[0] = '\0';
+    current_ssid_[0] = '\0';
     return common::Result<void>::ok();
 }
 

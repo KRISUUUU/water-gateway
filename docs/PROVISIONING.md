@@ -11,7 +11,7 @@ can be completed from the web UI/API over AP.
 
 1. Device boots, `ConfigStore` loads config
 2. `AppCore` checks if WiFi SSID is empty → enters provisioning mode
-3. WiFi AP starts with SSID `WMBus-GW-Setup` (open network)
+3. WiFi AP starts with SSID pattern `WMBus-GW-Setup-XXXX` (open network)
 4. Auth service initializes (required because config endpoints are protected)
 5. HTTP server starts on `192.168.4.1:80`
 6. API handlers + static web handler are registered
@@ -31,7 +31,7 @@ can be completed from the web UI/API over AP.
 ## Provisioning Interface
 
 Provisioning uses the same HTTP/API/static handler stack as normal mode,
-but over AP (`WMBus-GW-Setup`) instead of STA.
+but over AP (`WMBus-GW-Setup-XXXX`) instead of STA.
 
 The web panel provides:
 
@@ -47,8 +47,10 @@ The web panel provides:
 - Normal mode still exposes management APIs behind auth
 - Admin password should be set during first provisioning save (`auth.admin_password`)
 - If auth fields are changed later (`admin_password`, session timeout), API may return `relogin_required`
-- After provisioning completes, the AP is shut down
-- First-boot auth backend behavior remains backward compatible (`login` accepts non-empty password when no hash exists), but UI now hides this behind explicit Initial Setup flow.
+- After provisioning completes, reboot is expected to leave AP mode and continue in normal STA mode
+- Passwordless login compatibility is now limited to provisioning mode only
+  (`wifi` not configured and no admin hash). In normal mode, missing admin hash
+  does not allow login.
 
 ## Re-Provisioning
 

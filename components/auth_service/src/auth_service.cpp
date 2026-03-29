@@ -91,11 +91,24 @@ common::Result<SessionInfo> AuthService::login(const char* password) {
 
     auto cfg = config_store::ConfigStore::instance().config();
 
-    // If no password is set, accept any non-empty password (first-boot case)
-    // The admin should set a password during provisioning.
+    // If no password is configured, only allow bootstrap login while provisioning
+    // mode is active (WiFi credentials not set). Reject passwordless login in
+    // normal runtime to reduce takeover risk.
     bool authenticated = false;
     if (!cfg.auth.has_password()) {
-        authenticated = true;
+        const bool provisioning_mode = !cfg.wifi.is_configured();
+        if (provisioning_mode) {
+            authenticated = true;
+#ifndef HOST_TEST_BUILD
+            ESP_LOGW(TAG, "Passwordless bootstrap login accepted in provisioning mode");
+#endif
+        } else {
+            authenticated = false;
+#ifndef HOST_TEST_BUILD
+            ESP_LOGE(TAG,
+                     "Passwordless login rejected: admin password missing outside provisioning mode");
+#endif
+        }
     } else {
         authenticated = verify_password(password, cfg.auth.admin_password_hash);
     }

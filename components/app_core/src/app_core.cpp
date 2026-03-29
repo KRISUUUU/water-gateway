@@ -176,7 +176,7 @@ common::Result<void> AppCore::start_provisioning() {
 
 #ifndef HOST_TEST_BUILD
     ESP_LOGI(TAG,
-             "Provisioning mode active. Connect to WMBus-GW-Setup AP and open http://192.168.4.1/");
+             "Provisioning mode active. Connect to the provisioning AP and open http://192.168.4.1/");
 #endif
 
     // OTA boot-valid should be handled in provisioning mode too, otherwise a
