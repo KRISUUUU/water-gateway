@@ -2,6 +2,7 @@
 #include "health_monitor/health_monitor.hpp"
 #include "metrics_service/metrics_service.hpp"
 #include "mqtt_service/mqtt_service.hpp"
+#include "ntp_service/ntp_service.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 
@@ -9,6 +10,10 @@
 #include <string>
 
 #include "cJSON.h"
+
+#ifndef HOST_TEST_BUILD
+#include "esp_system.h"
+#endif
 
 namespace diagnostics_service {
 
@@ -146,6 +151,19 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.min_free_heap_bytes));
     cJSON_AddNumberToObject(metrics, "largest_free_block",
                             static_cast<double>(snap.metrics.largest_free_block));
+    cJSON_AddNumberToObject(metrics, "free_internal_heap_bytes",
+                            static_cast<double>(snap.metrics.free_internal_heap_bytes));
+    cJSON_AddNumberToObject(metrics, "min_internal_heap_bytes",
+                            static_cast<double>(snap.metrics.min_internal_heap_bytes));
+    cJSON_AddNumberToObject(metrics, "reset_reason_code",
+                            static_cast<double>(snap.metrics.reset_reason_code));
+#ifndef HOST_TEST_BUILD
+    cJSON_AddStringToObject(metrics, "reset_reason",
+                            esp_reset_reason_to_name(
+                                static_cast<esp_reset_reason_t>(snap.metrics.reset_reason_code)));
+#else
+    cJSON_AddStringToObject(metrics, "reset_reason", "host_build");
+#endif
 
     cJSON* tasks = cJSON_AddObjectToObject(metrics, "tasks");
     if (!tasks) {
@@ -169,6 +187,14 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.tasks.watchdog_register_errors));
     cJSON_AddNumberToObject(tasks, "watchdog_feed_errors",
                             static_cast<double>(snap.metrics.tasks.watchdog_feed_errors));
+    cJSON_AddNumberToObject(tasks, "radio_stack_hwm_words",
+                            static_cast<double>(snap.metrics.tasks.radio_stack_hwm_words));
+    cJSON_AddNumberToObject(tasks, "pipeline_stack_hwm_words",
+                            static_cast<double>(snap.metrics.tasks.pipeline_stack_hwm_words));
+    cJSON_AddNumberToObject(tasks, "mqtt_stack_hwm_words",
+                            static_cast<double>(snap.metrics.tasks.mqtt_stack_hwm_words));
+    cJSON_AddNumberToObject(tasks, "health_stack_hwm_words",
+                            static_cast<double>(snap.metrics.tasks.health_stack_hwm_words));
 }
 
 void fill_health(cJSON* root, const DiagnosticsSnapshot& snap) {
@@ -182,8 +208,30 @@ void fill_health(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.health.warning_count));
     cJSON_AddNumberToObject(health, "error_count", static_cast<double>(snap.health.error_count));
     cJSON_AddNumberToObject(health, "uptime_s", static_cast<double>(snap.health.uptime_s));
+    cJSON_AddNumberToObject(health, "last_transition_uptime_s",
+                            static_cast<double>(snap.health.last_transition_uptime_s));
+    cJSON_AddNumberToObject(health, "last_warning_uptime_s",
+                            static_cast<double>(snap.health.last_warning_uptime_s));
+    cJSON_AddNumberToObject(health, "last_error_uptime_s",
+                            static_cast<double>(snap.health.last_error_uptime_s));
     cJSON_AddStringToObject(health, "last_warning_msg", snap.health.last_warning_msg.c_str());
     cJSON_AddStringToObject(health, "last_error_msg", snap.health.last_error_msg.c_str());
+}
+
+void fill_time(cJSON* root, const DiagnosticsSnapshot& snap) {
+    cJSON* time = cJSON_AddObjectToObject(root, "time");
+    if (!time) {
+        return;
+    }
+    cJSON_AddBoolToObject(time, "ntp_synchronized", snap.ntp.synchronized);
+    cJSON_AddNumberToObject(time, "last_ntp_sync_epoch_s",
+                            static_cast<double>(snap.ntp.last_sync_epoch_s));
+    cJSON_AddNumberToObject(time, "now_epoch_ms", static_cast<double>(snap.now_epoch_ms));
+    cJSON_AddNumberToObject(time, "monotonic_ms", static_cast<double>(snap.monotonic_ms));
+    cJSON_AddBoolToObject(time, "timestamp_uses_monotonic_fallback",
+                          snap.timestamp_uses_monotonic_fallback);
+    cJSON_AddStringToObject(time, "timestamp_source",
+                            snap.timestamp_uses_monotonic_fallback ? "monotonic" : "epoch");
 }
 
 void fill_queues(cJSON* root, const DiagnosticsSnapshot& snap) {
@@ -234,6 +282,10 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
     s.radio = radio_cc1101::RadioCc1101::instance().counters();
     s.mqtt = mqtt_service::MqttService::instance().status();
     s.wifi = wifi_manager::WifiManager::instance().status();
+    s.ntp = ntp_service::NtpService::instance().status();
+    s.now_epoch_ms = ntp_service::NtpService::instance().now_epoch_ms();
+    s.monotonic_ms = ntp_service::NtpService::instance().monotonic_now_ms();
+    s.timestamp_uses_monotonic_fallback = (s.now_epoch_ms <= 0);
 
     auto metrics_res = metrics_service::MetricsService::instance().snapshot();
     if (metrics_res.is_error()) {
@@ -261,6 +313,7 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     fill_metrics(root.get(), snap);
     fill_health(root.get(), snap);
     fill_queues(root.get(), snap);
+    fill_time(root.get(), snap);
     return to_unformatted_json(root.get());
 }
 

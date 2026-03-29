@@ -33,6 +33,10 @@ std::atomic<std::uint32_t> g_pipeline_stall_count{0};
 std::atomic<std::uint32_t> g_mqtt_stall_count{0};
 std::atomic<std::uint32_t> g_watchdog_register_errors{0};
 std::atomic<std::uint32_t> g_watchdog_feed_errors{0};
+std::atomic<std::uint32_t> g_radio_stack_hwm_words{0};
+std::atomic<std::uint32_t> g_pipeline_stack_hwm_words{0};
+std::atomic<std::uint32_t> g_mqtt_stack_hwm_words{0};
+std::atomic<std::uint32_t> g_health_stack_hwm_words{0};
 
 } // namespace
 
@@ -51,6 +55,11 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.min_free_heap_bytes = static_cast<std::uint32_t>(esp_get_minimum_free_heap_size());
     m.largest_free_block =
         static_cast<std::uint32_t>(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    m.free_internal_heap_bytes =
+        static_cast<std::uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    m.min_internal_heap_bytes = static_cast<std::uint32_t>(
+        heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    m.reset_reason_code = static_cast<std::uint32_t>(esp_reset_reason());
 #endif
 
     m.queues.frame_queue_depth = g_frame_queue_depth.load(std::memory_order_relaxed);
@@ -76,6 +85,10 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.tasks.mqtt_stall_count = g_mqtt_stall_count.load(std::memory_order_relaxed);
     m.tasks.watchdog_register_errors = g_watchdog_register_errors.load(std::memory_order_relaxed);
     m.tasks.watchdog_feed_errors = g_watchdog_feed_errors.load(std::memory_order_relaxed);
+    m.tasks.radio_stack_hwm_words = g_radio_stack_hwm_words.load(std::memory_order_relaxed);
+    m.tasks.pipeline_stack_hwm_words = g_pipeline_stack_hwm_words.load(std::memory_order_relaxed);
+    m.tasks.mqtt_stack_hwm_words = g_mqtt_stack_hwm_words.load(std::memory_order_relaxed);
+    m.tasks.health_stack_hwm_words = g_health_stack_hwm_words.load(std::memory_order_relaxed);
 
     return common::Result<RuntimeMetrics>::ok(m);
 }
@@ -129,6 +142,17 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
 
 void MetricsService::reset_task_metrics() {
     report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    report_task_stack_metrics(0, 0, 0, 0);
+}
+
+void MetricsService::report_task_stack_metrics(std::uint32_t radio_stack_hwm_words,
+                                               std::uint32_t pipeline_stack_hwm_words,
+                                               std::uint32_t mqtt_stack_hwm_words,
+                                               std::uint32_t health_stack_hwm_words) {
+    g_radio_stack_hwm_words.store(radio_stack_hwm_words, std::memory_order_relaxed);
+    g_pipeline_stack_hwm_words.store(pipeline_stack_hwm_words, std::memory_order_relaxed);
+    g_mqtt_stack_hwm_words.store(mqtt_stack_hwm_words, std::memory_order_relaxed);
+    g_health_stack_hwm_words.store(health_stack_hwm_words, std::memory_order_relaxed);
 }
 
 } // namespace metrics_service

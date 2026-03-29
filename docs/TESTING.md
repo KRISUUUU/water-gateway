@@ -55,14 +55,15 @@ ctest --output-on-failure
 |-----------|------------------|----------------|
 | `test_config_validation.cpp` | `config_store/config_validation` | Valid configs pass; missing SSID, empty hostname, invalid port, out-of-range frequency all produce correct `ValidationIssue` entries |
 | `test_config_migration.cpp` | `config_store/config_migration` | Migration from v0 (unversioned) to current; migration of unknown future version returns error; field defaults are applied correctly |
+| `test_config_store_status.cpp` | `config_store/config_store` | Default fallback/load-source visibility and save success/reject counters; defensive string normalization for fixed-size config fields |
 | `test_dedup.cpp` | `dedup_service` | `seen_recently` returns false for new key; returns true after `remember`; returns false after window expires; `prune` removes expired entries |
 | `test_mqtt_payloads.cpp` | `mqtt_service/mqtt_payloads` | Status payload contains `"online"` field; raw frame payload contains `"hex"`, `"rssi"`, `"timestamp"` fields; topic builder produces correct path structure |
 | `test_auth_helpers.cpp` | `auth_service` (static helpers only) | `hash_password` produces correct `salt:hash` format; `verify_password` accepts correct password and rejects wrong password; null/empty input handling |
-| `test_health_logic.cpp` | `health_monitor` | State transitions: starting→healthy, healthy→warning, warning→error; counter increments on warnings/errors; recovery back to healthy |
+| `test_health_logic.cpp` | `health_monitor` | State transitions: starting->healthy, healthy->warning, warning->error; counter increments on warnings/errors; recovery back to healthy |
 | `test_wmbus_pipeline.cpp` | `wmbus_minimal_pipeline` | `from_radio_frame` preserves canonical raw bytes; helper accessors (`l_field`, `c_field`, `manufacturer_id`, `device_id`) and identity/signature helpers are correct; hex conversion remains stable for API/export |
 | `test_meter_registry.cpp` | `meter_registry` | Detected meter observation, byte-based identity derivation, watchlist upsert/remove, and telegram filtering (`watched`, `duplicates`, `crc_fail`) |
-| `test_ota_manager.cpp` | `ota_manager` | Upload lifecycle in host mode (`begin_upload` → `write_chunk` → `finalize_upload`) and final OTA state/progress |
-
+| `test_ota_manager.cpp` | `ota_manager` | Upload lifecycle in host mode (`begin_upload` -> `write_chunk` -> `finalize_upload`) and final OTA state/progress |
+| `test_metrics_service.cpp` | `metrics_service` | Queue/task counters, task stack watermark reporting, and reset behavior of instrumentation snapshots |
 ### Fixture Data
 
 The `tests/fixtures/sample_frames.json` file contains captured or synthetic
@@ -133,3 +134,5 @@ jobs:
 | No multi-device testing | Requires multiple devices | Future: test MQTT topic isolation |
 | No TLS certificate testing | Requires broker setup | Manual test with TLS-enabled broker |
 | No power-loss testing | Requires hardware setup | Future: test NVS integrity after unexpected power loss |
+
+

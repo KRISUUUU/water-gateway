@@ -11,6 +11,7 @@
 #include "meter_registry/meter_registry.hpp"
 #include "metrics_service/metrics_service.hpp"
 #include "mqtt_service/mqtt_service.hpp"
+#include "ntp_service/ntp_service.hpp"
 #include "ota_manager/ota_manager.hpp"
 #include "persistent_log_buffer/persistent_log_buffer.hpp"
 #include "provisioning_manager/provisioning_manager.hpp"
@@ -806,6 +807,12 @@ esp_err_t handle_status(httpd_req_t* req) {
     cJSON_AddNumberToObject(health_o, "uptime_s", static_cast<double>(health.uptime_s));
     cJSON_AddStringToObject(health_o, "last_warning_msg", health.last_warning_msg.c_str());
     cJSON_AddStringToObject(health_o, "last_error_msg", health.last_error_msg.c_str());
+    cJSON_AddNumberToObject(health_o, "last_transition_uptime_s",
+                            static_cast<double>(health.last_transition_uptime_s));
+    cJSON_AddNumberToObject(health_o, "last_warning_uptime_s",
+                            static_cast<double>(health.last_warning_uptime_s));
+    cJSON_AddNumberToObject(health_o, "last_error_uptime_s",
+                            static_cast<double>(health.last_error_uptime_s));
 
     cJSON* metrics_o = cJSON_AddObjectToObject(root.get(), "metrics");
     cJSON_AddNumberToObject(metrics_o, "uptime_s", static_cast<double>(metrics.uptime_s));
@@ -815,6 +822,19 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.min_free_heap_bytes));
     cJSON_AddNumberToObject(metrics_o, "largest_free_block",
                             static_cast<double>(metrics.largest_free_block));
+    cJSON_AddNumberToObject(metrics_o, "free_internal_heap_bytes",
+                            static_cast<double>(metrics.free_internal_heap_bytes));
+    cJSON_AddNumberToObject(metrics_o, "min_internal_heap_bytes",
+                            static_cast<double>(metrics.min_internal_heap_bytes));
+    cJSON_AddNumberToObject(metrics_o, "reset_reason_code",
+                            static_cast<double>(metrics.reset_reason_code));
+#ifndef HOST_TEST_BUILD
+    cJSON_AddStringToObject(metrics_o, "reset_reason",
+                            esp_reset_reason_to_name(
+                                static_cast<esp_reset_reason_t>(metrics.reset_reason_code)));
+#else
+    cJSON_AddStringToObject(metrics_o, "reset_reason", "host_build");
+#endif
     cJSON* tasks_o = cJSON_AddObjectToObject(metrics_o, "tasks");
     cJSON_AddNumberToObject(tasks_o, "radio_loop_age_ms",
                             static_cast<double>(metrics.tasks.radio_loop_age_ms));
@@ -834,9 +854,28 @@ esp_err_t handle_status(httpd_req_t* req) {
                             static_cast<double>(metrics.tasks.watchdog_register_errors));
     cJSON_AddNumberToObject(tasks_o, "watchdog_feed_errors",
                             static_cast<double>(metrics.tasks.watchdog_feed_errors));
+    cJSON_AddNumberToObject(tasks_o, "radio_stack_hwm_words",
+                            static_cast<double>(metrics.tasks.radio_stack_hwm_words));
+    cJSON_AddNumberToObject(tasks_o, "pipeline_stack_hwm_words",
+                            static_cast<double>(metrics.tasks.pipeline_stack_hwm_words));
+    cJSON_AddNumberToObject(tasks_o, "mqtt_stack_hwm_words",
+                            static_cast<double>(metrics.tasks.mqtt_stack_hwm_words));
+    cJSON_AddNumberToObject(tasks_o, "health_stack_hwm_words",
+                            static_cast<double>(metrics.tasks.health_stack_hwm_words));
 
     cJSON_AddStringToObject(root.get(), "mode", mode);
     cJSON_AddStringToObject(root.get(), "firmware_version", ota.current_version);
+    const auto ntp_status = ntp_service::NtpService::instance().status();
+    const int64_t now_epoch_ms = ntp_service::NtpService::instance().now_epoch_ms();
+    const int64_t monotonic_ms = ntp_service::NtpService::instance().monotonic_now_ms();
+    cJSON* time_o = cJSON_AddObjectToObject(root.get(), "time");
+    cJSON_AddBoolToObject(time_o, "ntp_synchronized", ntp_status.synchronized);
+    cJSON_AddNumberToObject(time_o, "last_ntp_sync_epoch_s",
+                            static_cast<double>(ntp_status.last_sync_epoch_s));
+    cJSON_AddNumberToObject(time_o, "now_epoch_ms", static_cast<double>(now_epoch_ms));
+    cJSON_AddNumberToObject(time_o, "monotonic_ms", static_cast<double>(monotonic_ms));
+    cJSON_AddBoolToObject(time_o, "timestamp_uses_monotonic_fallback", now_epoch_ms <= 0);
+    cJSON_AddStringToObject(time_o, "timestamp_source", now_epoch_ms > 0 ? "epoch" : "monotonic");
     cJSON* security_o = cJSON_AddObjectToObject(root.get(), "security");
     cJSON_AddBoolToObject(security_o, "admin_password_set", cfg.auth.has_password());
     cJSON_AddBoolToObject(security_o, "provisioning_ap_open", !cfg.wifi.is_configured());

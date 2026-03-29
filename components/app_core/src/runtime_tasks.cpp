@@ -34,6 +34,10 @@ static const char* TAG = "app_runtime";
 
 static QueueHandle_t frame_queue = nullptr;
 static QueueHandle_t mqtt_outbox = nullptr;
+static TaskHandle_t radio_task_handle = nullptr;
+static TaskHandle_t pipeline_task_handle = nullptr;
+static TaskHandle_t mqtt_task_handle = nullptr;
+static TaskHandle_t health_task_handle = nullptr;
 static constexpr uint32_t kFrameQueueDepth = 16;
 static constexpr uint32_t kMqttOutboxDepth = 32;
 static constexpr uint32_t kCriticalTaskStallMs = 5000;
@@ -106,6 +110,27 @@ static void sample_queue_levels() {
         mqtt_stall_count.load(std::memory_order_relaxed),
         watchdog_register_errors.load(std::memory_order_relaxed),
         watchdog_feed_errors.load(std::memory_order_relaxed));
+}
+
+static void sample_task_stack_watermarks() {
+    uint32_t radio_hwm = 0;
+    uint32_t pipeline_hwm = 0;
+    uint32_t mqtt_hwm = 0;
+    uint32_t health_hwm = 0;
+    if (radio_task_handle) {
+        radio_hwm = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(radio_task_handle));
+    }
+    if (pipeline_task_handle) {
+        pipeline_hwm = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(pipeline_task_handle));
+    }
+    if (mqtt_task_handle) {
+        mqtt_hwm = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(mqtt_task_handle));
+    }
+    if (health_task_handle) {
+        health_hwm = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(health_task_handle));
+    }
+    metrics_service::MetricsService::report_task_stack_metrics(radio_hwm, pipeline_hwm, mqtt_hwm,
+                                                               health_hwm);
 }
 
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
@@ -207,7 +232,12 @@ static void pipeline_task(void* /*param*/) {
             rx_count++;
             pipeline_frames_processed.fetch_add(1, std::memory_order_relaxed);
 
-            const int64_t ts = ntp_service::NtpService::instance().now_epoch_ms();
+            auto& ntp = ntp_service::NtpService::instance();
+            const bool ntp_synced = ntp.status().synchronized;
+            int64_t ts = ntp.now_epoch_ms();
+            if (ts <= 0) {
+                ts = ntp.monotonic_now_ms();
+            }
 
             auto frame_result =
                 wmbus_minimal_pipeline::WmbusPipeline::from_radio_frame(raw, ts, rx_count);
@@ -223,12 +253,15 @@ static void pipeline_task(void* /*param*/) {
             meter_registry::MeterRegistry::instance().observe_frame(frame, duplicate);
 
             if (route.publish_raw) {
-                char ts_str[32] = "1970-01-01T00:00:00Z";
-                if (ts > 0) {
+                char ts_str[40] = "timestamp_unavailable";
+                if (ntp_synced && ts > 0) {
                     const time_t sec = static_cast<time_t>(ts / 1000);
                     struct tm t;
                     gmtime_r(&sec, &t);
                     strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
+                } else if (ts > 0) {
+                    std::snprintf(ts_str, sizeof(ts_str), "monotonic_ms:%lld",
+                                  static_cast<long long>(ts));
                 }
 
                 enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
@@ -352,6 +385,7 @@ static void health_task(void* /*param*/) {
                                  ms.publish_count, ms.publish_failures, ""));
             }
         }
+        sample_task_stack_watermarks();
 
         vTaskDelay(pdMS_TO_TICKS(30000));
     }
@@ -415,21 +449,25 @@ common::Result<void> AppCore::create_runtime_tasks() {
         return rx_start;
     }
 
-    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, nullptr, 1) !=
+    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, &radio_task_handle,
+                                1) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: radio_rx");
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, nullptr, 0) !=
+    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, &pipeline_task_handle,
+                                0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: pipeline");
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 6144, nullptr, 5, nullptr, 0) != pdPASS) {
+    if (xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 6144, nullptr, 5, &mqtt_task_handle, 0) !=
+        pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: mqtt_pub");
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(health_task, "health", 4096, nullptr, 3, nullptr, 0) != pdPASS) {
+    if (xTaskCreatePinnedToCore(health_task, "health", 4096, nullptr, 3, &health_task_handle, 0) !=
+        pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: health");
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
@@ -438,6 +476,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
         TAG,
         "Runtime tasks created (radio_rx@Core1, pipeline@Core0, mqtt_pub@Core0, health@Core0)");
     sample_queue_levels();
+    sample_task_stack_watermarks();
     return common::Result<void>::ok();
 }
 

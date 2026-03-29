@@ -21,6 +21,9 @@ struct HealthSnapshot {
     std::string last_warning_msg{};
     std::string last_error_msg{};
     std::uint64_t uptime_s{0};
+    std::uint64_t last_transition_uptime_s{0};
+    std::uint64_t last_warning_uptime_s{0};
+    std::uint64_t last_error_uptime_s{0};
 };
 
 class HealthMonitor {

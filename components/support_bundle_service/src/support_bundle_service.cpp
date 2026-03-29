@@ -12,6 +12,10 @@
 
 #include "cJSON.h"
 
+#ifndef HOST_TEST_BUILD
+#include "esp_system.h"
+#endif
+
 namespace support_bundle_service {
 
 namespace {
@@ -112,6 +116,18 @@ cJSON* build_metrics_json(const metrics_service::RuntimeMetrics& m) {
     cJSON_AddNumberToObject(root, "min_free_heap_bytes",
                             static_cast<double>(m.min_free_heap_bytes));
     cJSON_AddNumberToObject(root, "largest_free_block", static_cast<double>(m.largest_free_block));
+    cJSON_AddNumberToObject(root, "free_internal_heap_bytes",
+                            static_cast<double>(m.free_internal_heap_bytes));
+    cJSON_AddNumberToObject(root, "min_internal_heap_bytes",
+                            static_cast<double>(m.min_internal_heap_bytes));
+    cJSON_AddNumberToObject(root, "reset_reason_code", static_cast<double>(m.reset_reason_code));
+#ifndef HOST_TEST_BUILD
+    cJSON_AddStringToObject(root, "reset_reason",
+                            esp_reset_reason_to_name(
+                                static_cast<esp_reset_reason_t>(m.reset_reason_code)));
+#else
+    cJSON_AddStringToObject(root, "reset_reason", "host_build");
+#endif
     return root;
 }
 
@@ -124,6 +140,12 @@ cJSON* build_health_json(const health_monitor::HealthSnapshot& h) {
     cJSON_AddNumberToObject(root, "warning_count", static_cast<double>(h.warning_count));
     cJSON_AddNumberToObject(root, "error_count", static_cast<double>(h.error_count));
     cJSON_AddNumberToObject(root, "uptime_s", static_cast<double>(h.uptime_s));
+    cJSON_AddNumberToObject(root, "last_transition_uptime_s",
+                            static_cast<double>(h.last_transition_uptime_s));
+    cJSON_AddNumberToObject(root, "last_warning_uptime_s",
+                            static_cast<double>(h.last_warning_uptime_s));
+    cJSON_AddNumberToObject(root, "last_error_uptime_s",
+                            static_cast<double>(h.last_error_uptime_s));
     cJSON_AddStringToObject(root, "last_warning_msg", h.last_warning_msg.c_str());
     cJSON_AddStringToObject(root, "last_error_msg", h.last_error_msg.c_str());
     return root;

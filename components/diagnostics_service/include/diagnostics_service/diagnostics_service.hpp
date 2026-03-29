@@ -4,6 +4,7 @@
 #include "health_monitor/health_monitor.hpp"
 #include "metrics_service/metrics_service.hpp"
 #include "mqtt_service/mqtt_service.hpp"
+#include "ntp_service/ntp_service.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 #include <string>
@@ -16,6 +17,10 @@ struct DiagnosticsSnapshot {
     radio_cc1101::RadioCounters radio{};
     mqtt_service::MqttStatus mqtt{};
     wifi_manager::WifiStatus wifi{};
+    ntp_service::NtpStatus ntp{};
+    int64_t now_epoch_ms{0};
+    int64_t monotonic_ms{0};
+    bool timestamp_uses_monotonic_fallback{false};
     metrics_service::RuntimeMetrics metrics{};
     health_monitor::HealthSnapshot health{};
 };

@@ -33,6 +33,9 @@ class NtpService {
     // Returns current UTC time as epoch milliseconds, or 0 if not synchronized
     int64_t now_epoch_ms() const;
 
+    // Returns monotonic milliseconds since boot. Available even before NTP sync.
+    int64_t monotonic_now_ms() const;
+
   private:
     NtpService() = default;
 

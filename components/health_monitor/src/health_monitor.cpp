@@ -6,6 +6,16 @@
 
 namespace health_monitor {
 
+namespace {
+std::uint64_t uptime_now_s() {
+#ifndef HOST_TEST_BUILD
+    return static_cast<std::uint64_t>(esp_timer_get_time() / 1000000ULL);
+#else
+    return 0;
+#endif
+}
+} // namespace
+
 HealthMonitor& HealthMonitor::instance() {
     static HealthMonitor monitor;
     return monitor;
@@ -13,6 +23,9 @@ HealthMonitor& HealthMonitor::instance() {
 
 common::Result<void> HealthMonitor::report_healthy() {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (snapshot_.state != HealthState::Healthy) {
+        snapshot_.last_transition_uptime_s = uptime_now_s();
+    }
     snapshot_.state = HealthState::Healthy;
     return common::Result<void>::ok();
 }
@@ -24,7 +37,11 @@ common::Result<void> HealthMonitor::report_warning(const char* msg) {
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.warning_count += 1;
     snapshot_.last_warning_msg = msg;
+    snapshot_.last_warning_uptime_s = uptime_now_s();
     if (snapshot_.state != HealthState::Error) {
+        if (snapshot_.state != HealthState::Warning) {
+            snapshot_.last_transition_uptime_s = snapshot_.last_warning_uptime_s;
+        }
         snapshot_.state = HealthState::Warning;
     }
     return common::Result<void>::ok();
@@ -37,6 +54,10 @@ common::Result<void> HealthMonitor::report_error(const char* msg) {
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.error_count += 1;
     snapshot_.last_error_msg = msg;
+    snapshot_.last_error_uptime_s = uptime_now_s();
+    if (snapshot_.state != HealthState::Error) {
+        snapshot_.last_transition_uptime_s = snapshot_.last_error_uptime_s;
+    }
     snapshot_.state = HealthState::Error;
     return common::Result<void>::ok();
 }
@@ -45,7 +66,7 @@ common::Result<HealthSnapshot> HealthMonitor::snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     HealthSnapshot s = snapshot_;
 #ifndef HOST_TEST_BUILD
-    s.uptime_s = static_cast<std::uint64_t>(esp_timer_get_time() / 1000000ULL);
+    s.uptime_s = uptime_now_s();
 #else
     s.uptime_s = 0;
 #endif

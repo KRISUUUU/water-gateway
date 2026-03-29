@@ -1,4 +1,5 @@
 #include "wifi_manager/wifi_manager.hpp"
+#include <cstring>
 
 #ifndef HOST_TEST_BUILD
 #include "esp_event.h"
@@ -6,7 +7,6 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "event_bus/event_bus.hpp"
-#include <cstring>
 
 static const char* TAG = "wifi_mgr";
 #endif

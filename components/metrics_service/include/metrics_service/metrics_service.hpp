@@ -29,6 +29,10 @@ struct RuntimeTaskMetrics {
     std::uint32_t mqtt_stall_count{0};
     std::uint32_t watchdog_register_errors{0};
     std::uint32_t watchdog_feed_errors{0};
+    std::uint32_t radio_stack_hwm_words{0};
+    std::uint32_t pipeline_stack_hwm_words{0};
+    std::uint32_t mqtt_stack_hwm_words{0};
+    std::uint32_t health_stack_hwm_words{0};
 };
 
 /// Heap and uptime figures sampled from ESP-IDF (see snapshot()).
@@ -37,6 +41,9 @@ struct RuntimeMetrics {
     std::uint32_t free_heap_bytes{0};
     std::uint32_t min_free_heap_bytes{0};
     std::uint32_t largest_free_block{0};
+    std::uint32_t free_internal_heap_bytes{0};
+    std::uint32_t min_internal_heap_bytes{0};
+    std::uint32_t reset_reason_code{0};
     RuntimeQueueMetrics queues{};
     RuntimeTaskMetrics tasks{};
 };
@@ -67,6 +74,10 @@ class MetricsService {
                                     std::uint32_t mqtt_stall_count,
                                     std::uint32_t watchdog_register_errors,
                                     std::uint32_t watchdog_feed_errors);
+    static void report_task_stack_metrics(std::uint32_t radio_stack_hwm_words,
+                                          std::uint32_t pipeline_stack_hwm_words,
+                                          std::uint32_t mqtt_stack_hwm_words,
+                                          std::uint32_t health_stack_hwm_words);
     static void reset_queue_metrics();
     static void reset_task_metrics();
 

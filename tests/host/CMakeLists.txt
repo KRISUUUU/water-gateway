@@ -25,6 +25,9 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/telegram_router/include"
     "${COMP_DIR}/meter_registry/include"
     "${COMP_DIR}/mqtt_service/include"
+    "${COMP_DIR}/wifi_manager/include"
+    "${COMP_DIR}/ntp_service/include"
+    "${COMP_DIR}/diagnostics_service/include"
     "${COMP_DIR}/auth_service/include"
     "${COMP_DIR}/ota_manager/include"
     "${COMP_DIR}/health_monitor/include"
@@ -160,6 +163,19 @@ add_host_test(test_ota_manager
 add_host_test(test_metrics_service
     test_metrics_service.cpp
     "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
+)
+
+# ---- test_diagnostics_service ----
+add_host_test(test_diagnostics_service
+    test_diagnostics_service.cpp
+    "${COMP_DIR}/diagnostics_service/src/diagnostics_service.cpp"
+    "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
+    "${COMP_DIR}/health_monitor/src/health_monitor.cpp"
+    "${COMP_DIR}/mqtt_service/src/mqtt_service.cpp"
+    "${COMP_DIR}/wifi_manager/src/wifi_manager.cpp"
+    "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
+    "${COMP_DIR}/ntp_service/src/ntp_service.cpp"
+    ${CJSON_SRC}
 )
 
 # ---- test_radio_state_machine ----

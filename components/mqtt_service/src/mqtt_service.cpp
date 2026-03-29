@@ -1,11 +1,11 @@
 #include "mqtt_service/mqtt_service.hpp"
+#include <cstdio>
+#include <cstring>
 
 #ifndef HOST_TEST_BUILD
 #include "esp_log.h"
 #include "event_bus/event_bus.hpp"
 #include "mqtt_client.h"
-#include <cstdio>
-#include <cstring>
 #include <sys/time.h>
 
 static const char* TAG = "mqtt_svc";

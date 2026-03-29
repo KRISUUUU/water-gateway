@@ -89,6 +89,16 @@ int64_t NtpService::now_epoch_ms() const {
 #endif
 }
 
+int64_t NtpService::monotonic_now_ms() const {
+#ifndef HOST_TEST_BUILD
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return static_cast<int64_t>(tv.tv_sec) * 1000 + static_cast<int64_t>(tv.tv_usec) / 1000;
+#else
+    return 0;
+#endif
+}
+
 #ifndef HOST_TEST_BUILD
 void NtpService::time_sync_notification_cb(struct ::timeval* tv) {
     ESP_LOGI(TAG, "NTP time synchronized");

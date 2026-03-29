@@ -8,6 +8,7 @@ int main() {
 
     metrics_service::MetricsService::report_queue_metrics(3, 7, 100, 4, 4, 2, 9, 55, 6, 6);
     metrics_service::MetricsService::report_task_metrics(120, 80, 60, 1234, 2, 1, 3, 1, 5);
+    metrics_service::MetricsService::report_task_stack_metrics(512, 768, 1024, 640);
 
     auto snap_res = metrics_service::MetricsService::instance().snapshot();
     assert(!snap_res.is_error());
@@ -33,6 +34,13 @@ int main() {
     assert(snap.tasks.mqtt_stall_count == 3);
     assert(snap.tasks.watchdog_register_errors == 1);
     assert(snap.tasks.watchdog_feed_errors == 5);
+    assert(snap.tasks.radio_stack_hwm_words == 512);
+    assert(snap.tasks.pipeline_stack_hwm_words == 768);
+    assert(snap.tasks.mqtt_stack_hwm_words == 1024);
+    assert(snap.tasks.health_stack_hwm_words == 640);
+    assert(snap.free_internal_heap_bytes == 0);
+    assert(snap.min_internal_heap_bytes == 0);
+    assert(snap.reset_reason_code == 0);
 
     metrics_service::MetricsService::reset_queue_metrics();
     metrics_service::MetricsService::reset_task_metrics();
@@ -43,6 +51,10 @@ int main() {
     assert(reset_snap.queues.mqtt_outbox_depth == 0);
     assert(reset_snap.tasks.radio_loop_age_ms == 0);
     assert(reset_snap.tasks.watchdog_feed_errors == 0);
+    assert(reset_snap.tasks.radio_stack_hwm_words == 0);
+    assert(reset_snap.tasks.pipeline_stack_hwm_words == 0);
+    assert(reset_snap.tasks.mqtt_stack_hwm_words == 0);
+    assert(reset_snap.tasks.health_stack_hwm_words == 0);
 
     return 0;
 }
