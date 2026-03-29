@@ -102,11 +102,12 @@ common::Result<void> OtaManager::write_chunk(const uint8_t* data, size_t length)
         return common::Result<void>::error(common::ErrorCode::OtaWriteFailed);
     }
 
-    bytes_written_ += length;
-    if (image_size_ > 0) {
-        // O1 fix: direct progress_pct update must be under the mutex like set_status().
+    {
         std::lock_guard<std::mutex> lock(mutex_);
-        status_.progress_pct = static_cast<uint8_t>((bytes_written_ * 100) / image_size_);
+        bytes_written_ += length;
+        if (image_size_ > 0) {
+            status_.progress_pct = static_cast<uint8_t>((bytes_written_ * 100) / image_size_);
+        }
     }
 #else
     (void)data;
@@ -236,8 +237,11 @@ void OtaManager::reset_upload_state(bool abort_active) {
     }
     update_handle_ = nullptr;
     update_partition_ = nullptr;
-    bytes_written_ = 0;
-    image_size_ = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        bytes_written_ = 0;
+        image_size_ = 0;
+    }
 }
 #endif
 

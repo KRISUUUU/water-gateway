@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <string>
+#include <unordered_map>
 
 namespace dedup_service {
 
@@ -13,10 +14,13 @@ struct DedupEntry {
 
 // Sliding-window duplicate detection.
 // Entries older than the configured window are pruned on each check.
+// Hard cap of kMaxEntries prevents unbounded memory growth.
 // Thread safety: not thread-safe; caller must ensure single-threaded access
 // (pipeline_task is the only consumer).
 class DedupService {
   public:
+    static constexpr size_t kMaxEntries = 1000;
+
     static DedupService& instance();
 
     // Set dedup window in milliseconds. Default: 5000 (5 seconds).
@@ -45,8 +49,11 @@ class DedupService {
   private:
     DedupService() = default;
 
+    void evict_oldest();
+
     int64_t window_ms_ = 5000;
     std::deque<DedupEntry> entries_;
+    std::unordered_map<std::string, size_t> key_index_; // key -> count in deque
 };
 
 } // namespace dedup_service

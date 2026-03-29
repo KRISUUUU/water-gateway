@@ -42,6 +42,10 @@ class HttpServer {
     // Returns true when Authorization: Bearer <token> is present and
     // AuthService::validate_session accepts the token.
     bool authorize_request(httpd_req_t* req);
+
+    // Set standard security headers on a response. Call from API handlers before
+    // sending the response body.
+    static void set_security_headers(httpd_req_t* req);
 #else
     common::Result<void> start(uint16_t port);
 #endif

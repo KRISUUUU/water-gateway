@@ -251,7 +251,10 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
             if (idx < pkt_len) {
                 frame.data[1U + idx] = chunk[i];
             } else {
-                status[idx - pkt_len] = chunk[i];
+                const uint16_t status_idx = idx - pkt_len;
+                if (status_idx < sizeof(status)) {
+                    status[status_idx] = chunk[i];
+                }
             }
         }
         received = static_cast<uint16_t>(received + take);
@@ -396,8 +399,8 @@ bool RadioCc1101::spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length) {
         return false;
     }
 
-    uint8_t tx_buf[65]{};
-    uint8_t rx_buf[65]{};
+    WORD_ALIGNED_ATTR uint8_t tx_buf[65]{};
+    WORD_ALIGNED_ATTR uint8_t rx_buf[65]{};
     tx_buf[0] = addr;
 
     spi_transaction_t txn{};

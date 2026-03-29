@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -32,8 +33,35 @@ static std::string uri_path_only(const char* uri) {
     return p;
 }
 
+static std::string percent_decode(const std::string& src) {
+    std::string out;
+    out.reserve(src.size());
+    for (size_t i = 0; i < src.size(); ++i) {
+        if (src[i] == '%' && i + 2 < src.size() &&
+            std::isxdigit(static_cast<unsigned char>(src[i + 1])) &&
+            std::isxdigit(static_cast<unsigned char>(src[i + 2]))) {
+            char hex[3] = {src[i + 1], src[i + 2], '\0'};
+            out += static_cast<char>(std::strtol(hex, nullptr, 16));
+            i += 2;
+        } else {
+            out += src[i];
+        }
+    }
+    return out;
+}
+
 static bool path_has_traversal(const std::string& rel) {
-    return rel.find("..") != std::string::npos;
+    // Decode percent-encoding first to catch %2e%2e and similar bypasses.
+    const std::string decoded = percent_decode(rel);
+    // Check for ".." in both the original and decoded path.
+    if (decoded.find("..") != std::string::npos) {
+        return true;
+    }
+    // Also block backslash-based traversal.
+    if (decoded.find('\\') != std::string::npos) {
+        return true;
+    }
+    return false;
 }
 
 static const char* content_type_for_path(const char* path) {
@@ -112,6 +140,10 @@ static esp_err_t static_spiffs_handler(httpd_req_t* req) {
     // Avoid stale web assets after firmware updates; onboarding/login flow depends on
     // synchronized index.html + app.js versions.
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(req, "X-Frame-Options", "SAMEORIGIN");
+    httpd_resp_set_hdr(req, "Content-Security-Policy",
+                       "default-src 'self'; script-src 'self'; style-src 'self'");
 
     if (sz == 0) {
         std::fclose(f);
@@ -160,6 +192,11 @@ common::Result<void> HttpServer::initialize() {
 }
 
 #ifndef HOST_TEST_BUILD
+
+void HttpServer::set_security_headers(httpd_req_t* req) {
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(req, "X-Frame-Options", "SAMEORIGIN");
+}
 
 bool HttpServer::authorize_request(httpd_req_t* req) {
     size_t len = httpd_req_get_hdr_value_len(req, "Authorization");

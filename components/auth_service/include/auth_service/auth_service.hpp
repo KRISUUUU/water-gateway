@@ -84,6 +84,11 @@ class AuthService {
     uint32_t failed_login_count_ = 0;
     int64_t last_failed_login_s_ = 0;
     mutable std::mutex mutex_;
+
+    // One-time provisioning PIN printed to serial when no password is set.
+    // Only valid until a real password is configured.
+    static constexpr size_t kProvisioningPinLength = 8;
+    char provisioning_pin_[kProvisioningPinLength + 1]{};
 };
 
 } // namespace auth_service

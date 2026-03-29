@@ -66,6 +66,19 @@ common::Result<void> AuthService::initialize() {
     session_.valid = false;
     failed_login_count_ = 0;
 
+    // Generate a one-time provisioning PIN for first-boot authentication.
+    // Printed to serial so only someone with physical access can log in.
+    if (!cfg.auth.has_password()) {
+        generate_random_hex(provisioning_pin_, kProvisioningPinLength);
+#ifndef HOST_TEST_BUILD
+        ESP_LOGW(TAG, "============================================");
+        ESP_LOGW(TAG, "  NO PASSWORD SET — first-boot mode");
+        ESP_LOGW(TAG, "  Provisioning PIN: %s", provisioning_pin_);
+        ESP_LOGW(TAG, "  Use this PIN to log in and set a password.");
+        ESP_LOGW(TAG, "============================================");
+#endif
+    }
+
     initialized_ = true;
     return common::Result<void>::ok();
 }
@@ -88,11 +101,12 @@ common::Result<SessionInfo> AuthService::login(const char* password) {
 
     auto cfg = config_store::ConfigStore::instance().config();
 
-    // If no password is set, accept any non-empty password (first-boot case)
-    // The admin should set a password during provisioning.
+    // If no password is set, require the provisioning PIN printed to serial.
+    // This ensures only someone with physical access can log in on first boot.
     bool authenticated = false;
     if (!cfg.auth.has_password()) {
-        authenticated = true;
+        authenticated = (provisioning_pin_[0] != '\0') &&
+                        secure_equals(password, provisioning_pin_);
     } else {
         authenticated = verify_password(password, cfg.auth.admin_password_hash);
     }
