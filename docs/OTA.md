@@ -53,11 +53,14 @@ Notes:
 ESP-IDF provides automatic rollback when `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`:
 
 1. After OTA reboot, the new firmware is in "pending verification" state
-2. The firmware must call `esp_ota_mark_app_valid_cancel_rollback()` within
-   the watchdog timeout period
-3. If the new firmware crashes or fails health checks before marking valid,
+2. The firmware must call `esp_ota_mark_app_valid_cancel_rollback()` during startup
+   before a rollback-triggering reset
+3. In current code, `mark_boot_valid()` is invoked in both normal and provisioning
+   startup paths after OTA manager initialization
+4. If the new firmware crashes or resets before being marked valid,
    the bootloader rolls back to the previous partition on next reset
-4. The health check includes: WiFi connects, event bus initializes, config loads
+5. Rollback validation still requires real-device testing (timing and reset-path behavior
+   cannot be fully confirmed from repository-only analysis)
 
 ## Safety Checks
 

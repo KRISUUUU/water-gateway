@@ -117,13 +117,22 @@ Use `retry_after_s` from API response before next attempt.
 2. **Many concurrent HTTP requests** — Web panel open in multiple tabs
 3. **Memory leak** — Check `min_free_heap_bytes` trend over time
 
+Current outbox behavior detail:
+- Runtime dequeue/publish is best-effort. When MQTT is disconnected, dequeued outbox entries are dropped (not persisted for later replay).
+- Producers also drop on enqueue timeout when `mqtt_outbox` is full, with drop/error counters exposed in diagnostics.
+
 ## Support Bundle
 
 For remote troubleshooting, download the support bundle from Support page.
 It contains:
 
-- Device identity and firmware version
-- Health state and all diagnostic counters
+- Diagnostics snapshot (radio/MQTT/WiFi/time + queue/task observability)
+- Metrics snapshot (heap/uptime/reset reason)
+- Health state snapshot
 - Configuration (secrets redacted)
 - Recent log lines
-- Reset reason history
+- Meter/watchlist summary counts
+- OTA state/status
+- Build-time security posture fields
+
+It does not currently provide long-term reset history beyond current reset-reason fields.

@@ -93,7 +93,7 @@ Core components are implemented but **not yet validated on real hardware**:
 - OTA manager (URL-based OTA and streamed binary upload endpoint)
 - Web panel (static HTML/JS/CSS served from SPIFFS)
 - Diagnostics, metrics, health monitoring, watchdog, support bundle
-- 14 host test suites, CI pipeline
+- 15 host test suites, CI pipeline
 
 **Status:** Pre-hardware-validation. Host tests pass with a prepared host toolchain. Real RF reception, NVS persistence, WiFi/MQTT connectivity, and full ESP-IDF build validation still require local ESP-IDF environment verification and board testing.
 

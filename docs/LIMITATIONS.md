@@ -32,7 +32,8 @@
     QoS 1 is supported but increases latency and memory usage.
 2. **No MQTT v5.** The ESP-IDF MQTT client uses MQTT v3.1.1.
 3. **No persistent outbox.** If the device reboots while MQTT is disconnected,
-    queued messages are lost.
+    queued messages are lost. In current runtime flow, messages dequeued while
+    disconnected are also dropped (best-effort delivery only).
 
 ## Configuration
 

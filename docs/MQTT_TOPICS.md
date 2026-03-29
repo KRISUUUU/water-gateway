@@ -17,8 +17,12 @@ Device online/offline status. Used for Home Assistant availability.
 
 - **QoS:** 0
 - **Retain:** true
-- **Publish frequency:** On connect, on significant state change
+- **Publish behavior (current):** Last Will offline payload is configured and broker-published on unexpected disconnect.
 - **Last Will:** `{"online": false}` (set on MQTT connect)
+
+Repository-confirmed note:
+- A retained "online" status publish is not currently emitted by the runtime path in this repository.
+- Integrations should treat status-topic offline LWT as authoritative and use telemetry/API for live online state until explicit online status publish is added.
 
 #### Payload: Online
 
@@ -47,7 +51,7 @@ Periodic system metrics for monitoring and alerting.
 
 - **QoS:** 0
 - **Retain:** false
-- **Publish frequency:** Every 30 seconds (configurable)
+- **Publish frequency:** Every 30 seconds (fixed in current runtime task loop)
 
 #### Payload
 

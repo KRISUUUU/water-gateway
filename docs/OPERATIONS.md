@@ -16,8 +16,9 @@ After provisioning, the device operates autonomously:
 
 ### MQTT Status Topic
 
-Subscribe to `wmbus-gw/{id}/status` (retained) to monitor online/offline state.
-The Last Will ensures the status shows offline if the device disconnects unexpectedly.
+Subscribe to `wmbus-gw/{id}/status` (retained) to monitor disconnect/offline state.
+The Last Will ensures the topic shows offline if the device disconnects unexpectedly.
+Use telemetry/API as the primary live-state signal in current implementation.
 
 ### Telemetry Topic
 

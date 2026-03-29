@@ -33,7 +33,7 @@
 | Web panel (HTTP) | Port 80, all endpoints | Unauthorized access, CSRF, XSS, brute force | Auth required, session tokens, input validation, no inline JS eval |
 | MQTT client | Outbound connection | Credential theft, message injection | Credentials in NVS (not logged), optional TLS, validate broker cert |
 | OTA upload | `/api/ota/upload` | Malicious firmware, denial of service | Auth required, binary content-type checks, image-size checks, OTA validation + rollback |
-| OTA URL | `/api/ota/url` | MITM, malicious firmware | HTTPS with cert validation, auth required, image validation |
+| OTA URL | `/api/ota/url` | MITM, malicious firmware | HTTPS scheme required, auth required, image validation (certificate trust posture depends on build/runtime TLS config) |
 | Config import | `/api/config` POST | Malformed config, resource exhaustion | Validation before persistence, size limits |
 | Config export | `/api/config` GET | Credential leakage | Secret fields redacted in response |
 | Support bundle | `/api/support-bundle` | Credential leakage | Secrets redacted, auth required |
@@ -54,6 +54,7 @@
   - If no admin password hash exists yet, passwordless bootstrap login is allowed only while provisioning mode is active
   - Operator should set `auth.admin_password` immediately and reboot
   - Password change endpoint requires current password when a password is already set
+  - API responses set defensive headers (`Cache-Control: no-store`, `Pragma: no-cache`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, restrictive API CSP)
 
 #### T2: Credential Leakage via Logs/Export/UI
 - **Risk:** High (leaked WiFi/MQTT credentials compromise network)
@@ -70,9 +71,9 @@
   - OTA endpoints require authentication
   - Image header validated (ESP-IDF app descriptor check)
   - Image size validated against partition size
-  - Rollback on boot failure (health check must pass)
+  - Rollback on boot failure while app is still pending verification
   - Factory partition as ultimate fallback
-  - URL OTA uses HTTPS with certificate validation
+  - URL OTA enforces HTTPS scheme at API layer; certificate trust details are deployment/build dependent
   - Future: firmware signing with secure boot v2
 
 #### T4: MQTT Credential Theft
@@ -136,6 +137,27 @@
 - Only one active session at a time
 - Token comparison uses constant-time check to reduce timing side-channel risk
 - Auth state is mutex-protected in firmware to avoid race conditions under concurrent HTTP requests
+
+## HTTP Response Hardening
+
+Repository-confirmed behavior:
+
+- API JSON responses (`/api/*`) include:
+  - `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`
+  - `Pragma: no-cache`
+  - `Expires: 0`
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `Referrer-Policy: no-referrer`
+  - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`
+- Static web responses include:
+  - `Cache-Control: no-store, max-age=0`
+  - `Pragma: no-cache`
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `Referrer-Policy: no-referrer`
+
+This hardening improves caching and content-type safety, but does not replace transport security. The web/admin plane is still HTTP (no TLS) by default.
 
 ## Optional Hardening (Documented, Not Default)
 

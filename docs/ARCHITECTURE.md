@@ -212,7 +212,7 @@ Layer 7 (Entry):           main/app_main.cpp
 | `radio_rx_task` | 1 | 10 (high) | 4096B | CC1101 SPI poll, FIFO read, enqueue raw frames |
 | `pipeline_task` | 0 | 7 (medium-high) | 4096B | Frame processing, dedup, routing, enqueue MQTT messages |
 | `mqtt_task` | 0 | 5 (medium) | 6144B | MQTT connection management and publishing |
-| `health_task` | 0 | 3 (low) | 4096B | Periodic health checks, watchdog feeding, telemetry publish |
+| `health_task` | 0 | 3 (low) | 4096B | Periodic health checks, telemetry publish, stack/queue metric sampling |
 | `httpd` (internal) | 0 | 5 | 4096B | ESP-IDF HTTP server (created by httpd_start) |
 
 ### Design Decisions
@@ -236,7 +236,12 @@ Radio RX is highest because FIFO overflow means lost frames. Pipeline is next be
 | `mqtt_outbox` | `MqttOutboxItem` | 32 | `pipeline_task`, `health_task` | `mqtt_task` |
 
 `RawRadioFrame`: ~280 bytes max (raw bytes array + length + RSSI + LQI + CRC status).
-`MqttOutboxItem`: Fixed-size struct with `char topic[128]` + `char payload[640]` (passed by value through the queue, no heap allocation).
+`MqttOutboxItem`: Fixed-size struct with `char topic[128]` + `char payload[896]` (passed by value through the queue, no heap allocation).
+
+Queue/backpressure behavior in current runtime implementation:
+- `frame_queue`: producer waits up to 10 ms; if full, new frame enqueue is dropped and counted (`frame_enqueue_drop`/`frame_enqueue_errors`).
+- `mqtt_outbox`: producer waits up to 10 ms; if full, new message enqueue is dropped and counted (`mqtt_outbox_enqueue_drop`/`mqtt_outbox_enqueue_errors`).
+- `mqtt_task` dequeues regardless of MQTT connection state; if disconnected, dequeued messages are not republished later (best-effort, no persistent outbox).
 
 ### Event Bus (Notifications)
 
@@ -528,6 +533,9 @@ The existing `partitions.csv` provides:
 | Category | Counter | Type |
 |----------|---------|------|
 | Radio | `frames_received` | uint32_t, monotonic |
+| Radio | `rx_read_calls` | uint32_t, monotonic |
+| Radio | `rx_not_found` | uint32_t |
+| Radio | `rx_timeouts` | uint32_t |
 | Radio | `frames_crc_ok` | uint32_t |
 | Radio | `frames_crc_fail` | uint32_t |
 | Radio | `fifo_overflows` | uint32_t |
@@ -543,6 +551,8 @@ The existing `partitions.csv` provides:
 | System | `free_heap_bytes` | uint32_t |
 | System | `min_free_heap_bytes` | uint32_t |
 | System | `reset_reason` | enum |
+
+Additional runtime observability exported via diagnostics/status includes queue depth/high-water, enqueue drop/error counters, task loop age, task stack watermarks, and radio polling loop outcome counters (success/not-found/timeout/error and not-found streak/peak).
 
 ### Health States
 
@@ -762,6 +772,6 @@ water-gateway/
 | CC1101 register config wrong for T-mode | Medium | High (no frames) | Use known-good register sets from open-source projects; test with real meter |
 | WMBus frame format varies by manufacturer | Medium | Medium (parse failures) | Minimal parsing only; let external decoders handle complexity |
 | ESP32 heap exhaustion under load | Low | High (crash) | Bounded queues, stack watermark monitoring, heap tracking |
-| MQTT broker unreachable for extended time | Medium | Medium (queue overflow) | Bounded outbox, drop oldest on overflow, counter tracking |
+| MQTT broker unreachable for extended time | Medium | Medium (message loss) | Bounded outbox, enqueue drop counters, and explicit best-effort/no-persistence behavior |
 | NVS corruption | Low | High (config loss) | Default config fallback, config export for backup |
 | OTA bricking | Low | Critical | Rollback partition, boot health check, factory partition as ultimate fallback |
