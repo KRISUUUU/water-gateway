@@ -38,6 +38,11 @@ class HealthMonitor {
 
     [[nodiscard]] static const char* state_to_string(HealthState state);
 
+#ifdef HOST_TEST_BUILD
+    // Host-test helper for deterministic test isolation.
+    void reset_for_test();
+#endif
+
   private:
     HealthMonitor() = default;
 

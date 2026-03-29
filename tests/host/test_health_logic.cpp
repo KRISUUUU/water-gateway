@@ -5,7 +5,12 @@
 
 using namespace health_monitor;
 
+static void reset_health_monitor() {
+    HealthMonitor::instance().reset_for_test();
+}
+
 static void test_initial_state_is_starting() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     auto snap = hm.snapshot();
     assert(snap.is_ok());
@@ -14,6 +19,7 @@ static void test_initial_state_is_starting() {
 }
 
 static void test_report_healthy() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     hm.report_healthy();
     auto snap = hm.snapshot();
@@ -23,6 +29,7 @@ static void test_report_healthy() {
 }
 
 static void test_report_warning() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     hm.report_healthy();
     hm.report_warning("WiFi disconnected");
@@ -35,6 +42,7 @@ static void test_report_warning() {
 }
 
 static void test_report_error() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     hm.report_error("Radio failed");
     auto snap = hm.snapshot();
@@ -46,6 +54,7 @@ static void test_report_error() {
 }
 
 static void test_warning_does_not_override_error() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     hm.report_error("critical");
     auto before = hm.snapshot();
@@ -62,6 +71,7 @@ static void test_warning_does_not_override_error() {
 }
 
 static void test_healthy_recovers_from_warning() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     hm.report_warning("temp issue");
     hm.report_healthy();
@@ -72,6 +82,7 @@ static void test_healthy_recovers_from_warning() {
 }
 
 static void test_null_warning_rejected() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     auto result = hm.report_warning(nullptr);
     assert(result.is_error());
@@ -80,6 +91,7 @@ static void test_null_warning_rejected() {
 }
 
 static void test_null_error_rejected() {
+    reset_health_monitor();
     auto& hm = HealthMonitor::instance();
     auto result = hm.report_error(nullptr);
     assert(result.is_error());
@@ -88,6 +100,7 @@ static void test_null_error_rejected() {
 }
 
 static void test_state_to_string() {
+    reset_health_monitor();
     assert(std::string(HealthMonitor::state_to_string(HealthState::Starting)) == "Starting");
     assert(std::string(HealthMonitor::state_to_string(HealthState::Healthy)) == "Healthy");
     assert(std::string(HealthMonitor::state_to_string(HealthState::Warning)) == "Warning");

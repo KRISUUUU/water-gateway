@@ -13,18 +13,23 @@ They still require a working native C++ compiler toolchain (GCC/Clang/MSVC).
 
 ### Build System
 
-```
+```text
 tests/host/
-├── CMakeLists.txt          → Top-level test build
-├── test_config_validation.cpp
-├── test_config_migration.cpp
-├── test_dedup.cpp
-├── test_mqtt_payloads.cpp
-├── test_auth_helpers.cpp
-├── test_health_logic.cpp
-├── test_wmbus_pipeline.cpp
-├── test_meter_registry.cpp
-└── test_ota_manager.cpp
+  CMakeLists.txt
+  test_config_validation.cpp
+  test_config_migration.cpp
+  test_config_store_status.cpp
+  test_dedup.cpp
+  test_mqtt_payloads.cpp
+  test_auth_helpers.cpp
+  test_auth_login_policy.cpp
+  test_health_logic.cpp
+  test_wmbus_pipeline.cpp
+  test_meter_registry.cpp
+  test_ota_manager.cpp
+  test_metrics_service.cpp
+  test_diagnostics_service.cpp
+  test_radio_state_machine.cpp
 ```
 
 Host tests include component source files directly and provide minimal stubs
@@ -59,11 +64,14 @@ ctest --output-on-failure
 | `test_dedup.cpp` | `dedup_service` | `seen_recently` returns false for new key; returns true after `remember`; returns false after window expires; `prune` removes expired entries |
 | `test_mqtt_payloads.cpp` | `mqtt_service/mqtt_payloads` | Status payload contains `"online"` field; raw frame payload contains `"hex"`, `"rssi"`, `"timestamp"` fields; topic builder produces correct path structure |
 | `test_auth_helpers.cpp` | `auth_service` (static helpers only) | `hash_password` produces correct `salt:hash` format; `verify_password` accepts correct password and rejects wrong password; null/empty input handling |
+| `test_auth_login_policy.cpp` | `auth_service` + `config_store` | Provisioning-mode passwordless bootstrap policy, normal-mode rejection, hash login behavior, and rate-limit handling |
 | `test_health_logic.cpp` | `health_monitor` | State transitions: starting->healthy, healthy->warning, warning->error; counter increments on warnings/errors; recovery back to healthy |
 | `test_wmbus_pipeline.cpp` | `wmbus_minimal_pipeline` | `from_radio_frame` preserves canonical raw bytes; helper accessors (`l_field`, `c_field`, `manufacturer_id`, `device_id`) and identity/signature helpers are correct; hex conversion remains stable for API/export |
 | `test_meter_registry.cpp` | `meter_registry` | Detected meter observation, byte-based identity derivation, watchlist upsert/remove, and telegram filtering (`watched`, `duplicates`, `crc_fail`) |
 | `test_ota_manager.cpp` | `ota_manager` | Upload lifecycle in host mode (`begin_upload` -> `write_chunk` -> `finalize_upload`) and final OTA state/progress |
 | `test_metrics_service.cpp` | `metrics_service` | Queue/task counters, task stack watermark reporting, and reset behavior of instrumentation snapshots |
+| `test_diagnostics_service.cpp` | `diagnostics_service` | Snapshot/JSON shape checks for time-source fallback and queue/task observability fields |
+| `test_radio_state_machine.cpp` | `radio_state_machine` | Soft-failure escalation, non-escalating faults, hard-fault transitions, and recovery counters |
 ### Fixture Data
 
 The `tests/fixtures/sample_frames.json` file contains captured or synthetic
@@ -134,5 +142,8 @@ jobs:
 | No multi-device testing | Requires multiple devices | Future: test MQTT topic isolation |
 | No TLS certificate testing | Requires broker setup | Manual test with TLS-enabled broker |
 | No power-loss testing | Requires hardware setup | Future: test NVS integrity after unexpected power loss |
+
+
+
 
 

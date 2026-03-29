@@ -87,4 +87,11 @@ const char* HealthMonitor::state_to_string(HealthState state) {
     return "Unknown";
 }
 
+#ifdef HOST_TEST_BUILD
+void HealthMonitor::reset_for_test() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_ = HealthSnapshot{};
+}
+#endif
+
 } // namespace health_monitor

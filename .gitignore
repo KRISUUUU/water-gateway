@@ -22,6 +22,7 @@ coverage/
 *.gcno
 *.profraw
 *.profdata
+tests/host/build*/
 
 # OS / editor
 .DS_Store
