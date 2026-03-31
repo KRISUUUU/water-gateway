@@ -24,6 +24,7 @@ static const char* TAG = "meter_registry";
 
 static constexpr const char* kWatchlistFile = "watchlist.db";
 static constexpr size_t kMaxRecentTelegrams = 200;
+static constexpr size_t kMaxDetectedMeters = 200;
 
 struct RegistryState {
     std::vector<DetectedMeter> detected;
@@ -88,6 +89,14 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
     std::lock_guard<std::mutex> lock(s.mutex);
     int idx = detected_index_by_key(s.detected, key);
     if (idx < 0) {
+        if (s.detected.size() >= kMaxDetectedMeters) {
+            auto oldest = std::min_element(
+                s.detected.begin(), s.detected.end(),
+                [](const DetectedMeter& a, const DetectedMeter& b) { return a.last_seen_ms < b.last_seen_ms; });
+            if (oldest != s.detected.end()) {
+                s.detected.erase(oldest);
+            }
+        }
         DetectedMeter m{};
         m.key = key;
         m.manufacturer_id = frame.manufacturer_id();

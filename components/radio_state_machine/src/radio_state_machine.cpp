@@ -41,7 +41,7 @@ common::Result<void> RadioStateMachine::initialize(const radio_cc1101::SpiPins& 
     recovery_attempts_ = 0;
     recovery_failures_ = 0;
     last_recovery_reason_ = common::ErrorCode::OK;
-    transition_to(RsmState::Receiving);
+    transition_to(RsmState::Idle);
     return common::Result<void>::ok();
 }
 
@@ -195,8 +195,8 @@ void RadioStateMachine::transition_to(RsmState new_state) {
         return;
 
 #ifndef HOST_TEST_BUILD
-    static const char* state_names[] = {"Uninitialized", "Initializing", "Receiving", "Error",
-                                        "Recovering"};
+    static const char* state_names[] = {"Uninitialized", "Initializing", "Idle", "Receiving",
+                                        "Error", "Recovering"};
     ESP_LOGD(TAG, "State: %s -> %s", state_names[static_cast<int>(state_)],
              state_names[static_cast<int>(new_state)]);
 #endif

@@ -256,7 +256,8 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     const uint16_t total_after_l = static_cast<uint16_t>(pkt_len + 2);
     uint16_t received = 0;
     uint8_t status[2]{};
-    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(200);
+    const TickType_t start_tick = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(200);
 
     while (received < total_after_l) {
         uint8_t rxb = 0;
@@ -279,7 +280,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
         }
         if (avail == 0) {
-            if (xTaskGetTickCount() >= deadline) {
+            if ((xTaskGetTickCount() - start_tick) >= timeout_ticks) {
                 counters_.rx_timeouts++;
                 counters_.frames_incomplete++;
 #ifndef HOST_TEST_BUILD

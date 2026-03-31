@@ -9,6 +9,11 @@ int main() {
 
     auto init = rsm.initialize(pins, bus);
     assert(!init.is_error());
+    assert(rsm.state() == radio_state_machine::RsmState::Idle);
+
+    auto start = rsm.start_receiving();
+    assert(!start.is_error());
+    assert(rsm.state() == radio_state_machine::RsmState::Receiving);
 
     // Expected no-frame polling should not be treated as a fault.
     const auto attempts_before_not_found = rsm.recovery_attempts();

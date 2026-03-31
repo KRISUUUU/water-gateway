@@ -86,6 +86,25 @@ common::ErrorCode read_blob_from_nvs(nvs_handle_t handle, const char* key, AppCo
     return common::ErrorCode::StorageCorrupted;
 }
 #endif
+
+#ifndef HOST_TEST_BUILD
+struct ConfigStoreMutexGuard {
+    explicit ConfigStoreMutexGuard(void* mutex)
+        : handle_(static_cast<SemaphoreHandle_t>(mutex)) {
+        if (handle_) {
+            xSemaphoreTake(handle_, portMAX_DELAY);
+        }
+    }
+
+    ~ConfigStoreMutexGuard() {
+        if (handle_) {
+            xSemaphoreGive(handle_);
+        }
+    }
+
+    SemaphoreHandle_t handle_;
+};
+#endif
 } // namespace
 
 ConfigStore& ConfigStore::instance() {
@@ -97,7 +116,6 @@ common::Result<void> ConfigStore::initialize() {
     if (initialized_) {
         return common::Result<void>::error(common::ErrorCode::AlreadyInitialized);
     }
-    runtime_status_.initialize_count++;
 
 #ifndef HOST_TEST_BUILD
     mutex_ = xSemaphoreCreateMutex();
@@ -118,38 +136,59 @@ common::Result<void> ConfigStore::initialize() {
         return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
     }
 #endif
-
-    initialized_ = true;
-    runtime_status_.load_attempts++;
-    runtime_status_.used_defaults = false;
-    runtime_status_.defaults_persisted = false;
-    runtime_status_.defaults_persist_deferred = false;
-    runtime_status_.loaded_from_backup = false;
-    runtime_status_.load_source = ConfigLoadSource::None;
-    runtime_status_.last_load_error = common::ErrorCode::OK;
+    {
+#ifndef HOST_TEST_BUILD
+        ConfigStoreMutexGuard guard(mutex_);
+#endif
+        runtime_status_.initialize_count++;
+        initialized_ = true;
+        runtime_status_.load_attempts++;
+        runtime_status_.used_defaults = false;
+        runtime_status_.defaults_persisted = false;
+        runtime_status_.defaults_persist_deferred = false;
+        runtime_status_.loaded_from_backup = false;
+        runtime_status_.load_source = ConfigLoadSource::None;
+        runtime_status_.last_load_error = common::ErrorCode::OK;
+    }
 
     auto load_result = load_from_nvs();
     if (load_result.is_error()) {
-        runtime_status_.load_failures++;
-        runtime_status_.last_load_error = load_result.error();
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.load_failures++;
+            runtime_status_.last_load_error = load_result.error();
+        }
 #ifndef HOST_TEST_BUILD
         ESP_LOGW(TAG, "Config load failed (%s/%d), applying defaults in RAM",
                  common::error_code_to_string(load_result.error()),
                  static_cast<int>(load_result.error()));
 #endif
-        config_ = AppConfig::make_default();
-        normalize_config_strings(config_);
-        runtime_status_.used_defaults = true;
-        runtime_status_.load_source = ConfigLoadSource::Defaults;
+        AppConfig defaults = AppConfig::make_default();
+        normalize_config_strings(defaults);
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            config_ = defaults;
+            runtime_status_.used_defaults = true;
+            runtime_status_.load_source = ConfigLoadSource::Defaults;
+        }
 
         if (load_result.error() == common::ErrorCode::ConfigVersionMismatch) {
-            runtime_status_.defaults_persist_deferred = true;
+            {
+#ifndef HOST_TEST_BUILD
+                ConfigStoreMutexGuard guard(mutex_);
+#endif
+                runtime_status_.defaults_persist_deferred = true;
+            }
 #ifndef HOST_TEST_BUILD
             ESP_LOGW(TAG,
                      "Defaults persistence deferred because stored config is newer than this firmware");
 #endif
         } else {
-            auto persist_result = persist_to_nvs(config_);
+            auto persist_result = persist_to_nvs(defaults);
             if (persist_result.is_error()) {
 #ifndef HOST_TEST_BUILD
                 ESP_LOGE(TAG, "Failed to persist default config (%s/%d)",
@@ -158,7 +197,12 @@ common::Result<void> ConfigStore::initialize() {
 #endif
                 return persist_result;
             }
-            runtime_status_.defaults_persisted = true;
+            {
+#ifndef HOST_TEST_BUILD
+                ConfigStoreMutexGuard guard(mutex_);
+#endif
+                runtime_status_.defaults_persisted = true;
+            }
         }
     }
 
@@ -168,55 +212,28 @@ common::Result<void> ConfigStore::initialize() {
 
 AppConfig ConfigStore::config() const {
 #ifndef HOST_TEST_BUILD
-    if (mutex_) {
-        xSemaphoreTake(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)), portMAX_DELAY);
-    }
+    ConfigStoreMutexGuard guard(const_cast<void*>(mutex_));
 #endif
 
     AppConfig copy = config_;
-
-#ifndef HOST_TEST_BUILD
-    if (mutex_) {
-        xSemaphoreGive(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)));
-    }
-#endif
-
     return copy;
 }
 
 bool ConfigStore::wifi_is_configured() const {
 #ifndef HOST_TEST_BUILD
-    if (mutex_) {
-        xSemaphoreTake(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)), portMAX_DELAY);
-    }
+    ConfigStoreMutexGuard guard(const_cast<void*>(mutex_));
 #endif
 
     const bool configured = config_.wifi.is_configured();
-
-#ifndef HOST_TEST_BUILD
-    if (mutex_) {
-        xSemaphoreGive(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)));
-    }
-#endif
-
     return configured;
 }
 
 ConfigRuntimeStatus ConfigStore::runtime_status() const {
 #ifndef HOST_TEST_BUILD
-    if (mutex_) {
-        xSemaphoreTake(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)), portMAX_DELAY);
-    }
+    ConfigStoreMutexGuard guard(const_cast<void*>(mutex_));
 #endif
 
     ConfigRuntimeStatus copy = runtime_status_;
-
-#ifndef HOST_TEST_BUILD
-    if (mutex_) {
-        xSemaphoreGive(static_cast<SemaphoreHandle_t>(const_cast<void*>(mutex_)));
-    }
-#endif
-
     return copy;
 }
 
@@ -224,26 +241,51 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
     if (!initialized_) {
         return common::Result<ValidationResult>::error(common::ErrorCode::NotInitialized);
     }
-    runtime_status_.save_attempts++;
+    {
+#ifndef HOST_TEST_BUILD
+        ConfigStoreMutexGuard guard(mutex_);
+#endif
+        runtime_status_.save_attempts++;
+    }
 
     AppConfig candidate = new_config;
     normalize_config_strings(candidate);
 
     auto validation = validate_config(candidate);
     if (!validation.valid) {
-        runtime_status_.save_validation_rejects++;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.save_validation_rejects++;
+        }
         return common::Result<ValidationResult>::ok(validation);
     }
 
-    runtime_status_.migration_attempts++;
+    {
+#ifndef HOST_TEST_BUILD
+        ConfigStoreMutexGuard guard(mutex_);
+#endif
+        runtime_status_.migration_attempts++;
+    }
     auto migrated = migrate_to_current(candidate);
     if (migrated.is_error()) {
-        runtime_status_.migration_failures++;
-        runtime_status_.last_migration_error = migrated.error();
-        runtime_status_.save_failures++;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.migration_failures++;
+            runtime_status_.last_migration_error = migrated.error();
+            runtime_status_.save_failures++;
+        }
         return common::Result<ValidationResult>::error(migrated.error());
     }
-    runtime_status_.last_migration_error = common::ErrorCode::OK;
+    {
+#ifndef HOST_TEST_BUILD
+        ConfigStoreMutexGuard guard(mutex_);
+#endif
+        runtime_status_.last_migration_error = common::ErrorCode::OK;
+    }
 
     AppConfig migrated_cfg = migrated.value();
     normalize_config_strings(migrated_cfg);
@@ -251,24 +293,33 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
     // Defensive: ensure migration output is still valid before persistence.
     auto migrated_validation = validate_config(migrated_cfg);
     if (!migrated_validation.valid) {
-        runtime_status_.save_validation_rejects++;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.save_validation_rejects++;
+        }
         return common::Result<ValidationResult>::ok(migrated_validation);
     }
 
     auto persist_result = persist_to_nvs(migrated_cfg);
     if (persist_result.is_error()) {
-        runtime_status_.save_failures++;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.save_failures++;
+        }
         return common::Result<ValidationResult>::error(persist_result.error());
     }
 
+    {
 #ifndef HOST_TEST_BUILD
-    xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
+        ConfigStoreMutexGuard guard(mutex_);
 #endif
-    config_ = migrated_cfg;
-    runtime_status_.save_successes++;
-#ifndef HOST_TEST_BUILD
-    xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
-#endif
+        config_ = migrated_cfg;
+        runtime_status_.save_successes++;
+    }
 
     loaded_ = true;
     event_bus::EventBus::instance().publish(event_bus::EventType::ConfigChanged);
@@ -287,19 +338,17 @@ common::Result<void> ConfigStore::reset_to_defaults() {
         return result;
     }
 
+    {
 #ifndef HOST_TEST_BUILD
-    xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
+        ConfigStoreMutexGuard guard(mutex_);
 #endif
-    config_ = defaults;
-#ifndef HOST_TEST_BUILD
-    xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
-#endif
-
+        config_ = defaults;
+        runtime_status_.used_defaults = true;
+        runtime_status_.defaults_persisted = true;
+        runtime_status_.defaults_persist_deferred = false;
+        runtime_status_.load_source = ConfigLoadSource::Defaults;
+    }
     loaded_ = true;
-    runtime_status_.used_defaults = true;
-    runtime_status_.defaults_persisted = true;
-    runtime_status_.defaults_persist_deferred = false;
-    runtime_status_.load_source = ConfigLoadSource::Defaults;
     event_bus::EventBus::instance().publish(event_bus::EventType::ConfigChanged);
     return common::Result<void>::ok();
 }
@@ -315,20 +364,35 @@ common::Result<void> ConfigStore::load_from_nvs() {
         normalize_config_strings(current);
 
         if (current.version != kCurrentConfigVersion) {
-            runtime_status_.migration_attempts++;
+            {
+#ifndef HOST_TEST_BUILD
+                ConfigStoreMutexGuard guard(mutex_);
+#endif
+                runtime_status_.migration_attempts++;
+            }
             ESP_LOGI(TAG, "Config version %lu, current %lu - migrating",
                      static_cast<unsigned long>(current.version),
                      static_cast<unsigned long>(kCurrentConfigVersion));
             auto migrated = migrate_to_current(current);
             if (migrated.is_error()) {
-                runtime_status_.migration_failures++;
-                runtime_status_.last_migration_error = migrated.error();
+                {
+#ifndef HOST_TEST_BUILD
+                    ConfigStoreMutexGuard guard(mutex_);
+#endif
+                    runtime_status_.migration_failures++;
+                    runtime_status_.last_migration_error = migrated.error();
+                }
                 ESP_LOGE(TAG, "Config migration failed (%s/%d)",
                          common::error_code_to_string(migrated.error()),
                          static_cast<int>(migrated.error()));
                 return common::Result<void>::error(migrated.error());
             }
-            runtime_status_.last_migration_error = common::ErrorCode::OK;
+            {
+#ifndef HOST_TEST_BUILD
+                ConfigStoreMutexGuard guard(mutex_);
+#endif
+                runtime_status_.last_migration_error = common::ErrorCode::OK;
+            }
             current = migrated.value();
             normalize_config_strings(current);
 
@@ -342,15 +406,25 @@ common::Result<void> ConfigStore::load_from_nvs() {
 
         auto validation = validate_config(current);
         if (!validation.valid) {
-            runtime_status_.validation_failures++;
+            {
+#ifndef HOST_TEST_BUILD
+                ConfigStoreMutexGuard guard(mutex_);
+#endif
+                runtime_status_.validation_failures++;
+            }
             ESP_LOGE(TAG, "Stored config is invalid (%zu issues)", validation.issues.size());
             return common::Result<void>::error(common::ErrorCode::ConfigInvalid);
         }
 
-        config_ = current;
-        runtime_status_.loaded_from_backup = (source == ConfigLoadSource::BackupNvs);
-        runtime_status_.load_source = source;
-        runtime_status_.last_load_error = common::ErrorCode::OK;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            config_ = current;
+            runtime_status_.loaded_from_backup = (source == ConfigLoadSource::BackupNvs);
+            runtime_status_.load_source = source;
+            runtime_status_.last_load_error = common::ErrorCode::OK;
+        }
         return common::Result<void>::ok();
     };
 
@@ -365,7 +439,12 @@ common::Result<void> ConfigStore::load_from_nvs() {
     const common::ErrorCode primary_read = read_blob_from_nvs(handle, kNvsKey, primary);
     const bool primary_ok = (primary_read == common::ErrorCode::OK);
     if (!primary_ok) {
-        runtime_status_.primary_read_failures++;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.primary_read_failures++;
+        }
         ESP_LOGW(TAG, "Primary config read failed (%s/%d)",
                  common::error_code_to_string(primary_read), static_cast<int>(primary_read));
     }
@@ -374,7 +453,12 @@ common::Result<void> ConfigStore::load_from_nvs() {
     const common::ErrorCode backup_read = read_blob_from_nvs(handle, kNvsBackupKey, backup);
     const bool backup_ok = (backup_read == common::ErrorCode::OK);
     if (!backup_ok) {
-        runtime_status_.backup_read_failures++;
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.backup_read_failures++;
+        }
         ESP_LOGW(TAG, "Backup config read failed (%s/%d)",
                  common::error_code_to_string(backup_read), static_cast<int>(backup_read));
     }
@@ -386,7 +470,12 @@ common::Result<void> ConfigStore::load_from_nvs() {
         if (r.is_ok()) {
             return r;
         }
-        runtime_status_.last_load_error = r.error();
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.last_load_error = r.error();
+        }
         if (!backup_ok) {
             return r;
         }
@@ -400,7 +489,12 @@ common::Result<void> ConfigStore::load_from_nvs() {
             ESP_LOGW(TAG, "Loaded config from backup key");
             return r;
         }
-        runtime_status_.last_load_error = r.error();
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.last_load_error = r.error();
+        }
         return r;
     }
 
@@ -418,7 +512,10 @@ common::Result<void> ConfigStore::persist_to_nvs(const AppConfig& cfg) {
     esp_err_t err = nvs_open(kNvsNamespace, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS open for write failed: %d", err);
-        runtime_status_.last_persist_error = common::ErrorCode::NvsOpenFailed;
+        {
+            ConfigStoreMutexGuard guard(mutex_);
+            runtime_status_.last_persist_error = common::ErrorCode::NvsOpenFailed;
+        }
         return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
     }
 
@@ -426,7 +523,10 @@ common::Result<void> ConfigStore::persist_to_nvs(const AppConfig& cfg) {
     if (err != ESP_OK) {
         nvs_close(handle);
         ESP_LOGE(TAG, "NVS blob write failed: %d", err);
-        runtime_status_.last_persist_error = common::ErrorCode::NvsWriteFailed;
+        {
+            ConfigStoreMutexGuard guard(mutex_);
+            runtime_status_.last_persist_error = common::ErrorCode::NvsWriteFailed;
+        }
         return common::Result<void>::error(common::ErrorCode::NvsWriteFailed);
     }
 
@@ -434,7 +534,10 @@ common::Result<void> ConfigStore::persist_to_nvs(const AppConfig& cfg) {
     if (err != ESP_OK) {
         nvs_close(handle);
         ESP_LOGE(TAG, "NVS backup blob write failed: %d", err);
-        runtime_status_.last_persist_error = common::ErrorCode::NvsWriteFailed;
+        {
+            ConfigStoreMutexGuard guard(mutex_);
+            runtime_status_.last_persist_error = common::ErrorCode::NvsWriteFailed;
+        }
         return common::Result<void>::error(common::ErrorCode::NvsWriteFailed);
     }
 
@@ -443,11 +546,17 @@ common::Result<void> ConfigStore::persist_to_nvs(const AppConfig& cfg) {
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS commit failed: %d", err);
-        runtime_status_.last_persist_error = common::ErrorCode::NvsWriteFailed;
+        {
+            ConfigStoreMutexGuard guard(mutex_);
+            runtime_status_.last_persist_error = common::ErrorCode::NvsWriteFailed;
+        }
         return common::Result<void>::error(common::ErrorCode::NvsWriteFailed);
     }
 
-    runtime_status_.last_persist_error = common::ErrorCode::OK;
+    {
+        ConfigStoreMutexGuard guard(mutex_);
+        runtime_status_.last_persist_error = common::ErrorCode::OK;
+    }
     ESP_LOGI(TAG, "Config persisted to NVS + backup (version %lu)",
              static_cast<unsigned long>(cfg.version));
     return common::Result<void>::ok();

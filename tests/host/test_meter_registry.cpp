@@ -31,7 +31,7 @@ int main() {
     assert(!meters.empty());
     assert(meters[0].seen_count >= 1);
     assert(!meters[0].key.empty());
-    assert(meters[0].key == "mfg:1593-id:12345678");
+    assert(meters[0].key == "sig:2C4493157856341201078C20");
 
     meter_registry::WatchlistEntry wl{};
     wl.key = meters[0].key;
@@ -41,7 +41,7 @@ int main() {
     auto save = registry.upsert_watchlist(wl);
     assert(!save.is_error());
 
-    auto watched_tele = make_frame("2C4493157856341201078C21", 2000, false, -72, 30);
+    auto watched_tele = make_frame("2C4493157856341201078C20AA", 2000, false, -72, 30);
     registry.observe_frame(watched_tele, true);
 
     auto watched = registry.recent_telegrams(meter_registry::TelegramFilter::WatchedOnly);
@@ -74,5 +74,26 @@ int main() {
     auto overflow_result = registry.upsert_watchlist(overflow);
     assert(overflow_result.is_error());
     assert(overflow_result.error() == common::ErrorCode::BufferFull);
+
+    for (size_t i = 0; i < 220; ++i) {
+        char hex[64]{};
+        std::snprintf(hex, sizeof(hex), "2C44AA55%08X01078C20", static_cast<unsigned int>(i));
+        registry.observe_frame(make_frame(hex, 10000 + static_cast<int64_t>(i), true), false);
+    }
+
+    meters = registry.detected_meters();
+    assert(meters.size() == 200);
+    bool found_oldest = false;
+    bool found_newest = false;
+    for (const auto& meter : meters) {
+        if (meter.key == "sig:2C44AA550000000001078C20") {
+            found_oldest = true;
+        }
+        if (meter.key == "sig:2C44AA55000000DB01078C20") {
+            found_newest = true;
+        }
+    }
+    assert(!found_oldest);
+    assert(found_newest);
     return 0;
 }

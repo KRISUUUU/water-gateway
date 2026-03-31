@@ -66,9 +66,14 @@ common::Result<std::string> StorageService::read_file(const char* path) {
     long size = std::ftell(f);
     std::fseek(f, 0, SEEK_SET);
 
-    if (size <= 0 || size > 512 * 1024) {
+    if (size < 0 || size > 512 * 1024) {
         std::fclose(f);
         return common::Result<std::string>::error(common::ErrorCode::StorageReadFailed);
+    }
+
+    if (size == 0) {
+        std::fclose(f);
+        return common::Result<std::string>::ok(std::string{});
     }
 
     std::string content(static_cast<size_t>(size), '\0');

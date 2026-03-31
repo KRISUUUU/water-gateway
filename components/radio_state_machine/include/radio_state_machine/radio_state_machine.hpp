@@ -10,6 +10,7 @@ namespace radio_state_machine {
 enum class RsmState : uint8_t {
     Uninitialized = 0,
     Initializing,
+    Idle,
     Receiving,
     Error,
     Recovering,

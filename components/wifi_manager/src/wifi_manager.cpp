@@ -15,6 +15,15 @@ static const char* TAG = "wifi_mgr";
 
 namespace wifi_manager {
 
+#ifndef HOST_TEST_BUILD
+namespace {
+common::Result<void> log_wifi_error(const char* step, esp_err_t err, common::ErrorCode code) {
+    ESP_LOGE(TAG, "%s failed: %d", step, static_cast<int>(err));
+    return common::Result<void>::error(code);
+}
+} // namespace
+#endif
+
 WifiManager& WifiManager::instance() {
     static WifiManager mgr;
     return mgr;
@@ -26,21 +35,48 @@ common::Result<void> WifiManager::initialize() {
     }
 
 #ifndef HOST_TEST_BUILD
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return log_wifi_error("esp_netif_init", err, common::ErrorCode::Unknown);
+    }
 
-    esp_netif_create_default_wifi_sta();
-    esp_netif_create_default_wifi_ap();
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return log_wifi_error("esp_event_loop_create_default", err, common::ErrorCode::Unknown);
+    }
+
+    if (!esp_netif_create_default_wifi_sta()) {
+        return log_wifi_error("esp_netif_create_default_wifi_sta", ESP_FAIL,
+                              common::ErrorCode::Unknown);
+    }
+    if (!esp_netif_create_default_wifi_ap()) {
+        return log_wifi_error("esp_netif_create_default_wifi_ap", ESP_FAIL,
+                              common::ErrorCode::Unknown);
+    }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    err = esp_wifi_init(&cfg);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_init", err, common::ErrorCode::Unknown);
+    }
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler, this, nullptr));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                                        &ip_event_handler, this, nullptr));
+    err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler,
+                                              this, nullptr);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_event_handler_instance_register(WIFI_EVENT)", err,
+                              common::ErrorCode::Unknown);
+    }
+    err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_handler,
+                                              this, nullptr);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_event_handler_instance_register(IP_EVENT)", err,
+                              common::ErrorCode::Unknown);
+    }
 
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_set_storage", err, common::ErrorCode::Unknown);
+    }
 #endif
 
     state_ = WifiState::Disconnected;
@@ -77,9 +113,19 @@ common::Result<void> WifiManager::start_sta(const char* ssid, const char* passwo
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_set_mode(STA)", err, common::ErrorCode::WifiConnectFailed);
+    }
+    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_set_config(STA)", err,
+                              common::ErrorCode::WifiConnectFailed);
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_start(STA)", err, common::ErrorCode::WifiConnectFailed);
+    }
 
     ESP_LOGI(TAG, "WiFi STA starting, SSID: %s", current_ssid_);
 #endif
@@ -110,9 +156,19 @@ common::Result<void> WifiManager::start_ap(const char* ap_ssid) {
     wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     wifi_config.ap.max_connection = 2;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_set_mode(AP)", err, common::ErrorCode::WifiApStartFailed);
+    }
+    err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_set_config(AP)", err,
+                              common::ErrorCode::WifiApStartFailed);
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        return log_wifi_error("esp_wifi_start(AP)", err, common::ErrorCode::WifiApStartFailed);
+    }
 
     ESP_LOGI(TAG, "WiFi AP started, SSID: %s", ap_ssid);
 #endif
