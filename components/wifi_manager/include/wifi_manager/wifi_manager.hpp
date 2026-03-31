@@ -50,6 +50,12 @@ class WifiManager {
         return state_;
     }
 
+#ifdef HOST_TEST_BUILD
+    uint8_t configured_max_retries_for_test() const {
+        return max_retries_;
+    }
+#endif
+
   private:
     WifiManager() = default;
 

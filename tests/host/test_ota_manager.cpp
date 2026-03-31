@@ -32,6 +32,14 @@ int main() {
     assert(url_empty.is_error());
     assert(url_empty.error() == common::ErrorCode::InvalidArgument);
 
+    auto url_async_null = ota.begin_url_ota_async(nullptr);
+    assert(url_async_null.is_error());
+    assert(url_async_null.error() == common::ErrorCode::InvalidArgument);
+
+    auto url_async_empty = ota.begin_url_ota_async("");
+    assert(url_async_empty.is_error());
+    assert(url_async_empty.error() == common::ErrorCode::InvalidArgument);
+
     auto boot_valid = ota.mark_boot_valid();
     assert(!boot_valid.is_error());
 
@@ -69,5 +77,9 @@ int main() {
     assert(st.boot_mark_attempts >= 1);
     assert(st.boot_mark_failures == 0);
     assert(st.boot_marked_valid);
+
+    auto url_async = ota.begin_url_ota_async("https://example.com/fw.bin");
+    assert(!url_async.is_error());
+    assert(ota.status().state == ota_manager::OtaState::Rebooting);
     return 0;
 }

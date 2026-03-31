@@ -108,14 +108,14 @@ class RadioCc1101 {
 
 #ifndef HOST_TEST_BUILD
     // Low-level SPI operations
-    uint8_t spi_strobe(uint8_t strobe_addr);
-    uint8_t spi_read_register(uint8_t addr);
-    void spi_write_register(uint8_t addr, uint8_t value);
-    void spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length);
+    bool spi_strobe(uint8_t strobe_addr, uint8_t* chip_status = nullptr);
+    bool spi_read_register(uint8_t addr, uint8_t& value);
+    bool spi_write_register(uint8_t addr, uint8_t value);
+    bool spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length);
 
     common::Result<void> apply_tmode_config();
     int8_t convert_rssi(uint8_t raw_rssi);
-    uint8_t read_marcstate();
+    common::Result<uint8_t> read_marcstate();
 
     void* spi_handle_ = nullptr; // spi_device_handle_t
 #endif

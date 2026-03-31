@@ -45,19 +45,8 @@ uint32_t WmbusFrame::device_id() const {
 }
 
 std::string WmbusFrame::identity_key() const {
-    const uint16_t mfg = manufacturer_id();
-    const uint32_t dev = device_id();
-    // In raw T-mode capture, manufacturer/device fields become valid only after 3-of-6 decode.
-    if (mfg == 0 && dev == 0) {
-        const std::string sig = signature_prefix_hex(12);
-        return "sig:" + (sig.empty() ? "EMPTY" : sig);
-    }
-    if (mfg != 0 || dev != 0) {
-        char buf[48];
-        std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X", static_cast<unsigned int>(mfg),
-                      static_cast<unsigned int>(dev));
-        return std::string(buf);
-    }
+    // In raw T-mode capture, manufacturer/device fields are not trustworthy until 3-of-6 decode.
+    // Do not emit a misleading stable-looking mfg:/id: identity from undecoded bytes.
     const std::string sig = signature_prefix_hex(12);
     return "sig:" + (sig.empty() ? "EMPTY" : sig);
 }

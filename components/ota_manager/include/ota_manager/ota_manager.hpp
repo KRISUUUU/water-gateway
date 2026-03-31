@@ -21,6 +21,7 @@ class OtaManager {
 
     // Begin URL-based OTA download. Blocks until complete or fails.
     common::Result<void> begin_url_ota(const char* url);
+    common::Result<void> begin_url_ota_async(const char* url);
 
     // Mark current firmware as valid (cancels rollback timer).
     // Should be called once boot health checks pass.
@@ -37,11 +38,15 @@ class OtaManager {
     OtaStatus status_{};
 
 #ifndef HOST_TEST_BUILD
+    static void url_ota_task(void* param);
+    common::Result<void> perform_url_ota(const char* url, bool announce_start);
     void reset_upload_state(bool abort_active = true);
     void* update_handle_ = nullptr;    // esp_ota_handle_t
     void* update_partition_ = nullptr; // const esp_partition_t*
     size_t bytes_written_ = 0;
     size_t image_size_ = 0;
+    void* url_ota_task_handle_ = nullptr; // TaskHandle_t
+    char pending_url_[512] = {};
 #endif
 };
 

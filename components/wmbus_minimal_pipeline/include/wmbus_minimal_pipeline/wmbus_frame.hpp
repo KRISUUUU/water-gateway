@@ -34,7 +34,8 @@ struct WmbusFrame {
     // Device serial (bytes 5-8, BCD-encoded)
     uint32_t device_id() const;
 
-    // Best-effort meter identity key for product-layer indexing.
+    // Conservative identity key for product-layer indexing.
+    // Raw T-mode capture uses signature fallback until 3-of-6 decode exists.
     std::string identity_key() const;
 
     // Best-effort stable key for dedup/indexing without converting to hex.

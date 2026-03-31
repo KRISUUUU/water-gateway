@@ -123,7 +123,7 @@ static void test_identity_and_signature_helpers() {
     const auto& frame = result.value();
     assert(frame.manufacturer_id() == 0x1593);
     assert(frame.device_id() == 0x12345678);
-    assert(frame.identity_key() == "mfg:1593-id:12345678");
+    assert(frame.identity_key() == "sig:2C44931578563412AABB");
     assert(frame.signature_prefix_hex(4) == "2C449315");
     assert(frame.dedup_key().size() == frame.raw_bytes.size());
     printf("  PASS: identity/signature helpers\n");

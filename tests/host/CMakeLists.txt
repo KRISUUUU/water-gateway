@@ -192,6 +192,16 @@ add_host_test(test_metrics_service
     "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
 )
 
+# ---- test_wifi_manager ----
+add_host_test(test_wifi_manager
+    test_wifi_manager.cpp
+    "${COMP_DIR}/wifi_manager/src/wifi_manager.cpp"
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+)
+
 # ---- test_security_posture ----
 add_host_test(test_security_posture
     test_security_posture.cpp
@@ -205,6 +215,9 @@ add_host_test(test_diagnostics_service
     "${COMP_DIR}/health_monitor/src/health_monitor.cpp"
     "${COMP_DIR}/mqtt_service/src/mqtt_service.cpp"
     "${COMP_DIR}/wifi_manager/src/wifi_manager.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
     "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
     "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/radio_state_machine/src/radio_state_machine.cpp"

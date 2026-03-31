@@ -8,6 +8,8 @@
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 static const char* TAG = "ota_mgr";
 #endif
 
@@ -202,6 +204,45 @@ common::Result<void> OtaManager::abort_upload() {
     return common::Result<void>::ok();
 }
 
+common::Result<void> OtaManager::begin_url_ota_async(const char* url) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!url || url[0] == '\0') {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+    if (status_.state == OtaState::InProgress || status_.state == OtaState::Validating) {
+        return common::Result<void>::error(common::ErrorCode::OtaAlreadyInProgress);
+    }
+
+#ifndef HOST_TEST_BUILD
+    if (url_ota_task_handle_ != nullptr) {
+        return common::Result<void>::error(common::ErrorCode::OtaAlreadyInProgress);
+    }
+    if (std::strlen(url) >= sizeof(pending_url_)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+    std::strncpy(pending_url_, url, sizeof(pending_url_) - 1);
+    pending_url_[sizeof(pending_url_) - 1] = '\0';
+    set_status(OtaState::InProgress, "Downloading from URL");
+    event_bus::EventBus::instance().publish(event_bus::EventType::OtaStarted);
+
+    TaskHandle_t task = nullptr;
+    if (xTaskCreatePinnedToCore(&OtaManager::url_ota_task, "ota_url", 8192, this, 4, &task, 0) !=
+        pdPASS) {
+        pending_url_[0] = '\0';
+        set_status(OtaState::Failed, "URL OTA worker start failed");
+        event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, -1);
+        return common::Result<void>::error(common::ErrorCode::OtaBeginFailed);
+    }
+    url_ota_task_handle_ = task;
+    return common::Result<void>::ok();
+#else
+    return begin_url_ota(url);
+#endif
+}
+
 common::Result<void> OtaManager::begin_url_ota(const char* url) {
     if (!initialized_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);
@@ -209,7 +250,7 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
     if (!url || url[0] == '\0') {
         return common::Result<void>::error(common::ErrorCode::InvalidArgument);
     }
-    if (status_.state == OtaState::InProgress) {
+    if (status_.state == OtaState::InProgress || status_.state == OtaState::Validating) {
         return common::Result<void>::error(common::ErrorCode::OtaAlreadyInProgress);
     }
 
@@ -217,6 +258,22 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
     event_bus::EventBus::instance().publish(event_bus::EventType::OtaStarted);
 
 #ifndef HOST_TEST_BUILD
+    return perform_url_ota(url, false);
+#else
+    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate");
+    status_.progress_pct = 100;
+    event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
+    return common::Result<void>::ok();
+#endif
+}
+
+#ifndef HOST_TEST_BUILD
+common::Result<void> OtaManager::perform_url_ota(const char* url, bool announce_start) {
+    if (announce_start) {
+        set_status(OtaState::InProgress, "Downloading from URL");
+        event_bus::EventBus::instance().publish(event_bus::EventType::OtaStarted);
+    }
+
     esp_http_client_config_t http_config{};
     http_config.url = url;
     http_config.timeout_ms = 30000;
@@ -235,7 +292,6 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
     }
 
     ESP_LOGI(TAG, "HTTPS OTA successful, reboot to activate");
-#endif
 
     set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate");
     status_.progress_pct = 100;
@@ -244,6 +300,17 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
 
     return common::Result<void>::ok();
 }
+
+void OtaManager::url_ota_task(void* param) {
+    auto* self = static_cast<OtaManager*>(param);
+    if (self) {
+        (void)self->perform_url_ota(self->pending_url_, false);
+        self->pending_url_[0] = '\0';
+        self->url_ota_task_handle_ = nullptr;
+    }
+    vTaskDelete(nullptr);
+}
+#endif
 
 common::Result<void> OtaManager::mark_boot_valid() {
     if (!initialized_) {

@@ -1,0 +1,57 @@
+# Audit Report — water-gateway
+
+## Fixed
+
+## Needs Architect Decision
+| # | Plik | Funkcja | Problem | Dlaczego zatrzymany |
+|---|------|---------|---------|---------------------|
+| 1 | `components/api_handlers/src/api_handlers_common.cpp` | `client_id_from_request()` | Rate limiting w API używa `httpd_req_to_sockfd()` jako proxy klienta, a nie rzeczywistego IP. | Kod sam opisuje to jako świadomy kompromis, a repo nie dostarcza tu lepszego źródła tożsamości klienta. To wpływa na semantykę limitowania, ale bez wymagań produktowych nie ma podstaw, by oznaczyć to jako jednoznaczny bug. |
+
+## Not Fixed (MEDIUM/LOW — do decyzji autora)
+| # | Plik | Kategoria | Problem | Rekomendacja |
+|---|------|-----------|---------|--------------|
+| 1 | `components/radio_cc1101/src/radio_cc1101.cpp` | MEDIUM | `read_frame()` wyznacza timeout przez `deadline = xTaskGetTickCount() + ...` i porównuje `xTaskGetTickCount() >= deadline` w pętli. To jest klasycznie niebezpieczne po overflow ticków i może błędnie wydłużyć lub skrócić timeout po długim uptime. | Użyć arytmetyki różnicowej na tickach zamiast porównania absolutnego deadline. |
+| 2 | `components/meter_registry/src/meter_registry.cpp` | MEDIUM | `RegistryState::detected` nie ma żadnego limitu ani polityki evikcji. `observe_frame()` dopisuje nowy wpis przy każdym nowym `derive_meter_key(frame)`, więc pamięć może rosnąć bez ograniczeń. | Dodać bounded cache albo politykę retencji dla `detected`. |
+| 3 | `components/config_store/src/config_store.cpp` | MEDIUM | `runtime_status()` czyta `runtime_status_` pod mutexem, ale wiele zapisów do tego samego obiektu odbywa się poza mutexem w `initialize()`, `save()`, `load_from_nvs()` i `persist_to_nvs()`. To daje niespójne snapshoty i realny race między writerem i czytelnikiem. | Ujednolicić ochronę `runtime_status_` jednym lockiem albo atomikami dla prostych liczników. |
+| 4 | `components/storage_service/src/storage_service.cpp` | LOW | `read_file()` traktuje plik o rozmiarze `0` jako błąd (`size <= 0`). Pusty plik jest poprawnym stanem filesystemu, więc API nie potrafi odczytać legalnej zawartości. | Rozróżnić `ftell() < 0` od `size == 0` i zwracać pusty string dla pliku pustego. |
+| 5 | `components/radio_state_machine/src/radio_state_machine.cpp` | LOW | `initialize()` ustawia stan maszyny na `Receiving`, mimo że sama inicjalizacja radia kończy się stanem `Idle`, a właściwy `start_rx()` wywoływany jest dopiero później. To tworzy krótkie okno niespójności między stanem logicznym i stanem sterownika. | Po inicjalizacji ustawiać `Idle`, a `Receiving` dopiero po udanym `start_receiving()`. |
+
+## Critical / High Findings
+| # | Moduł | Plik | Funkcja | Kategoria | Problem | Dowód | Minimalny kierunek naprawy |
+|---|-------|------|---------|-----------|---------|-------|----------------------------|
+| 1 | Auth | `components/auth_service/src/auth_service.cpp` | `initialize()`, `login()` | HIGH | Zmiana `auth.session_timeout_s` w konfiguracji nie działa do rebootu. | `initialize()` kopiuje `cfg.auth.session_timeout_s` tylko raz do `session_timeout_s_` (`auth_service.cpp:257-258`). `login()` zawsze liczy `expires_epoch_s` z tego cachowanego pola (`auth_service.cpp:342-344`). Po zmianie configu handler robi tylko `logout()` (`components/api_handlers/src/config_handlers.cpp:58-63`), bez ponownego załadowania timeoutu. To jest bezpośredni logic bug, nie hipoteza. | Odświeżać timeout w `AuthService` po zmianie configu albo czytać go atomowo z `ConfigStore` przy logowaniu. |
+| 2 | Radio CC1101 | `components/radio_cc1101/src/radio_cc1101.cpp` | `initialize()` | HIGH | Błąd inicjalizacji wycieka zasoby SPI. | Po `spi_bus_initialize()` (`:45`) i `spi_bus_add_device()` (`:57-58`) kolejne ścieżki błędu (`:59-62`, `:73-86`) zwracają `Result::error(...)` bez `spi_bus_remove_device()` ani `spi_bus_free()`. To jest potwierdzony leak zasobów przy częściowej inicjalizacji. | Dodać uporządkowany teardown na wszystkich ścieżkach błędu po zaalokowaniu bus/device. |
+| 3 | Radio CC1101 | `components/radio_cc1101/src/radio_cc1101.cpp` | `reset()`, `start_rx()`, `apply_tmode_config()`, helpery SPI | HIGH | Błędy SPI są liczone, ale nie propagowane; wyższe warstwy dostają fałszywy sukces i stan radia przesuwa się dalej. | `spi_strobe()`, `spi_write_register()`, `spi_read_burst()` przy `spi_device_transmit(...) != ESP_OK` tylko inkrementują `counters_.spi_errors` (`:342-345`, `:371-374`, `:390-393`). Mimo tego `reset()` zwraca `ok()` (`:96-105`), `start_rx()` ustawia `state_ = Receiving` i zwraca `ok()` (`:107-123`), a `apply_tmode_config()` zawsze zwraca `ok()` (`:398-403`). To daje stan logiczny „działa”, choć transport SPI mógł zawieść. | Zmienić helpery SPI tak, by zwracały błąd i zatrzymywały zmianę stanu przy nieudanym I/O. |
+| 4 | WMBus Pipeline | `components/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp` | `identity_key()` | HIGH | Pipeline buduje klucz `mfg:...` z pól, które sam kod oznacza jako niewiarygodne bez dekodu 3-of-6. | `manufacturer_id()` i `device_id()` mają komentarz NOTE, że bytes są wiarygodne dopiero po 3-of-6 decode (`wmbus_pipeline.cpp:29-45`). Mimo tego `identity_key()` zwraca `mfg:%04X-id:%08X` dla każdego przypadku, w którym tylko jedno z pól jest niezerowe (`:47-60`). To jest sprzeczność wewnątrz samego kodu, więc nie jest tylko observation. | Nie używać surowych pól do tożsamości dopóki pipeline nie ma dekodera albo nie ma mocniejszego warunku ważności. |
+| 5 | OTA / HTTP API | `components/api_handlers/src/ota_handlers.cpp` | `handle_ota_url()` | HIGH | OTA po URL blokuje handler HTTP na czas całego `esp_https_ota()`. | `handle_ota_url()` wywołuje bezpośrednio `OtaManager::instance().begin_url_ota(...)` i zwraca odpowiedź dopiero po jego zakończeniu (`ota_handlers.cpp:115-117`). `begin_url_ota()` jest jawnie blokujące i wywołuje synchroniczne `esp_https_ota(...)` (`components/ota_manager/src/ota_manager.cpp:205-245`). To jest potwierdzony blocking behavior w kontekście request handlera. | Przenieść URL OTA do osobnego tasku/job runnera i w handlerze tylko zainicjować pracę. |
+| 6 | App Core | `components/app_core/src/runtime_tasks.cpp` | `create_runtime_tasks()` | HIGH | Częściowa inicjalizacja runtime wycieka kolejki i może zostawić już-utworzone taski bez cleanupu. | Funkcja tworzy `frame_queue` i `mqtt_outbox` na początku (`runtime_tasks.cpp:580-581`). Gdy później zawiedzie inicjalizacja radia (`:596-610`) albo tworzenie któregoś taska (`:612-632`), funkcja wraca błędem bez `vQueueDelete(...)` i bez kasowania tasków utworzonych wcześniej. To jest realny leak zasobów na ścieżce błędu. | Dodać sekwencję rollback/cleanup dla wszystkich częściowo utworzonych zasobów. |
+| 7 | WiFi | `components/wifi_manager/src/wifi_manager.cpp` | `start_sta()`, `poll_retry_timer()`, `handle_wifi_event()` | HIGH | Konfigurowalny limit retry WiFi nie jest używany; runtime zawsze działa na domyślnym `10`. | `WifiManager` ma pole `max_retries_` w klasie, ale `start_sta()` resetuje tylko `retry_count_` i `retry_exhausted_at_us_` (`wifi_manager.cpp:62-65`) i nigdzie nie wczytuje `cfg.wifi.max_retries`. Jednocześnie logika backoffu i rozłączeń używa `max_retries_` (`:140-158` i dalej w `handle_wifi_event()`). To oznacza, że ustawienie z configu nie wpływa na zachowanie. | Podczas startu STA wczytać retry limit z aktywnej konfiguracji. |
+| 8 | WiFi | `components/wifi_manager/src/wifi_manager.cpp` | `initialize()`, `start_sta()`, `start_ap()` | HIGH | Moduł, który deklaruje `Result<void>`, abortuje proces przez `ESP_ERROR_CHECK` zamiast zwrócić błąd. | `initialize()` używa `ESP_ERROR_CHECK` dla `esp_netif_init`, `esp_event_loop_create_default`, `esp_wifi_init`, rejestracji handlerów i `esp_wifi_set_storage` (`wifi_manager.cpp:28-42`). `start_sta()` i `start_ap()` robią to samo dla `esp_wifi_set_mode`, `esp_wifi_set_config`, `esp_wifi_start` (`:78-80`, `:111-113`). W projekcie `Result<T>` jest podstawowym wzorcem obsługi błędów; tutaj recoverable failures kończą się panic/abort. | Zastąpić `ESP_ERROR_CHECK` normalną propagacją błędów do `Result<void>`. |
+| 9 | MQTT Runtime | `components/app_core/src/runtime_tasks.cpp` | `mqtt_task()` | HIGH | Błędy publikacji MQTT są ignorowane, a wiadomości są tracone bez retry. | W `mqtt_task()` przy połączeniu aktywnym wywołanie `mqtt.publish(...)` ignoruje zwracany `Result<void>` zarówno dla `carry` (`runtime_tasks.cpp:411-415`) jak i dla nowo odebranego elementu (`:419-423`). `MqttService::publish()` może zwrócić błąd, np. gdy `esp_mqtt_client_enqueue(...) < 0` (`components/mqtt_service/src/mqtt_service.cpp:154-156`). To daje potwierdzony loss danych na transient failure. | Sprawdzać wynik `publish()` i zostawiać element do retry albo raportować trwałą porażkę zamiast cichego dropu. |
+
+## Observations
+| # | Plik | Funkcja | Co widzę | Dlaczego to jeszcze nie jest potwierdzony bug |
+|---|------|---------|----------|----------------------------------------------|
+| 1 | `components/api_handlers/src/api_handlers_common.cpp` | `client_id_from_request()` | Per-client rate limit używa socket fd jako proxy klienta. | Deskryptor może zostać ponownie użyty przez innego klienta po zamknięciu połączenia, ale w samym repo nie ma dowodu, że to powoduje błędne blokowanie w realnym workflow. To jest ograniczenie jakości identyfikatora, nie potwierdzony bug. |
+| 2 | `components/radio_state_machine/src/radio_state_machine.cpp` | `tick()` | Po osiągnięciu `kMaxConsecutiveErrors` auto-recovery zostaje wyłączone i stan przechodzi w `Error`. | To może być świadoma polityka „fail closed”. Bez wymagań produktu nie ma dowodu, że urządzenie powinno próbować w nieskończoność. |
+| 3 | `components/storage_service/src/storage_service.cpp` | `initialize()` | `format_if_mount_failed = true` pozwala automatycznie sformatować SPIFFS po błędzie mountu. | To może oznaczać utratę danych, ale repo jest pre-hardware-validation i nie definiuje mocniejszych wymagań retencji. Bez polityki produktu nie kwalifikuję tego jako bug. |
+| 4 | `components/auth_service/src/auth_service.cpp` | `login()`, `validate_session()` | Sesja opiera się o czas epokowy, a nie o monotonic clock. | Nie mam w kodzie dowodu, że realny runtime pracuje bez RTC/NTP na tyle długo, by to łamało politykę sesji. To ryzyko zależne od środowiska, nie potwierdzony defekt. |
+
+## Build/Test Sanity
+| Check | Status | Uwagi |
+|-------|--------|------|
+| Host tests: `ctest --output-on-failure` w `tests/host/build` | PASS | 18/18 testów przeszło. |
+| ESP-IDF build: `powershell -ExecutionPolicy Bypass -Command ". 'C:\\Espressif\\tools\\Microsoft.v5.2.PowerShell_profile.ps1'; idf.py build"` | NOT RUNNABLE IN THIS ENV | Na tej maszynie polecenie nie mogło wystartować, bo `powershell` nie jest zainstalowany: `bash: powershell: command not found`. Nie wykonywałem alternatywnej komendy, zgodnie z instrukcją. |
+
+## Suggested Fix Batches
+1. Auth + WiFi
+   Naprawić nieskuteczne odświeżanie `session_timeout_s_`, użycie konfiguracji `wifi.max_retries` i usunąć `ESP_ERROR_CHECK` z runtime pathów WiFi.
+
+2. Radio + WMBus Identity
+   Zamknąć ścieżki błędów i cleanup w `radio_cc1101`, propagować błędy SPI oraz odseparować `identity_key()` od surowych pól bez dekodu.
+
+3. Runtime + MQTT + OTA
+   Dodać rollback zasobów w `create_runtime_tasks()`, obsłużyć retry/drop policy dla `mqtt.publish()` i wynieść URL OTA poza kontekst handlera HTTP.
+
+4. Config + Registry
+   Uporządkować synchronizację `runtime_status_` i dodać limit/retencję dla `MeterRegistry::detected`.

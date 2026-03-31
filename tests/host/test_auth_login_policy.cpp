@@ -114,6 +114,46 @@ void test_login_rate_limit_enforced_after_repeated_failures() {
     std::printf("  PASS: login rate limiting activates after repeated failures\n");
 }
 
+void test_session_timeout_updates_after_config_change() {
+    constexpr uint32_t kClientId = 77;
+    assert(auth_service::AuthService::instance().set_attempt_record_for_test(kClientId, 0, 0));
+
+    auto cfg = config_store::ConfigStore::instance().config();
+    disable_mqtt_for_validation(cfg);
+    std::strncpy(cfg.wifi.ssid, "HomeWiFi", sizeof(cfg.wifi.ssid) - 1);
+    cfg.wifi.ssid[sizeof(cfg.wifi.ssid) - 1] = '\0';
+    cfg.auth.session_timeout_s = 120;
+
+    auto hash = auth_service::AuthService::hash_password("TimeoutSecret");
+    assert(hash.is_ok());
+    std::strncpy(cfg.auth.admin_password_hash, hash.value().c_str(),
+                 sizeof(cfg.auth.admin_password_hash) - 1);
+    cfg.auth.admin_password_hash[sizeof(cfg.auth.admin_password_hash) - 1] = '\0';
+
+    auto save = config_store::ConfigStore::instance().save(cfg);
+    assert(save.is_ok());
+    assert(save.value().valid);
+
+    auto first = auth_service::AuthService::instance().login("TimeoutSecret", kClientId);
+    assert(first.is_ok());
+    const int64_t first_timeout = first.value().expires_epoch_s - first.value().created_epoch_s;
+    assert(first_timeout == 120);
+    auth_service::AuthService::instance().logout();
+
+    cfg.auth.session_timeout_s = 240;
+    save = config_store::ConfigStore::instance().save(cfg);
+    assert(save.is_ok());
+    assert(save.value().valid);
+
+    auto second = auth_service::AuthService::instance().login("TimeoutSecret", kClientId);
+    assert(second.is_ok());
+    const int64_t second_timeout = second.value().expires_epoch_s - second.value().created_epoch_s;
+    assert(second_timeout == 240);
+    auth_service::AuthService::instance().logout();
+    assert(auth_service::AuthService::instance().set_attempt_record_for_test(kClientId, 0, 0));
+    std::printf("  PASS: session timeout updates after config change without reboot\n");
+}
+
 } // namespace
 
 int main() {
@@ -129,6 +169,7 @@ int main() {
     test_passwordless_login_rejected_in_normal_mode();
     test_password_hash_login_still_works();
     test_login_rate_limit_enforced_after_repeated_failures();
+    test_session_timeout_updates_after_config_change();
 
     std::printf("All auth login policy tests passed.\n");
     return 0;

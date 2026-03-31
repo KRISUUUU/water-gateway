@@ -112,9 +112,14 @@ esp_err_t handle_ota_url(httpd_req_t* req) {
         return send_json(req, 400,
                          "{\"error\":\"invalid_url_scheme\",\"detail\":\"https_required\"}");
     }
-    return ota_manager::OtaManager::instance().begin_url_ota(url_copy.c_str()).is_ok()
-               ? send_json(req, 200, "{\"ok\":true}")
-               : send_json(req, 400, "{\"error\":\"ota_begin_failed\"}");
+    auto begin = ota_manager::OtaManager::instance().begin_url_ota_async(url_copy.c_str());
+    if (begin.is_ok()) {
+        return send_json(req, 202, "{\"ok\":true,\"started\":true}");
+    }
+    if (begin.error() == common::ErrorCode::OtaAlreadyInProgress) {
+        return send_json(req, 409, "{\"error\":\"ota_in_progress\"}");
+    }
+    return send_json(req, 400, "{\"error\":\"ota_begin_failed\"}");
 }
 
 } // namespace api_handlers::detail

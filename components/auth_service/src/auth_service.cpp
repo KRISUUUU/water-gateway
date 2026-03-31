@@ -339,6 +339,7 @@ common::Result<SessionInfo> AuthService::login(const char* password, uint32_t cl
     if (success_idx != kMaxTrackedClients) {
         clear_record(records_[success_idx]);
     }
+    session_timeout_s_ = cfg.auth.session_timeout_s;
     session_.valid = true;
     session_.created_epoch_s = now_s;
     session_.expires_epoch_s = now_s + static_cast<int64_t>(session_timeout_s_);

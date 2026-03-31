@@ -176,6 +176,33 @@ static void sample_task_stack_watermarks() {
                                                                health_hwm);
 }
 
+static void cleanup_runtime_resources() {
+    if (health_task_handle) {
+        vTaskDelete(health_task_handle);
+        health_task_handle = nullptr;
+    }
+    if (mqtt_task_handle) {
+        vTaskDelete(mqtt_task_handle);
+        mqtt_task_handle = nullptr;
+    }
+    if (pipeline_task_handle) {
+        vTaskDelete(pipeline_task_handle);
+        pipeline_task_handle = nullptr;
+    }
+    if (radio_task_handle) {
+        vTaskDelete(radio_task_handle);
+        radio_task_handle = nullptr;
+    }
+    if (mqtt_outbox) {
+        vQueueDelete(mqtt_outbox);
+        mqtt_outbox = nullptr;
+    }
+    if (frame_queue) {
+        vQueueDelete(frame_queue);
+        frame_queue = nullptr;
+    }
+}
+
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
     auto& mqtt = mqtt_service::MqttService::instance();
     if (topic.size() >= kMqttOutboxTopicCapacity || payload.size() >= kMqttOutboxPayloadCapacity) {
@@ -400,6 +427,7 @@ static void mqtt_task(void* /*param*/) {
     MqttOutboxItem item{};
     MqttOutboxItem carry{};
     bool carry_pending = false;
+    uint32_t publish_retry_failures = 0;
 
     if (wd.register_task().is_error()) {
         watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
@@ -410,19 +438,40 @@ static void mqtt_task(void* /*param*/) {
         mqtt_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         if (carry_pending) {
             if (mqtt.is_connected()) {
-                mqtt.publish(carry.topic, carry.payload, 0, false);
-                carry_pending = false;
-                mqtt.report_outbox_carry_pending(false);
+                auto publish_result = mqtt.publish(carry.topic, carry.payload, 0, false);
+                if (publish_result.is_ok()) {
+                    carry_pending = false;
+                    publish_retry_failures = 0;
+                    mqtt.report_outbox_carry_pending(false);
+                } else {
+                    publish_retry_failures++;
+                    mqtt.report_outbox_carry_retry_attempt();
+                    if ((publish_retry_failures % 32U) == 1U) {
+                        ESP_LOGW(TAG, "MQTT publish retry failed (failures=%lu topic=%s err=%d)",
+                                 static_cast<unsigned long>(publish_retry_failures), carry.topic,
+                                 static_cast<int>(publish_result.error()));
+                    }
+                }
             } else {
                 mqtt.report_outbox_carry_retry_attempt();
             }
         } else if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
             sample_queue_levels();
             if (mqtt.is_connected()) {
-                mqtt.publish(item.topic, item.payload, 0, false);
+                auto publish_result = mqtt.publish(item.topic, item.payload, 0, false);
+                if (publish_result.is_error()) {
+                    std::memcpy(&carry, &item, sizeof(carry));
+                    carry_pending = true;
+                    publish_retry_failures = 1;
+                    mqtt.report_outbox_carry_pending(true);
+                    mqtt.report_outbox_carry_retry_attempt();
+                    ESP_LOGW(TAG, "MQTT publish failed, staging carry topic=%s err=%d", item.topic,
+                             static_cast<int>(publish_result.error()));
+                }
             } else {
                 std::memcpy(&carry, &item, sizeof(carry));
                 carry_pending = true;
+                publish_retry_failures = 0;
                 mqtt.report_outbox_carry_pending(true);
                 mqtt.report_outbox_carry_retry_attempt();
             }
@@ -544,6 +593,7 @@ static void health_task(void* /*param*/) {
 namespace app_core {
 
 common::Result<void> AppCore::create_runtime_tasks() {
+    cleanup_runtime_resources();
     frame_enqueue_success.store(0, std::memory_order_relaxed);
     frame_enqueue_drop.store(0, std::memory_order_relaxed);
     frame_enqueue_errors.store(0, std::memory_order_relaxed);
@@ -582,6 +632,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
     if (!frame_queue || !mqtt_outbox) {
         ESP_LOGE(TAG, "Runtime queue allocation failed (frame_queue=%p mqtt_outbox=%p)",
                  frame_queue, mqtt_outbox);
+        cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::BufferFull);
     }
 
@@ -598,6 +649,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
         ESP_LOGE(TAG, "Radio state machine initialize failed (%s/%d)",
                  common::error_code_to_string(rsm_init.error()),
                  static_cast<int>(rsm_init.error()));
+        cleanup_runtime_resources();
         return rsm_init;
     }
 
@@ -606,6 +658,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
         ESP_LOGE(TAG, "Radio RX start failed (%s/%d)",
                  common::error_code_to_string(rx_start.error()),
                  static_cast<int>(rx_start.error()));
+        cleanup_runtime_resources();
         return rx_start;
     }
 
@@ -613,22 +666,26 @@ common::Result<void> AppCore::create_runtime_tasks() {
                                 1) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: radio_rx");
+        cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
     if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, &pipeline_task_handle,
                                 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: pipeline");
+        cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
     if (xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 6144, nullptr, 5, &mqtt_task_handle, 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: mqtt_pub");
+        cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
     if (xTaskCreatePinnedToCore(health_task, "health", 4096, nullptr, 3, &health_task_handle, 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: health");
+        cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
 

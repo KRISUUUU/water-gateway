@@ -1,4 +1,5 @@
 #include "wifi_manager/wifi_manager.hpp"
+#include "config_store/config_store.hpp"
 #include <cstring>
 
 #ifndef HOST_TEST_BUILD
@@ -61,6 +62,7 @@ common::Result<void> WifiManager::start_sta(const char* ssid, const char* passwo
 
     std::strncpy(current_ssid_, ssid, sizeof(current_ssid_) - 1);
     current_ssid_[sizeof(current_ssid_) - 1] = '\0';
+    max_retries_ = config_store::ConfigStore::instance().config().wifi.max_retries;
     retry_count_ = 0;
     retry_exhausted_at_us_ = 0;
 
