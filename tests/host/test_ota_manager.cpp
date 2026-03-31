@@ -44,6 +44,18 @@ int main() {
 
     auto write = ota.write_chunk(fw_stub, sizeof(fw_stub));
     assert(!write.is_error());
+    auto abort = ota.abort_upload();
+    assert(!abort.is_error());
+    assert(ota.status().state == ota_manager::OtaState::Idle);
+
+    auto finalize_after_abort = ota.finalize_upload();
+    assert(finalize_after_abort.is_error());
+    assert(finalize_after_abort.error() == common::ErrorCode::InvalidArgument);
+
+    begin = ota.begin_upload(sizeof(fw_stub));
+    assert(!begin.is_error());
+    write = ota.write_chunk(fw_stub, sizeof(fw_stub));
+    assert(!write.is_error());
     auto fin = ota.finalize_upload();
     assert(!fin.is_error());
 

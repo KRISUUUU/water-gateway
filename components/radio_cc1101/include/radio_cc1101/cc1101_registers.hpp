@@ -128,10 +128,13 @@ struct TmodeRegisterConfig {
 static constexpr TmodeRegisterConfig kTmodeConfig[] = {
     {registers::IOCFG2, 0x06},   // GDO2: sync word sent/received
     {registers::IOCFG0, 0x00},   // GDO0: CLK_XOSC/192 (not used, low)
-    {registers::FIFOTHR, 0x47},  // RX FIFO threshold: 33 bytes
-    {registers::PKTLEN, 0xFF},   // Max packet length 255
+    {registers::FIFOTHR, 0x47},  // RX FIFO threshold: 33 bytes; read_frame() polls RXBYTES, so
+                                 // the threshold/GDO setting does not define packet completion
+    {registers::PKTLEN, 0xFF},   // Variable-length upper bound: first RX FIFO byte may advertise
+                                 // up to 255 payload bytes before appended status
     {registers::PKTCTRL1, 0x04}, // Append status (RSSI/LQI/CRC) to RX FIFO
-    {registers::PKTCTRL0, 0x00}, // Fixed packet length mode, no CRC autoflush
+    {registers::PKTCTRL0, 0x05}, // Variable-length mode + data whitening; read_frame() treats the
+                                 // first RX FIFO byte as the WMBus L-field/packet length
     {registers::FSCTRL1, 0x08},  // IF frequency
     {registers::FSCTRL0, 0x00},  // Frequency offset
     // 868.95 MHz: FREQ = 868.95 * 2^16 / 26 = 0x2188CA

@@ -73,6 +73,16 @@ class RadioCc1101 {
     // Return to idle
     common::Result<void> go_idle();
 
+    // Polling-mode RX contract:
+    // - Success: a complete frame plus trailing RSSI/LQI/CRC status was drained from the FIFO.
+    // - Soft failure: NotFound means no complete frame is currently available; Timeout and
+    //   InvalidArgument mean polling observed partial/invalid FIFO state and the caller may keep
+    //   RX alive or escalate after repeated occurrences.
+    // - Recovery trigger: FIFO overflow returns RadioFifoOverflow immediately; repeated soft
+    //   failures are escalated by RadioStateMachine.
+    // - Hardware gap: burst traffic, FIFO timing margins, and poll-vs-interrupt trade-offs still
+    //   require real ESP32 + CC1101 validation.
+    //
     // Read one WMBus T-mode frame from the RX FIFO. Long frames are drained in <=64 B bursts
     // with a bounded wait (no single-FIFO assumption); timeout flushes FIFO on stall.
     common::Result<RawRadioFrame> read_frame();

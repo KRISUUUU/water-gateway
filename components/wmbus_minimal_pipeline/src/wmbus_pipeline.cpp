@@ -27,6 +27,7 @@ uint8_t WmbusFrame::c_field() const {
 }
 
 uint16_t WmbusFrame::manufacturer_id() const {
+    // NOTE: In T-mode raw capture these bytes are reliable only after 3-of-6 decode.
     // Bytes 3-4 (index 2-3), little-endian
     const uint16_t b3 = byte_at(raw_bytes, 2);
     const uint16_t b4 = byte_at(raw_bytes, 3);
@@ -34,6 +35,7 @@ uint16_t WmbusFrame::manufacturer_id() const {
 }
 
 uint32_t WmbusFrame::device_id() const {
+    // NOTE: In T-mode raw capture these bytes are reliable only after 3-of-6 decode.
     // Bytes 5-8 (index 4-7), little-endian
     const uint32_t b5 = byte_at(raw_bytes, 4);
     const uint32_t b6 = byte_at(raw_bytes, 5);
@@ -45,6 +47,11 @@ uint32_t WmbusFrame::device_id() const {
 std::string WmbusFrame::identity_key() const {
     const uint16_t mfg = manufacturer_id();
     const uint32_t dev = device_id();
+    // In raw T-mode capture, manufacturer/device fields become valid only after 3-of-6 decode.
+    if (mfg == 0 && dev == 0) {
+        const std::string sig = signature_prefix_hex(12);
+        return "sig:" + (sig.empty() ? "EMPTY" : sig);
+    }
     if (mfg != 0 || dev != 0) {
         char buf[48];
         std::snprintf(buf, sizeof(buf), "mfg:%04X-id:%08X", static_cast<unsigned int>(mfg),

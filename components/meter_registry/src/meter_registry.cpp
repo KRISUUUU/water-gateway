@@ -204,6 +204,9 @@ common::Result<void> MeterRegistry::upsert_watchlist(const WatchlistEntry& entry
         std::lock_guard<std::mutex> lock(s.mutex);
         int idx = watchlist_index_by_key(s.watchlist, entry.key);
         if (idx < 0) {
+            if (s.watchlist.size() >= MeterRegistry::kMaxWatchlistSize) {
+                return common::Result<void>::error(common::ErrorCode::BufferFull);
+            }
             s.watchlist.push_back(entry);
         } else {
             s.watchlist[static_cast<size_t>(idx)] = entry;
@@ -332,6 +335,9 @@ common::Result<void> MeterRegistry::load_watchlist() {
     while (std::getline(in, line)) {
         WatchlistEntry e{};
         if (parse_watchlist_line(line, e)) {
+            if (s.watchlist.size() >= MeterRegistry::kMaxWatchlistSize) {
+                break;
+            }
             s.watchlist.push_back(std::move(e));
         }
     }
@@ -341,13 +347,16 @@ common::Result<void> MeterRegistry::load_watchlist() {
 
 common::Result<void> MeterRegistry::persist_watchlist() const {
     RegistryState& s = state();
-    std::string file;
+    std::vector<WatchlistEntry> snapshot;
     {
         std::lock_guard<std::mutex> lock(s.mutex);
-        for (const auto& e : s.watchlist) {
+        snapshot = s.watchlist;
+    }
+
+    std::string file;
+    for (const auto& e : snapshot) {
             file += serialize_watchlist_line(e);
             file += "\n";
-        }
     }
 
     auto& storage = storage_service::StorageService::instance();

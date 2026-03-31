@@ -2,6 +2,7 @@
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 
 #include <cassert>
+#include <cstdio>
 
 static wmbus_minimal_pipeline::WmbusFrame make_frame(const char* hex, int64_t ts_ms, bool crc_ok,
                                                      int8_t rssi = -70, uint8_t lqi = 40) {
@@ -57,5 +58,21 @@ int main() {
 
     auto rm = registry.remove_watchlist(wl.key);
     assert(!rm.is_error());
+
+    for (size_t i = 0; i < meter_registry::MeterRegistry::kMaxWatchlistSize; ++i) {
+        meter_registry::WatchlistEntry item{};
+        char key[32]{};
+        std::snprintf(key, sizeof(key), "sig:test-%02zu", i);
+        item.key = key;
+        item.alias = "meter";
+        auto save_item = registry.upsert_watchlist(item);
+        assert(!save_item.is_error());
+    }
+
+    meter_registry::WatchlistEntry overflow{};
+    overflow.key = "sig:overflow";
+    auto overflow_result = registry.upsert_watchlist(overflow);
+    assert(overflow_result.is_error());
+    assert(overflow_result.error() == common::ErrorCode::BufferFull);
     return 0;
 }

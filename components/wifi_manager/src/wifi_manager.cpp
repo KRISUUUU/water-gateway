@@ -5,6 +5,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "event_bus/event_bus.hpp"
 
@@ -54,9 +55,14 @@ common::Result<void> WifiManager::start_sta(const char* ssid, const char* passwo
         return common::Result<void>::error(common::ErrorCode::InvalidArgument);
     }
 
+#ifdef HOST_TEST_BUILD
+    (void)password;
+#endif
+
     std::strncpy(current_ssid_, ssid, sizeof(current_ssid_) - 1);
     current_ssid_[sizeof(current_ssid_) - 1] = '\0';
     retry_count_ = 0;
+    retry_exhausted_at_us_ = 0;
 
 #ifndef HOST_TEST_BUILD
     wifi_config_t wifi_config{};
@@ -90,6 +96,8 @@ common::Result<void> WifiManager::start_ap(const char* ap_ssid) {
 
     std::strncpy(current_ssid_, ap_ssid, sizeof(current_ssid_) - 1);
     current_ssid_[sizeof(current_ssid_) - 1] = '\0';
+    retry_count_ = 0;
+    retry_exhausted_at_us_ = 0;
 
 #ifndef HOST_TEST_BUILD
     wifi_config_t wifi_config{};
@@ -124,7 +132,30 @@ common::Result<void> WifiManager::stop() {
     state_ = WifiState::Disconnected;
     ip_address_[0] = '\0';
     current_ssid_[0] = '\0';
+    retry_count_ = 0;
+    retry_exhausted_at_us_ = 0;
     return common::Result<void>::ok();
+}
+
+void WifiManager::poll_retry_timer() {
+#ifndef HOST_TEST_BUILD
+    if (!initialized_ || state_ != WifiState::Disconnected || retry_count_ < max_retries_ ||
+        retry_exhausted_at_us_ == 0) {
+        return;
+    }
+
+    const int64_t now_us = esp_timer_get_time();
+    if ((now_us - retry_exhausted_at_us_) < kRetryBackoffUs) {
+        return;
+    }
+
+    retry_count_ = 0;
+    retry_exhausted_at_us_ = 0;
+    reconnect_count_++;
+    ESP_LOGW(TAG, "WiFi retry backoff elapsed, restarting STA connect attempts");
+    esp_wifi_connect();
+    state_ = WifiState::Connecting;
+#endif
 }
 
 WifiStatus WifiManager::status() const {
@@ -172,6 +203,9 @@ void WifiManager::handle_wifi_event(int32_t event_id, void* /*event_data*/) {
             state_ = WifiState::Connecting;
         } else {
             ESP_LOGE(TAG, "WiFi max retries (%u) reached", max_retries_);
+            if (retry_exhausted_at_us_ == 0) {
+                retry_exhausted_at_us_ = esp_timer_get_time();
+            }
         }
         break;
 
@@ -190,6 +224,7 @@ void WifiManager::handle_ip_event(int32_t event_id, void* event_data) {
         snprintf(ip_address_, sizeof(ip_address_), IPSTR, IP2STR(&event->ip_info.ip));
         state_ = WifiState::Connected;
         retry_count_ = 0;
+        retry_exhausted_at_us_ = 0;
 
         // Query current RSSI
         wifi_ap_record_t ap_info;

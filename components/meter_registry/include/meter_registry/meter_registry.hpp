@@ -56,6 +56,8 @@ enum class TelegramFilter : uint8_t {
 
 class MeterRegistry {
   public:
+    static constexpr std::size_t kMaxWatchlistSize = 50;
+
     static MeterRegistry& instance();
 
     common::Result<void> initialize();

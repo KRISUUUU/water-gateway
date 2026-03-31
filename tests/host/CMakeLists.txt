@@ -122,9 +122,30 @@ add_host_test(test_auth_helpers
     "${COMP_DIR}/config_store/src/config_migration.cpp"
 )
 
+# ---- test_auth_pbkdf2 ----
+add_host_test(test_auth_pbkdf2
+    test_auth_pbkdf2.cpp
+    "${COMP_DIR}/auth_service/src/auth_service.cpp"
+    "${COMP_DIR}/persistent_log_buffer/src/persistent_log_buffer.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+)
+
 # ---- test_auth_login_policy ----
 add_host_test(test_auth_login_policy
     test_auth_login_policy.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/auth_service/src/auth_service.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+)
+
+# ---- test_auth_rate_limit ----
+add_host_test(test_auth_rate_limit
+    test_auth_rate_limit.cpp
     "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/auth_service/src/auth_service.cpp"
     "${COMP_DIR}/config_store/src/config_store.cpp"
@@ -159,6 +180,12 @@ add_host_test(test_ota_manager
     "${COMP_DIR}/ota_manager/src/ota_manager.cpp"
 )
 
+# ---- test_event_bus ----
+add_host_test(test_event_bus
+    test_event_bus.cpp
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+)
+
 # ---- test_metrics_service ----
 add_host_test(test_metrics_service
     test_metrics_service.cpp
@@ -179,6 +206,8 @@ add_host_test(test_diagnostics_service
     "${COMP_DIR}/mqtt_service/src/mqtt_service.cpp"
     "${COMP_DIR}/wifi_manager/src/wifi_manager.cpp"
     "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    "${COMP_DIR}/radio_state_machine/src/radio_state_machine.cpp"
     "${COMP_DIR}/ntp_service/src/ntp_service.cpp"
     ${CJSON_SRC}
 )

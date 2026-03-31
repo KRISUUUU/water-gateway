@@ -30,12 +30,18 @@ class RadioStateMachine {
     // Attempt recovery from error state
     common::Result<void> recover();
 
-    // Called periodically from the radio task to check for errors
-    // and handle automatic recovery
+    // Called from the polling RX task once per loop iteration to check for escalated errors and
+    // perform optional auto-recovery. This does not make RX interrupt-driven.
     void tick();
 
-    // Notify state machine about read-loop outcomes so repeated soft failures
-    // can be escalated to explicit recovery attempts.
+    // Notify state machine about read-loop outcomes:
+    // - success resets the soft-failure streak
+    // - NotFound is expected during polling and is ignored
+    // - Timeout / InvalidArgument / RadioSpiError are soft failures that may escalate
+    // - RadioFifoOverflow and other hard faults transition to Error immediately
+    //
+    // Repeated soft-failure escalation thresholds are conservative heuristics and still need
+    // confirmation under real RF load on ESP32 + CC1101 hardware.
     void on_read_success();
     void on_read_failure(common::ErrorCode error);
 

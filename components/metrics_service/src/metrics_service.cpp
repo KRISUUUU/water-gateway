@@ -26,6 +26,7 @@ std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_success{0};
 std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_drop{0};
 std::atomic<std::uint32_t> g_mqtt_outbox_enqueue_errors{0};
 
+std::atomic<std::uint32_t> g_radio_poll_delay_ms{0};
 std::atomic<std::uint32_t> g_radio_loop_age_ms{0};
 std::atomic<std::uint32_t> g_pipeline_loop_age_ms{0};
 std::atomic<std::uint32_t> g_mqtt_loop_age_ms{0};
@@ -90,6 +91,7 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.queues.mqtt_outbox_enqueue_errors =
         g_mqtt_outbox_enqueue_errors.load(std::memory_order_relaxed);
 
+    m.tasks.radio_poll_delay_ms = g_radio_poll_delay_ms.load(std::memory_order_relaxed);
     m.tasks.radio_loop_age_ms = g_radio_loop_age_ms.load(std::memory_order_relaxed);
     m.tasks.pipeline_loop_age_ms = g_pipeline_loop_age_ms.load(std::memory_order_relaxed);
     m.tasks.mqtt_loop_age_ms = g_mqtt_loop_age_ms.load(std::memory_order_relaxed);
@@ -154,6 +156,7 @@ void MetricsService::reset_queue_metrics() {
 }
 
 void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
+                                         std::uint32_t radio_poll_delay_ms,
                                          std::uint32_t pipeline_loop_age_ms,
                                          std::uint32_t mqtt_loop_age_ms,
                                          std::uint32_t pipeline_frames_processed,
@@ -172,6 +175,7 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
                                          std::uint32_t watchdog_register_errors,
                                          std::uint32_t watchdog_feed_errors) {
     g_radio_loop_age_ms.store(radio_loop_age_ms, std::memory_order_relaxed);
+    g_radio_poll_delay_ms.store(radio_poll_delay_ms, std::memory_order_relaxed);
     g_pipeline_loop_age_ms.store(pipeline_loop_age_ms, std::memory_order_relaxed);
     g_mqtt_loop_age_ms.store(mqtt_loop_age_ms, std::memory_order_relaxed);
     g_pipeline_frames_processed.store(pipeline_frames_processed, std::memory_order_relaxed);
@@ -192,7 +196,7 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
 }
 
 void MetricsService::reset_task_metrics() {
-    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     report_task_stack_metrics(0, 0, 0, 0);
 }
 

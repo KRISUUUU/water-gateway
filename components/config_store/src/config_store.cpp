@@ -15,6 +15,38 @@ static const char* TAG = "config_store";
 namespace config_store {
 
 namespace {
+#ifndef HOST_TEST_BUILD
+struct AuthConfigV1 {
+    char admin_password_hash[98];
+    uint32_t session_timeout_s;
+};
+
+struct AppConfigV1 {
+    uint32_t version;
+    DeviceConfig device;
+    WifiConfig wifi;
+    MqttConfig mqtt;
+    RadioConfig radio;
+    LoggingConfig logging;
+    AuthConfigV1 auth;
+};
+
+AppConfig convert_v1_blob(const AppConfigV1& old_cfg) {
+    AppConfig converted = AppConfig::make_default();
+    converted.version = old_cfg.version;
+    converted.device = old_cfg.device;
+    converted.wifi = old_cfg.wifi;
+    converted.mqtt = old_cfg.mqtt;
+    converted.radio = old_cfg.radio;
+    converted.logging = old_cfg.logging;
+    std::memcpy(converted.auth.admin_password_hash, old_cfg.auth.admin_password_hash,
+                sizeof(old_cfg.auth.admin_password_hash));
+    converted.auth.admin_password_hash[sizeof(converted.auth.admin_password_hash) - 1] = '\0';
+    converted.auth.session_timeout_s = old_cfg.auth.session_timeout_s;
+    return converted;
+}
+#endif
+
 void normalize_config_strings(AppConfig& cfg) {
     cfg.device.name[sizeof(cfg.device.name) - 1] = '\0';
     cfg.device.hostname[sizeof(cfg.device.hostname) - 1] = '\0';
@@ -33,15 +65,25 @@ void normalize_config_strings(AppConfig& cfg) {
 
 #ifndef HOST_TEST_BUILD
 common::ErrorCode read_blob_from_nvs(nvs_handle_t handle, const char* key, AppConfig& out_cfg) {
-    size_t required_size = sizeof(AppConfig);
-    const esp_err_t err = nvs_get_blob(handle, key, &out_cfg, &required_size);
+    size_t required_size = 0;
+    esp_err_t err = nvs_get_blob(handle, key, nullptr, &required_size);
     if (err != ESP_OK) {
         return common::ErrorCode::NvsReadFailed;
     }
-    if (required_size != sizeof(AppConfig)) {
-        return common::ErrorCode::StorageCorrupted;
+    if (required_size == sizeof(AppConfig)) {
+        err = nvs_get_blob(handle, key, &out_cfg, &required_size);
+        return err == ESP_OK ? common::ErrorCode::OK : common::ErrorCode::NvsReadFailed;
     }
-    return common::ErrorCode::OK;
+    if (required_size == sizeof(AppConfigV1)) {
+        AppConfigV1 legacy{};
+        err = nvs_get_blob(handle, key, &legacy, &required_size);
+        if (err != ESP_OK) {
+            return common::ErrorCode::NvsReadFailed;
+        }
+        out_cfg = convert_v1_blob(legacy);
+        return common::ErrorCode::OK;
+    }
+    return common::ErrorCode::StorageCorrupted;
 }
 #endif
 } // namespace

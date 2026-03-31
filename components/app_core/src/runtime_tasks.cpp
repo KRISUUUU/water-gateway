@@ -4,6 +4,7 @@
 
 #include "board_config/board_config.hpp"
 #include "config_store/config_store.hpp"
+#include "event_bus/event_bus.hpp"
 #include "health_monitor/health_monitor.hpp"
 #include "meter_registry/meter_registry.hpp"
 #include "metrics_service/metrics_service.hpp"
@@ -11,6 +12,7 @@
 #include "mqtt_service/mqtt_service.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
 #include "ntp_service/ntp_service.hpp"
+#include "ota_manager/ota_manager.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
 #include "telegram_router/telegram_router.hpp"
@@ -42,6 +44,7 @@ static TaskHandle_t health_task_handle = nullptr;
 static constexpr uint32_t kFrameQueueDepth = 16;
 static constexpr uint32_t kMqttOutboxDepth = 32;
 static constexpr uint32_t kCriticalTaskStallMs = 5000;
+static constexpr uint32_t kRadioPollDelayMs = 2;
 static constexpr size_t kMqttOutboxTopicCapacity = 128;
 static constexpr size_t kMqttOutboxPayloadCapacity = 896;
 
@@ -74,6 +77,8 @@ static std::atomic<uint32_t> pipeline_stall_count{0};
 static std::atomic<uint32_t> mqtt_stall_count{0};
 static std::atomic<uint32_t> watchdog_register_errors{0};
 static std::atomic<uint32_t> watchdog_feed_errors{0};
+static bool boot_valid_marked_ = false;
+static std::atomic<bool> pipeline_config_dirty{false};
 
 static uint32_t now_ms() {
     return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -84,11 +89,23 @@ struct MqttOutboxItem {
     char payload[kMqttOutboxPayloadCapacity];
 };
 
+enum class RadioRxWaitSource : uint8_t {
+    PollDelay = 0,
+};
+
 static void update_peak(std::atomic<uint32_t>& peak, uint32_t value) {
     uint32_t current = peak.load(std::memory_order_relaxed);
     while (value > current &&
            !peak.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
     }
+}
+
+static RadioRxWaitSource wait_for_radio_rx_work() {
+    // The RX task is intentionally polling-only today. If future ESP32 + CC1101 validation
+    // justifies a GDO/task-notification wake path, it should attach here while leaving the rest
+    // of the RX loop contract unchanged.
+    vTaskDelay(pdMS_TO_TICKS(kRadioPollDelayMs));
+    return RadioRxWaitSource::PollDelay;
 }
 
 static void sample_queue_levels() {
@@ -120,7 +137,8 @@ static void sample_queue_levels() {
     const uint32_t pipeline_age = now - pipeline_loop_last_ms.load(std::memory_order_relaxed);
     const uint32_t mqtt_age = now - mqtt_loop_last_ms.load(std::memory_order_relaxed);
     metrics_service::MetricsService::report_task_metrics(
-        radio_age, pipeline_age, mqtt_age, pipeline_frames_processed.load(std::memory_order_relaxed),
+        radio_age, kRadioPollDelayMs, pipeline_age, mqtt_age,
+        pipeline_frames_processed.load(std::memory_order_relaxed),
         radio_read_success_count.load(std::memory_order_relaxed),
         radio_read_not_found_count.load(std::memory_order_relaxed),
         radio_read_timeout_count.load(std::memory_order_relaxed),
@@ -216,6 +234,16 @@ static void radio_rx_task(void* /*param*/) {
     }
 
     while (true) {
+        // RX contract for the default polling path:
+        // - Success: read_frame() returns a complete frame and we enqueue it for the pipeline.
+        // - Expected idle poll: NotFound means no complete frame was ready this iteration.
+        // - Soft failure: Timeout / InvalidArgument / RadioSpiError keep the task alive but are
+        //   reported to the state machine so repeated occurrences can escalate.
+        // - Recovery/escalation: FIFO overflow and repeated soft failures transition the radio
+        //   state machine into recovery; recovery thresholds are still hardware-validated only.
+        //
+        // Real ESP32 + CC1101 testing is still required for sustained RF load, burst traffic,
+        // FIFO edge cases, timeout behavior, and any future poll-vs-interrupt trade-off.
         radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         radio_poll_iterations.fetch_add(1, std::memory_order_relaxed);
         rsm.tick();
@@ -275,9 +303,8 @@ static void radio_rx_task(void* /*param*/) {
             }
         }
 
-        // Polling keeps RX logic simple and deterministic; interrupt-driven GDO handling can be
-        // added later as an optional path once validated on real ESP32 + CC1101 hardware.
-        vTaskDelay(pdMS_TO_TICKS(2));
+        const auto wait_source = wait_for_radio_rx_work();
+        (void)wait_source;
     }
 }
 
@@ -285,6 +312,13 @@ static void pipeline_task(void* /*param*/) {
     auto& router = telegram_router::TelegramRouter::instance();
     auto& wd = watchdog_service::WatchdogService::instance();
     uint32_t rx_count = 0;
+    config_store::AppConfig cached_cfg = config_store::ConfigStore::instance().config();
+    auto cfg_sub = event_bus::EventBus::instance().subscribe(
+        event_bus::EventType::ConfigChanged,
+        [](const event_bus::Event&) { pipeline_config_dirty.store(true, std::memory_order_relaxed); });
+    if (cfg_sub.is_error()) {
+        ESP_LOGW(TAG, "pipeline failed to subscribe config cache invalidation");
+    }
 
     if (wd.register_task().is_error()) {
         watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
@@ -294,6 +328,9 @@ static void pipeline_task(void* /*param*/) {
     radio_cc1101::RawRadioFrame raw{};
     while (true) {
         pipeline_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
+        if (pipeline_config_dirty.exchange(false, std::memory_order_relaxed)) {
+            cached_cfg = config_store::ConfigStore::instance().config();
+        }
         if (frame_queue && xQueueReceive(frame_queue, &raw, pdMS_TO_TICKS(100)) == pdTRUE) {
             sample_queue_levels();
             rx_count++;
@@ -314,12 +351,12 @@ static void pipeline_task(void* /*param*/) {
 
             const auto& frame = frame_result.value();
             const auto route = router.route(frame);
-            const auto cfg = config_store::ConfigStore::instance().config();
             const bool duplicate =
                 route.decision == telegram_router::RouteDecision::SuppressDuplicate;
             meter_registry::MeterRegistry::instance().observe_frame(frame, duplicate);
 
             if (route.publish_raw) {
+                const auto& cfg = cached_cfg;
                 char ts_str[40] = "timestamp_unavailable";
                 if (ntp_synced && ts > 0) {
                     const time_t sec = static_cast<time_t>(ts / 1000);
@@ -340,6 +377,7 @@ static void pipeline_task(void* /*param*/) {
             }
 
             if (route.publish_event && route.event_message) {
+                const auto& cfg = cached_cfg;
                 enqueue_mqtt(
                     mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
                     mqtt_service::payload_event("radio_event", "warning", route.event_message, ""));
@@ -413,7 +451,11 @@ static void health_task(void* /*param*/) {
         auto& wifi = wifi_manager::WifiManager::instance();
         auto& mqtt = mqtt_service::MqttService::instance();
         auto& health = health_monitor::HealthMonitor::instance();
+        auto& ota = ota_manager::OtaManager::instance();
         const uint32_t now = now_ms();
+        const auto cfg = config_store::ConfigStore::instance().config();
+
+        wifi.poll_retry_timer();
 
         const bool radio_now_stalled =
             (now - radio_loop_last_ms.load(std::memory_order_relaxed)) > kCriticalTaskStallMs;
@@ -448,8 +490,29 @@ static void health_task(void* /*param*/) {
             health.report_warning("MQTT disconnected");
         }
 
+        if (!boot_valid_marked_) {
+            const bool wifi_ready = wifi.state() == wifi_manager::WifiState::Connected;
+            const bool mqtt_ready = !cfg.mqtt.enabled || mqtt.is_connected();
+            const bool timeout_elapsed = now >= 90000U;
+            if (wifi_ready && mqtt_ready) {
+                boot_valid_marked_ = true;
+                auto boot_valid = ota.mark_boot_valid();
+                if (boot_valid.is_error()) {
+                    health.report_warning("mark_boot_valid failed after runtime health gate");
+                }
+            } else if (timeout_elapsed) {
+                boot_valid_marked_ = true;
+                ESP_LOGW(TAG, "Boot-valid fallback after 90s (wifi=%d mqtt=%d mqtt_enabled=%d)",
+                         static_cast<int>(wifi_ready), static_cast<int>(mqtt.is_connected()),
+                         static_cast<int>(cfg.mqtt.enabled));
+                auto boot_valid = ota.mark_boot_valid();
+                if (boot_valid.is_error()) {
+                    health.report_warning("mark_boot_valid failed after 90s fallback");
+                }
+            }
+        }
+
         if (mqtt.is_connected()) {
-            const auto cfg = config_store::ConfigStore::instance().config();
             auto metrics_res = metrics_service::MetricsService::instance().snapshot();
             if (metrics_res.is_ok()) {
                 const auto& m = metrics_res.value();
@@ -509,6 +572,8 @@ common::Result<void> AppCore::create_runtime_tasks() {
     mqtt_stall_count.store(0, std::memory_order_relaxed);
     watchdog_register_errors.store(0, std::memory_order_relaxed);
     watchdog_feed_errors.store(0, std::memory_order_relaxed);
+    boot_valid_marked_ = false;
+    pipeline_config_dirty.store(false, std::memory_order_relaxed);
     metrics_service::MetricsService::reset_queue_metrics();
     metrics_service::MetricsService::reset_task_metrics();
 

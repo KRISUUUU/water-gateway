@@ -129,6 +129,29 @@ static void test_identity_and_signature_helpers() {
     printf("  PASS: identity/signature helpers\n");
 }
 
+static void test_identity_key_falls_back_to_signature_for_zero_fields() {
+    RawRadioFrame raw{};
+    raw.data[0] = 0x2C;
+    raw.data[1] = 0x44;
+    raw.data[2] = 0x00;
+    raw.data[3] = 0x00;
+    raw.data[4] = 0x00;
+    raw.data[5] = 0x00;
+    raw.data[6] = 0x00;
+    raw.data[7] = 0x00;
+    raw.data[8] = 0xAA;
+    raw.data[9] = 0xBB;
+    raw.length = 10;
+
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
+    assert(result.is_ok());
+    const auto& frame = result.value();
+    assert(frame.manufacturer_id() == 0x0000);
+    assert(frame.device_id() == 0x00000000);
+    assert(frame.identity_key() == "sig:2C44000000000000AABB");
+    printf("  PASS: zero manufacturer/device falls back to signature\n");
+}
+
 static void test_roundtrip_hex() {
     uint8_t original[] = {0x00, 0x7F, 0x80, 0xFF, 0x01, 0xFE};
     std::string hex = WmbusPipeline::bytes_to_hex(original, 6);
@@ -152,6 +175,7 @@ int main() {
     test_from_radio_frame_empty_fails();
     test_frame_l_field();
     test_identity_and_signature_helpers();
+    test_identity_key_falls_back_to_signature_for_zero_fields();
     test_roundtrip_hex();
     printf("All WMBus pipeline tests passed.\n");
     return 0;

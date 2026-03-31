@@ -17,6 +17,7 @@ class OtaManager {
     common::Result<void> begin_upload(size_t image_size);
     common::Result<void> write_chunk(const uint8_t* data, size_t length);
     common::Result<void> finalize_upload();
+    common::Result<void> abort_upload();
 
     // Begin URL-based OTA download. Blocks until complete or fails.
     common::Result<void> begin_url_ota(const char* url);

@@ -2,6 +2,9 @@
 
 namespace config_store {
 
+namespace {
+} // namespace
+
 // Version 0 represents an unversioned (fresh/blank) config blob.
 // Migration from v0 to v1 applies all default values.
 static common::Result<AppConfig> migrate_v0_to_v1(const AppConfig& old) {
@@ -27,6 +30,13 @@ static common::Result<AppConfig> migrate_v0_to_v1(const AppConfig& old) {
     return common::Result<AppConfig>::ok(migrated);
 }
 
+static common::Result<AppConfig> migrate_v1_to_v2(const AppConfig& old) {
+    AppConfig migrated = old;
+    migrated.version = 2;
+    migrated.auth.admin_password_hash[sizeof(migrated.auth.admin_password_hash) - 1] = '\0';
+    return common::Result<AppConfig>::ok(migrated);
+}
+
 common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (old_config.version == kCurrentConfigVersion) {
         return common::Result<AppConfig>::ok(old_config);
@@ -47,9 +57,13 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
         current = result.value();
     }
 
-    // Future migrations would go here:
-    // if (current.version == 1) { current = migrate_v1_to_v2(current); }
-    // if (current.version == 2) { current = migrate_v2_to_v3(current); }
+    if (current.version == 1) {
+        auto result = migrate_v1_to_v2(current);
+        if (result.is_error()) {
+            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+        }
+        current = result.value();
+    }
 
     if (current.version != kCurrentConfigVersion) {
         return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);

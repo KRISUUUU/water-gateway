@@ -3,6 +3,7 @@
 #include "metrics_service/metrics_service.hpp"
 #include "mqtt_service/mqtt_service.hpp"
 #include "ntp_service/ntp_service.hpp"
+#include "radio_state_machine/radio_state_machine.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 
@@ -121,6 +122,11 @@ std::string to_unformatted_json(cJSON* root) {
 
 void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
     cJSON_AddStringToObject(root, "radio_state", radio_state_str(snap.radio_state));
+    cJSON_AddStringToObject(root, "radio_rx_mode", snap.radio_rx_polling_mode ? "polling" : "other");
+    cJSON_AddBoolToObject(root, "radio_rx_interrupt_path_active",
+                          snap.radio_rx_interrupt_path_active);
+    cJSON_AddStringToObject(root, "radio_rx_hardware_validation",
+                            "required_for_burst_load_fifo_timeout_timing");
     cJSON* counters = cJSON_AddObjectToObject(root, "radio_counters");
     if (!counters) {
         return;
@@ -147,6 +153,19 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
     cJSON_AddNumberToObject(counters, "radio_recoveries",
                             static_cast<double>(snap.radio.radio_recoveries));
     cJSON_AddNumberToObject(counters, "spi_errors", static_cast<double>(snap.radio.spi_errors));
+    cJSON_AddNumberToObject(counters, "recovery_attempts",
+                            static_cast<double>(snap.radio_recovery_attempts));
+    cJSON_AddNumberToObject(counters, "recovery_failures",
+                            static_cast<double>(snap.radio_recovery_failures));
+    cJSON_AddNumberToObject(counters, "soft_failure_streak",
+                            static_cast<double>(snap.radio_soft_failure_streak));
+    cJSON_AddNumberToObject(counters, "consecutive_errors",
+                            static_cast<double>(snap.radio_consecutive_errors));
+    cJSON_AddNumberToObject(counters, "last_recovery_reason_code",
+                            static_cast<double>(snap.radio_last_recovery_reason_code));
+    cJSON_AddStringToObject(counters, "last_recovery_reason",
+                            common::error_code_to_string(static_cast<common::ErrorCode>(
+                                snap.radio_last_recovery_reason_code)));
 }
 
 void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
@@ -221,6 +240,8 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
     if (!tasks) {
         return;
     }
+    cJSON_AddNumberToObject(tasks, "radio_poll_delay_ms",
+                            static_cast<double>(snap.metrics.tasks.radio_poll_delay_ms));
     cJSON_AddNumberToObject(tasks, "radio_loop_age_ms",
                             static_cast<double>(snap.metrics.tasks.radio_loop_age_ms));
     cJSON_AddNumberToObject(tasks, "pipeline_loop_age_ms",
@@ -367,8 +388,14 @@ DiagnosticsService& DiagnosticsService::instance() {
 
 common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
     DiagnosticsSnapshot s{};
+    const auto& rsm = radio_state_machine::RadioStateMachine::instance();
     s.radio_state = radio_cc1101::RadioCc1101::instance().state();
     s.radio = radio_cc1101::RadioCc1101::instance().counters();
+    s.radio_recovery_attempts = rsm.recovery_attempts();
+    s.radio_recovery_failures = rsm.recovery_failures();
+    s.radio_soft_failure_streak = rsm.soft_failure_streak();
+    s.radio_consecutive_errors = rsm.consecutive_errors();
+    s.radio_last_recovery_reason_code = static_cast<std::int32_t>(rsm.last_recovery_reason());
     s.mqtt = mqtt_service::MqttService::instance().status();
     s.wifi = wifi_manager::WifiManager::instance().status();
     s.ntp = ntp_service::NtpService::instance().status();

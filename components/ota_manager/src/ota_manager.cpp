@@ -185,6 +185,23 @@ common::Result<void> OtaManager::finalize_upload() {
     return common::Result<void>::ok();
 }
 
+common::Result<void> OtaManager::abort_upload() {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+
+    if (status_.state != OtaState::InProgress && status_.state != OtaState::Validating) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    reset_upload_state(true);
+#endif
+
+    set_status(OtaState::Idle, "Upload aborted");
+    return common::Result<void>::ok();
+}
+
 common::Result<void> OtaManager::begin_url_ota(const char* url) {
     if (!initialized_) {
         return common::Result<void>::error(common::ErrorCode::NotInitialized);

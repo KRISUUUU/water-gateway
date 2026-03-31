@@ -13,10 +13,13 @@
 #include "mqtt_service/mqtt_topics.hpp"
 #include "ntp_service/ntp_service.hpp"
 #include "ota_manager/ota_manager.hpp"
+#include "persistent_log_buffer/persistent_log_buffer.hpp"
 #include "provisioning_manager/provisioning_manager.hpp"
 #include "storage_service/storage_service.hpp"
 #include "watchdog_service/watchdog_service.hpp"
 #include "wifi_manager/wifi_manager.hpp"
+#include <cstdarg>
+#include <cstdio>
 #include <string>
 
 #ifndef HOST_TEST_BUILD
@@ -25,6 +28,61 @@ static const char* TAG = "app_core";
 #endif // HOST_TEST_BUILD
 
 namespace app_core {
+
+#ifndef HOST_TEST_BUILD
+namespace {
+vprintf_like_t s_original_log_vprintf = nullptr;
+bool s_log_hook_installed = false;
+thread_local bool s_log_hook_reentrant = false;
+
+int persistent_log_vprintf(const char* fmt, va_list args) {
+    if (!s_original_log_vprintf) {
+        return vprintf(fmt, args);
+    }
+
+    if (!s_log_hook_reentrant) {
+        s_log_hook_reentrant = true;
+
+        char rendered[256] = {};
+        va_list copy;
+        va_copy(copy, args);
+        std::vsnprintf(rendered, sizeof(rendered), fmt, copy);
+        va_end(copy);
+
+        persistent_log_buffer::LogSeverity severity = persistent_log_buffer::LogSeverity::Info;
+        switch (rendered[0]) {
+        case 'E':
+            severity = persistent_log_buffer::LogSeverity::Error;
+            break;
+        case 'W':
+            severity = persistent_log_buffer::LogSeverity::Warning;
+            break;
+        case 'D':
+            severity = persistent_log_buffer::LogSeverity::Debug;
+            break;
+        case 'I':
+        default:
+            severity = persistent_log_buffer::LogSeverity::Info;
+            break;
+        }
+
+        persistent_log_buffer::PersistentLogBuffer::instance().append(severity, rendered);
+        s_log_hook_reentrant = false;
+    }
+
+    return s_original_log_vprintf(fmt, args);
+}
+
+void install_persistent_log_hook() {
+    if (s_log_hook_installed) {
+        return;
+    }
+
+    s_original_log_vprintf = esp_log_set_vprintf(&persistent_log_vprintf);
+    s_log_hook_installed = true;
+}
+} // namespace
+#endif
 
 void AppCore::start() {
 #ifndef HOST_TEST_BUILD
@@ -130,6 +188,7 @@ common::Result<void> AppCore::initialize_foundations() {
     }
 
 #ifndef HOST_TEST_BUILD
+    install_persistent_log_hook();
     ESP_LOGI(TAG, "Foundations initialized");
 #endif
     return common::Result<void>::ok();
@@ -159,14 +218,21 @@ void AppCore::attempt_boot_validation_early(common::SystemMode mode) {
         return;
     }
 
-    auto boot_valid = ota.mark_boot_valid();
-    if (boot_valid.is_error()) {
+    if (mode == common::SystemMode::Provisioning) {
+        auto boot_valid = ota.mark_boot_valid();
+        if (boot_valid.is_error()) {
 #ifndef HOST_TEST_BUILD
-        ESP_LOGW(TAG, "mark_boot_valid failed before %s startup (%s/%d), continuing", mode_name,
-                 common::error_code_to_string(boot_valid.error()),
-                 static_cast<int>(boot_valid.error()));
+            ESP_LOGW(TAG, "mark_boot_valid failed before %s startup (%s/%d), continuing", mode_name,
+                     common::error_code_to_string(boot_valid.error()),
+                     static_cast<int>(boot_valid.error()));
 #endif
+        }
+        return;
     }
+
+#ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "OTA boot validation deferred until runtime health checks in %s mode", mode_name);
+#endif
 }
 
 common::Result<void> AppCore::start_provisioning() {
@@ -356,10 +422,10 @@ common::Result<void> AppCore::start_normal_runtime() {
     }
 #endif
 
-    // Boot-valid is attempted earlier in AppCore::start() after foundations initialize and mode
-    // selection, to reduce false rollback risk from non-critical startup dependencies.
+    // Boot-valid for normal mode is deferred to health_task() so rollback still covers
+    // connectivity regressions during early runtime bring-up.
 #ifndef HOST_TEST_BUILD
-    ESP_LOGI(TAG, "[BOOT] Normal mode: boot-valid already evaluated");
+    ESP_LOGI(TAG, "[BOOT] Normal mode: boot-valid deferred to health task");
 #endif
 
     // Init watchdog

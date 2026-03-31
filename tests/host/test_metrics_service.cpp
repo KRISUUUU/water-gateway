@@ -8,7 +8,7 @@ int main() {
     metrics_service::MetricsService::reset_task_metrics();
 
     metrics_service::MetricsService::report_queue_metrics(3, 7, 11, 100, 4, 4, 2, 2, 9, 55, 6, 6);
-    metrics_service::MetricsService::report_task_metrics(120, 80, 60, 1234, 77, 900, 12, 34, 11,
+    metrics_service::MetricsService::report_task_metrics(120, 2, 80, 60, 1234, 77, 900, 12, 34, 11,
                                                          123, 1500, 4, 22, 2, 1, 3, 1, 5);
     metrics_service::MetricsService::report_task_stack_metrics(512, 768, 1024, 640);
 
@@ -29,6 +29,7 @@ int main() {
     assert(snap.queues.mqtt_outbox_enqueue_drop == 6);
     assert(snap.queues.mqtt_outbox_enqueue_errors == 6);
 
+    assert(snap.tasks.radio_poll_delay_ms == 2);
     assert(snap.tasks.radio_loop_age_ms == 120);
     assert(snap.tasks.pipeline_loop_age_ms == 80);
     assert(snap.tasks.mqtt_loop_age_ms == 60);

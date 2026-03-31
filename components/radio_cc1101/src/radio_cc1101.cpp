@@ -139,6 +139,10 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     counters_.rx_read_calls++;
 
 #ifndef HOST_TEST_BUILD
+    // This function is called from the polling RX task. NotFound is the steady-state "no complete
+    // frame yet" result, while Timeout/InvalidArgument indicate a soft failure in the current poll
+    // attempt. FIFO overflow is treated as an immediate recovery condition.
+
     // Check MARCSTATE for FIFO overflow
     uint8_t marc = read_marcstate();
     if (marc == registers::MARCSTATE_RXFIFO_OVERFLOW) {
@@ -185,6 +189,8 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
     // L-field + pkt_len payload bytes + 2 appended status bytes arrive in the RX FIFO.
     // Drain in chunks (FIFO is 64 bytes); long frames require multiple reads with bounded wait.
+    // The 200 ms timeout is intentionally conservative and still needs verification under real
+    // burst traffic and CC1101 timing conditions.
     frame.data[0] = pkt_len;
     frame.length = static_cast<uint16_t>(pkt_len + 1);
 

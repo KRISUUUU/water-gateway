@@ -42,6 +42,9 @@ class WifiManager {
     // Stop WiFi (STA or AP)
     common::Result<void> stop();
 
+    // Poll non-blocking reconnect timers for the STA path.
+    void poll_retry_timer();
+
     WifiStatus status() const;
     WifiState state() const {
         return state_;
@@ -67,6 +70,8 @@ class WifiManager {
     char current_ssid_[33] = {};
     uint8_t retry_count_ = 0;
     uint8_t max_retries_ = 10;
+    int64_t retry_exhausted_at_us_ = 0;
+    static constexpr int64_t kRetryBackoffUs = 5LL * 60LL * 1000000LL;
 };
 
 } // namespace wifi_manager

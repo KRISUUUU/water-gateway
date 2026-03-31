@@ -13,9 +13,7 @@ static void test_hash_password() {
     auto result = AuthService::hash_password("mypassword");
     assert(result.is_ok());
     std::string hash = result.value();
-    // Should be "salt:hash" format (32 + 1 + 64 = 97 chars)
-    assert(hash.length() == 97);
-    assert(hash[32] == ':');
+    assert(hash.rfind("pbkdf2$2000$", 0) == 0);
     printf("  PASS: hash_password produces correct format\n");
 }
 

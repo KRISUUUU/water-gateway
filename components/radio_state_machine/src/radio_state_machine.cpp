@@ -127,7 +127,7 @@ void RadioStateMachine::on_read_failure(common::ErrorCode error) {
         return;
     }
     if (error == common::ErrorCode::NotFound) {
-        // Expected "no frame available" path.
+        // Expected "no frame available" result for the polling RX loop.
         return;
     }
 
@@ -141,6 +141,8 @@ void RadioStateMachine::on_read_failure(common::ErrorCode error) {
     }
 
     if (is_escalating_soft_failure(error)) {
+        // Soft failures keep default polling behavior unchanged unless they repeat enough times to
+        // justify an explicit recovery attempt.
         soft_failure_streak_++;
         last_recovery_reason_ = error;
         if (soft_failure_streak_ >= kSoftFailureEscalationThreshold) {

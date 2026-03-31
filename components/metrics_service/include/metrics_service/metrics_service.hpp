@@ -23,6 +23,7 @@ struct RuntimeQueueMetrics {
 };
 
 struct RuntimeTaskMetrics {
+    std::uint32_t radio_poll_delay_ms{0};
     std::uint32_t radio_loop_age_ms{0};
     std::uint32_t pipeline_loop_age_ms{0};
     std::uint32_t mqtt_loop_age_ms{0};
@@ -80,6 +81,7 @@ class MetricsService {
                                      std::uint32_t mqtt_outbox_enqueue_drop,
                                      std::uint32_t mqtt_outbox_enqueue_errors);
     static void report_task_metrics(std::uint32_t radio_loop_age_ms,
+                                    std::uint32_t radio_poll_delay_ms,
                                     std::uint32_t pipeline_loop_age_ms,
                                     std::uint32_t mqtt_loop_age_ms,
                                     std::uint32_t pipeline_frames_processed,

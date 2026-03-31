@@ -107,6 +107,9 @@ void EventBus::publish(const Event& event) {
         return;
     }
 
+    EventHandler handlers_snapshot[kMaxSubscriptions];
+    size_t handler_count = 0;
+
 #ifndef HOST_TEST_BUILD
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
 #endif
@@ -114,13 +117,17 @@ void EventBus::publish(const Event& event) {
     for (size_t i = 0; i < kMaxSubscriptions; ++i) {
         if (subscriptions_[i].active && subscriptions_[i].type == event.type &&
             subscriptions_[i].handler) {
-            subscriptions_[i].handler(event);
+            handlers_snapshot[handler_count++] = subscriptions_[i].handler;
         }
     }
 
 #ifndef HOST_TEST_BUILD
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 #endif
+
+    for (size_t i = 0; i < handler_count; ++i) {
+        handlers_snapshot[i](event);
+    }
 }
 
 void EventBus::publish(EventType type, int32_t code) {

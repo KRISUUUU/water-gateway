@@ -1,5 +1,14 @@
 idf_component_register(
-    SRCS "src/api_handlers.cpp"
+    SRCS
+        "src/api_handlers.cpp"
+        "src/api_handlers_common.cpp"
+        "src/auth_handlers.cpp"
+        "src/config_handlers.cpp"
+        "src/meter_handlers.cpp"
+        "src/radio_handlers.cpp"
+        "src/ota_handlers.cpp"
+        "src/system_handlers.cpp"
+        "src/status_handlers.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         common

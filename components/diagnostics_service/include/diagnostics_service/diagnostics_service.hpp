@@ -15,6 +15,13 @@ namespace diagnostics_service {
 struct DiagnosticsSnapshot {
     radio_cc1101::RadioState radio_state{radio_cc1101::RadioState::Uninitialized};
     radio_cc1101::RadioCounters radio{};
+    bool radio_rx_polling_mode{true};
+    bool radio_rx_interrupt_path_active{false};
+    std::uint32_t radio_recovery_attempts{0};
+    std::uint32_t radio_recovery_failures{0};
+    std::uint32_t radio_soft_failure_streak{0};
+    std::uint32_t radio_consecutive_errors{0};
+    std::int32_t radio_last_recovery_reason_code{0};
     mqtt_service::MqttStatus mqtt{};
     wifi_manager::WifiStatus wifi{};
     ntp_service::NtpStatus ntp{};
