@@ -112,22 +112,9 @@ bool derive_pbkdf2_sha256(const char* password, const uint8_t* salt, size_t salt
     }
 
 #ifndef HOST_TEST_BUILD
-    const auto* md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    if (!md_info) {
-        return false;
-    }
-
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    if (mbedtls_md_setup(&ctx, md_info, 1) != 0) {
-        mbedtls_md_free(&ctx);
-        return false;
-    }
-
-    const int rc =
-        mbedtls_pkcs5_pbkdf2_hmac(&ctx, reinterpret_cast<const unsigned char*>(password),
-                                  std::strlen(password), salt, salt_len, iterations, 32, out);
-    mbedtls_md_free(&ctx);
+    const int rc = mbedtls_pkcs5_pbkdf2_hmac_ext(
+        MBEDTLS_MD_SHA256, reinterpret_cast<const unsigned char*>(password), std::strlen(password),
+        salt, salt_len, iterations, 32, out);
     return rc == 0;
 #else
     const size_t pwd_len = std::strlen(password);

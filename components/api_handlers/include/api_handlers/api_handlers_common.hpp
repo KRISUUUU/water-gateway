@@ -4,6 +4,7 @@
 
 #include "auth_service/auth_service.hpp"
 #include "config_store/config_models.hpp"
+#include "config_store/config_store.hpp"
 #include "config_store/config_validation.hpp"
 #include "mqtt_service/mqtt_service.hpp"
 #include "ota_manager/ota_manager.hpp"

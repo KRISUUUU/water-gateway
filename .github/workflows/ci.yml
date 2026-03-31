@@ -47,7 +47,7 @@ jobs:
     name: ESP-IDF Build
     runs-on: ubuntu-latest
     container:
-      image: espressif/idf:v5.2
+      image: espressif/idf:v5.5.4
     steps:
       - uses: actions/checkout@v4
 
