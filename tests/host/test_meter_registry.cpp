@@ -82,7 +82,7 @@ int main() {
     }
 
     meters = registry.detected_meters();
-    assert(meters.size() == 200);
+    assert(meters.size() == 100);
     bool found_oldest = false;
     bool found_newest = false;
     for (const auto& meter : meters) {

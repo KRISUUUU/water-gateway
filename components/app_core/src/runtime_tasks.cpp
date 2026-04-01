@@ -21,6 +21,7 @@
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -205,6 +206,12 @@ static void cleanup_runtime_resources() {
 
 static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
     auto& mqtt = mqtt_service::MqttService::instance();
+    if (esp_get_free_heap_size() < 6144U) {
+        ESP_LOGW(TAG, "enqueue_mqtt: heap too low (%lu), dropping",
+                 static_cast<unsigned long>(esp_get_free_heap_size()));
+        mqtt.report_outbox_enqueue_failure(false);
+        return false;
+    }
     if (topic.size() >= kMqttOutboxTopicCapacity || payload.size() >= kMqttOutboxPayloadCapacity) {
         mqtt.report_outbox_enqueue_failure(true);
         const uint32_t dropped = mqtt_outbox_enqueue_drop.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -395,12 +402,18 @@ static void pipeline_task(void* /*param*/) {
                                   static_cast<long long>(ts));
                 }
 
-                enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
-                             mqtt_service::payload_raw_frame(
-                                 frame.raw_hex().c_str(), frame.metadata.frame_length,
-                                 frame.metadata.rssi_dbm, frame.metadata.lqi, frame.metadata.crc_ok,
-                                 frame.manufacturer_id(), frame.device_id(),
-                                 derive_meter_key(frame).c_str(), ts_str, rx_count));
+                if (esp_get_free_heap_size() < 8192U) {
+                    ESP_LOGW(TAG, "Low heap (%lu bytes), skipping MQTT enqueue",
+                             static_cast<unsigned long>(esp_get_free_heap_size()));
+                } else {
+                    enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
+                                 mqtt_service::payload_raw_frame(
+                                     frame.raw_hex().c_str(), frame.metadata.frame_length,
+                                     frame.metadata.rssi_dbm, frame.metadata.lqi,
+                                     frame.metadata.crc_ok, frame.manufacturer_id(),
+                                     frame.device_id(), derive_meter_key(frame).c_str(), ts_str,
+                                     rx_count));
+                }
             }
 
             if (route.publish_event && route.event_message) {
@@ -581,6 +594,9 @@ static void health_task(void* /*param*/) {
                                  ms.publish_count, ms.publish_failures, ""));
             }
         }
+        ESP_LOGI(TAG, "Heap: free=%lu min=%lu",
+                 static_cast<unsigned long>(esp_get_free_heap_size()),
+                 static_cast<unsigned long>(esp_get_minimum_free_heap_size()));
         sample_queue_levels();
         sample_task_stack_watermarks();
 
