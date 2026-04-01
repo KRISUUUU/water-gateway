@@ -140,10 +140,10 @@ static constexpr TmodeRegisterConfig kTmodeConfig[] = {
                                  // boundaries by FIFO activity instead of a CC1101 length prefix
     {registers::FSCTRL1, 0x08},  // IF frequency
     {registers::FSCTRL0, 0x00},  // Frequency offset
-    // 868.95 MHz: FREQ = 868.95 * 2^16 / 26 = 0x2188CA
+    // 868.95 MHz @ 26 MHz xtal: FREQ = round(868.95e6 * 2^16 / 26e6) = 0x216BD1
     {registers::FREQ2, 0x21},
-    {registers::FREQ1, 0x88},
-    {registers::FREQ0, 0xCA},
+    {registers::FREQ1, 0x6B},
+    {registers::FREQ0, 0xD1},
     // T-mode data rate: ~32.768 kbaud (Manchester)
     {registers::MDMCFG4, 0x5B},  // Channel BW ~325 kHz, DRATE_E=11
     {registers::MDMCFG3, 0xF8},  // DRATE_M=248 → ~32.768 kbaud
