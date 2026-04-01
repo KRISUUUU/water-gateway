@@ -29,6 +29,29 @@ uint8_t byte_at(const std::vector<uint8_t>& bytes, size_t idx) {
     return bytes[idx];
 }
 
+bool raw_frame_contract_is_valid(const radio_cc1101::RawRadioFrame& raw) {
+    if (raw.length == 0 || raw.length > radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
+        return false;
+    }
+    if (raw.payload_offset != 1U) {
+        return false;
+    }
+    if (raw.payload_offset >= raw.length) {
+        return false;
+    }
+    if (raw.payload_length == 0U) {
+        return false;
+    }
+    if (static_cast<size_t>(raw.payload_offset) + static_cast<size_t>(raw.payload_length) !=
+        raw.length) {
+        return false;
+    }
+    if (raw.data[0] != static_cast<uint8_t>(raw.payload_length)) {
+        return false;
+    }
+    return true;
+}
+
 uint8_t reverse_bits8(uint8_t value) {
     return static_cast<uint8_t>(((value & 0x01U) << 7U) | ((value & 0x02U) << 5U) |
                                 ((value & 0x04U) << 3U) | ((value & 0x08U) << 1U) |
@@ -58,64 +81,75 @@ bool decode_3of6_bytes(const uint8_t* raw, size_t raw_len, std::vector<uint8_t>&
         return value;
     };
 
-    std::vector<uint8_t> candidate;
+    for (size_t bit_pos = 0; bit_pos + 12U <= total_bits; bit_pos += 12U) {
+        const uint8_t sym1 = read_bits(bit_pos, 6U);
+        const uint8_t sym2 = read_bits(bit_pos + 6U, 6U);
+        const uint8_t hi = kDecode3of6High[sym1];
+        const uint8_t lo = kDecode3of6Low[sym2];
 
-    for (uint8_t bit_offset = 0; bit_offset < 8; ++bit_offset) {
-        candidate.clear();
-        bool offset_ok = true;
-
-        for (size_t bit_pos = bit_offset; bit_pos + 12U <= total_bits; bit_pos += 12U) {
-            const uint8_t sym1 = read_bits(bit_pos, 6U);
-            const uint8_t sym2 = read_bits(bit_pos + 6U, 6U);
-            const uint8_t hi = kDecode3of6High[sym1];
-            const uint8_t lo = kDecode3of6Low[sym2];
-
-            if (hi == 0xFF || lo == 0xFF) {
-                offset_ok = false;
-                break;
-            }
-
-            candidate.push_back(static_cast<uint8_t>(hi | lo));
+        if (hi == 0xFF || lo == 0xFF) {
+            out.clear();
+            return false;
         }
 
-        if (offset_ok && !candidate.empty()) {
-            out = candidate;
-            return true;
-        }
+        out.push_back(static_cast<uint8_t>(hi | lo));
     }
 
-    out.clear();
-    return false;
+    if (out.empty()) {
+        return false;
+    }
+
+    const size_t trailing_bits = total_bits % 12U;
+    if (trailing_bits != 0U && read_bits(total_bits - trailing_bits, trailing_bits) != 0U) {
+        out.clear();
+        return false;
+    }
+    return true;
+}
+
+bool validate_decoded_frame(const std::vector<uint8_t>& decoded) {
+    if (decoded.size() < 10U) {
+        return false;
+    }
+
+    const size_t expected_size = static_cast<size_t>(decoded[0]) + 1U;
+    if (expected_size != decoded.size()) {
+        return false;
+    }
+
+    return true;
 }
 } // namespace
 
-std::string WmbusFrame::raw_hex() const {
+std::string WmbusFrame::canonical_hex() const {
     return WmbusPipeline::bytes_to_hex(raw_bytes);
 }
 
-std::string WmbusFrame::original_raw_hex() const {
+std::string WmbusFrame::captured_hex() const {
     return WmbusPipeline::bytes_to_hex(original_raw_bytes);
 }
 
 uint8_t WmbusFrame::l_field() const {
-    return byte_at(raw_bytes, 0);
+    return decoded_ok ? byte_at(raw_bytes, 0) : 0;
 }
 
 uint8_t WmbusFrame::c_field() const {
-    return byte_at(raw_bytes, 1);
+    return decoded_ok ? byte_at(raw_bytes, 1) : 0;
 }
 
 uint16_t WmbusFrame::manufacturer_id() const {
-    // NOTE: In T-mode raw capture these bytes are reliable only after 3-of-6 decode.
-    // Bytes 3-4 (index 2-3), little-endian
+    if (!has_reliable_identity()) {
+        return 0;
+    }
     const uint16_t b3 = byte_at(raw_bytes, 2);
     const uint16_t b4 = byte_at(raw_bytes, 3);
     return static_cast<uint16_t>((b4 << 8U) | b3);
 }
 
 uint32_t WmbusFrame::device_id() const {
-    // NOTE: In T-mode raw capture these bytes are reliable only after 3-of-6 decode.
-    // Bytes 5-8 (index 4-7), little-endian
+    if (!has_reliable_identity()) {
+        return 0;
+    }
     const uint32_t b5 = byte_at(raw_bytes, 4);
     const uint32_t b6 = byte_at(raw_bytes, 5);
     const uint32_t b7 = byte_at(raw_bytes, 6);
@@ -123,8 +157,21 @@ uint32_t WmbusFrame::device_id() const {
     return (b8 << 24U) | (b7 << 16U) | (b6 << 8U) | b5;
 }
 
+bool WmbusFrame::has_reliable_identity() const {
+    if (!decoded_ok || raw_bytes.size() < 10U) {
+        return false;
+    }
+    const uint16_t mfg =
+        static_cast<uint16_t>((static_cast<uint16_t>(byte_at(raw_bytes, 3)) << 8U) | byte_at(raw_bytes, 2));
+    const uint32_t dev = (static_cast<uint32_t>(byte_at(raw_bytes, 7)) << 24U) |
+                         (static_cast<uint32_t>(byte_at(raw_bytes, 6)) << 16U) |
+                         (static_cast<uint32_t>(byte_at(raw_bytes, 5)) << 8U) |
+                         static_cast<uint32_t>(byte_at(raw_bytes, 4));
+    return mfg != 0U || dev != 0U;
+}
+
 std::string WmbusFrame::identity_key() const {
-    if (decoded_ok) {
+    if (has_reliable_identity()) {
         const uint16_t mfg = manufacturer_id();
         const uint32_t dev = device_id();
         if (mfg != 0U || dev != 0U) {
@@ -155,17 +202,15 @@ std::string WmbusFrame::signature_prefix_hex(size_t max_bytes) const {
 common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::RawRadioFrame& raw,
                                                            int64_t timestamp_ms,
                                                            uint32_t rx_count) {
-
-    if (raw.length == 0) {
-        return common::Result<WmbusFrame>::error(common::ErrorCode::InvalidArgument);
-    }
-    if (raw.length > radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
+    if (!raw_frame_contract_is_valid(raw)) {
         return common::Result<WmbusFrame>::error(common::ErrorCode::InvalidArgument);
     }
 
     WmbusFrame frame;
     frame.raw_bytes.assign(raw.data, raw.data + raw.length);
     frame.original_raw_bytes = frame.raw_bytes;
+    frame.raw_bytes.assign(raw.data + raw.payload_offset,
+                           raw.data + raw.payload_offset + raw.payload_length);
 
     std::vector<uint8_t> decoded;
     bool decode_ok = decode_3of6_bytes(frame.raw_bytes.data(), frame.raw_bytes.size(), decoded);
@@ -176,7 +221,7 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
         }
         decode_ok = decode_3of6_bytes(reversed.data(), reversed.size(), decoded);
     }
-    if (decode_ok && decoded.size() >= 3U) {
+    if (decode_ok && validate_decoded_frame(decoded)) {
         frame.raw_bytes = std::move(decoded);
         frame.decoded_ok = true;
     }
@@ -184,7 +229,8 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     frame.metadata.rssi_dbm = raw.rssi_dbm;
     frame.metadata.lqi = raw.lqi;
     frame.metadata.crc_ok = raw.crc_ok;
-    frame.metadata.frame_length = static_cast<uint16_t>(frame.raw_bytes.size());
+    frame.metadata.captured_frame_length = static_cast<uint16_t>(frame.original_raw_bytes.size());
+    frame.metadata.canonical_frame_length = static_cast<uint16_t>(frame.raw_bytes.size());
     frame.metadata.timestamp_ms = timestamp_ms;
     frame.metadata.rx_count = rx_count;
 

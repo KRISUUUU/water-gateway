@@ -408,8 +408,10 @@ static void pipeline_task(void* /*param*/) {
                 } else {
                     enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
                                  mqtt_service::payload_raw_frame(
-                                     frame.raw_hex().c_str(), frame.original_raw_hex().c_str(),
-                                     frame.decoded_ok, frame.metadata.frame_length,
+                                     frame.captured_hex().c_str(),
+                                     frame.metadata.captured_frame_length,
+                                     frame.canonical_hex().c_str(),
+                                     frame.metadata.canonical_frame_length, frame.decoded_ok,
                                      frame.metadata.rssi_dbm, frame.metadata.lqi,
                                      frame.metadata.crc_ok, frame.manufacturer_id(),
                                      frame.device_id(), derive_meter_key(frame).c_str(), ts_str,

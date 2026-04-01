@@ -28,9 +28,10 @@ std::string payload_telemetry(uint32_t uptime_s, uint32_t free_heap_bytes,
 std::string payload_event(const char* event_type, const char* severity, const char* message,
                           const char* timestamp);
 
-// Raw frame payload for received WMBus telegrams
-std::string payload_raw_frame(const char* raw_hex, const char* raw_encoded_hex,
-                              bool decoded, uint16_t frame_length, int8_t rssi_dbm,
+// Radio/canonical frame payload for received WMBus telegrams
+std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length,
+                              const char* canonical_hex, uint16_t canonical_frame_length,
+                              bool decoded, int8_t rssi_dbm,
                               uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
                               uint32_t device_id, const char* meter_key, const char* timestamp,
                               uint32_t rx_count);

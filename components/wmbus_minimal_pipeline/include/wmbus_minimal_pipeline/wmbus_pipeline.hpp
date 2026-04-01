@@ -10,7 +10,11 @@ namespace wmbus_minimal_pipeline {
 
 class WmbusPipeline {
   public:
-    // Convert a raw radio frame into a WmbusFrame with metadata.
+    // Convert a radio-layer packet into a WmbusFrame with metadata.
+    // Expected RawRadioFrame contract:
+    // - original bytes come from CC1101 RX FIFO packet data (excluding appended status bytes)
+    // - data[0] is the radio packet-length prefix
+    // - payload bytes begin at payload_offset and are the only bytes considered for 3-of-6 decode
     // This is the primary pipeline entry point.
     // Pure function — no side effects, fully host-testable.
     static common::Result<WmbusFrame> from_radio_frame(const radio_cc1101::RawRadioFrame& raw,

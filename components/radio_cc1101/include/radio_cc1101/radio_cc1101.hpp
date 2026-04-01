@@ -32,11 +32,20 @@ struct RadioCounters {
 struct RawRadioFrame {
     static constexpr size_t MAX_DATA_SIZE = 290;
 
-    uint8_t data[MAX_DATA_SIZE];
-    uint16_t length;
-    int8_t rssi_dbm;
-    uint8_t lqi;
-    bool crc_ok;
+    // Exact data bytes drained from the CC1101 RX FIFO, excluding the appended status bytes.
+    // In the current variable-length packet-engine contract this includes:
+    // - data[0]: CC1101 packet length prefix
+    // - data[payload_offset .. payload_offset + payload_length): packet payload bytes
+    //
+    // This buffer is intentionally not "already decoded WMBus". It is the radio-layer packet as
+    // delivered by the CC1101 packet engine.
+    uint8_t data[MAX_DATA_SIZE]{};
+    uint16_t length = 0;
+    uint16_t payload_offset = 0;
+    uint16_t payload_length = 0;
+    int8_t rssi_dbm = 0;
+    uint8_t lqi = 0;
+    bool crc_ok = false;
 };
 
 // SPI pin configuration
@@ -74,7 +83,9 @@ class RadioCc1101 {
     common::Result<void> go_idle();
 
     // Polling-mode RX contract:
-    // - Success: a complete frame plus trailing RSSI/LQI/CRC status was drained from the FIFO.
+    // - Success: a complete CC1101 packet plus trailing RSSI/LQI/CRC status was drained from the
+    //   FIFO. RawRadioFrame contains the exact packet bytes emitted by the packet engine, not a
+    //   decoded Wireless M-Bus frame.
     // - Soft failure: NotFound means no complete frame is currently available; Timeout and
     //   InvalidArgument mean polling observed partial/invalid FIFO state and the caller may keep
     //   RX alive or escalate after repeated occurrences.
@@ -83,7 +94,7 @@ class RadioCc1101 {
     // - Hardware gap: burst traffic, FIFO timing margins, and poll-vs-interrupt trade-offs still
     //   require real ESP32 + CC1101 validation.
     //
-    // Read one WMBus T-mode frame from the RX FIFO. Long frames are drained in <=64 B bursts
+    // Read one packet-engine frame from the RX FIFO. Long frames are drained in <=64 B bursts
     // with a bounded wait (no single-FIFO assumption); timeout flushes FIFO on stall.
     common::Result<RawRadioFrame> read_frame();
 

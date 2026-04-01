@@ -99,8 +99,10 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
         }
         DetectedMeter m{};
         m.key = key;
-        m.manufacturer_id = frame.manufacturer_id();
-        m.device_id = frame.device_id();
+        if (frame.has_reliable_identity()) {
+            m.manufacturer_id = frame.manufacturer_id();
+            m.device_id = frame.device_id();
+        }
         m.first_seen_ms = frame.metadata.timestamp_ms;
         m.last_seen_ms = frame.metadata.timestamp_ms;
         m.seen_count = 1;
@@ -124,6 +126,10 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
         }
     } else {
         DetectedMeter& m = s.detected[static_cast<size_t>(idx)];
+        if (frame.has_reliable_identity()) {
+            m.manufacturer_id = frame.manufacturer_id();
+            m.device_id = frame.device_id();
+        }
         m.last_seen_ms = frame.metadata.timestamp_ms;
         m.seen_count++;
         m.last_rssi_dbm = frame.metadata.rssi_dbm;
@@ -150,8 +156,8 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
 
     RecentTelegram t{};
     t.timestamp_ms = frame.metadata.timestamp_ms;
-    t.raw_hex = frame.raw_hex();
-    t.frame_length = frame.metadata.frame_length;
+    t.raw_hex = frame.canonical_hex();
+    t.frame_length = frame.metadata.canonical_frame_length;
     t.rssi_dbm = frame.metadata.rssi_dbm;
     t.lqi = frame.metadata.lqi;
     t.crc_ok = frame.metadata.crc_ok;

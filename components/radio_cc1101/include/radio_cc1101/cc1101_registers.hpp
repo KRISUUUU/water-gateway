@@ -135,8 +135,9 @@ static constexpr TmodeRegisterConfig kTmodeConfig[] = {
     {registers::PKTLEN, 0xFF},   // Variable-length upper bound: first RX FIFO byte may advertise
                                  // up to 255 payload bytes before appended status
     {registers::PKTCTRL1, 0x04}, // Append status (RSSI/LQI/CRC) to RX FIFO
-    {registers::PKTCTRL0, 0x05}, // Variable-length mode, whitening disabled; read_frame() treats the
-                                 // first RX FIFO byte as the WMBus L-field/packet length
+    {registers::PKTCTRL0, 0x05}, // Variable-length mode, whitening disabled; CC1101 prepends its
+                                 // packet-length byte in RX FIFO and the pipeline decodes only the
+                                 // payload bytes after that prefix
     {registers::FSCTRL1, 0x08},  // IF frequency
     {registers::FSCTRL0, 0x00},  // Frequency offset
     // 868.95 MHz: FREQ = 868.95 * 2^16 / 26 = 0x2188CA

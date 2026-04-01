@@ -102,8 +102,9 @@ std::string payload_event(const char* event_type, const char* severity, const ch
     return to_unformatted_json(root.get());
 }
 
-std::string payload_raw_frame(const char* raw_hex, const char* raw_encoded_hex,
-                              bool decoded, uint16_t frame_length, int8_t rssi_dbm,
+std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length,
+                              const char* canonical_hex, uint16_t canonical_frame_length,
+                              bool decoded, int8_t rssi_dbm,
                               uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
                               uint32_t device_id, const char* meter_key, const char* timestamp,
                               uint32_t rx_count) {
@@ -112,10 +113,13 @@ std::string payload_raw_frame(const char* raw_hex, const char* raw_encoded_hex,
         return "{}";
     }
 
-    cJSON_AddStringToObject(root.get(), "raw_hex", safe_cstr(raw_hex));
-    cJSON_AddStringToObject(root.get(), "raw_encoded_hex", safe_cstr(raw_encoded_hex));
+    cJSON_AddStringToObject(root.get(), "radio_hex", safe_cstr(radio_hex));
+    cJSON_AddNumberToObject(root.get(), "radio_frame_length",
+                            static_cast<double>(radio_frame_length));
+    cJSON_AddStringToObject(root.get(), "canonical_hex", safe_cstr(canonical_hex));
+    cJSON_AddNumberToObject(root.get(), "canonical_frame_length",
+                            static_cast<double>(canonical_frame_length));
     cJSON_AddBoolToObject(root.get(), "decoded", decoded);
-    cJSON_AddNumberToObject(root.get(), "frame_length", static_cast<double>(frame_length));
     cJSON_AddNumberToObject(root.get(), "rssi_dbm", static_cast<double>(rssi_dbm));
     cJSON_AddNumberToObject(root.get(), "lqi", static_cast<double>(lqi));
     cJSON_AddBoolToObject(root.get(), "crc_ok", crc_ok);

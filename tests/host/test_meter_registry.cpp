@@ -14,7 +14,15 @@ static wmbus_minimal_pipeline::WmbusFrame make_frame(const char* hex, int64_t ts
     f.metadata.crc_ok = crc_ok;
     f.metadata.rssi_dbm = rssi;
     f.metadata.lqi = lqi;
-    f.metadata.frame_length = static_cast<uint16_t>(f.raw_bytes.size());
+    f.metadata.captured_frame_length = static_cast<uint16_t>(f.raw_bytes.size());
+    f.metadata.canonical_frame_length = static_cast<uint16_t>(f.raw_bytes.size());
+    return f;
+}
+
+static wmbus_minimal_pipeline::WmbusFrame make_decoded_frame(const char* hex, int64_t ts_ms,
+                                                             bool crc_ok) {
+    auto f = make_frame(hex, ts_ms, crc_ok);
+    f.decoded_ok = true;
     return f;
 }
 
@@ -32,6 +40,8 @@ int main() {
     assert(meters[0].seen_count >= 1);
     assert(!meters[0].key.empty());
     assert(meters[0].key == "sig:2C4493157856341201078C20");
+    assert(meters[0].manufacturer_id == 0);
+    assert(meters[0].device_id == 0);
 
     meter_registry::WatchlistEntry wl{};
     wl.key = meters[0].key;
@@ -95,5 +105,18 @@ int main() {
     }
     assert(!found_oldest);
     assert(found_newest);
+
+    auto decoded = make_decoded_frame("0B44840D9048460601070000", 20000, true);
+    registry.observe_frame(decoded, false);
+    meters = registry.detected_meters();
+    bool found_decoded = false;
+    for (const auto& meter : meters) {
+        if (meter.key == "mfg:0D84-id:06464890") {
+            found_decoded = true;
+            assert(meter.manufacturer_id == 0x0D84);
+            assert(meter.device_id == 0x06464890);
+        }
+    }
+    assert(found_decoded);
     return 0;
 }

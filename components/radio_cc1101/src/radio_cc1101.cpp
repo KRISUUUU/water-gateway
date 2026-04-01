@@ -238,7 +238,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
     RawRadioFrame frame{};
 
-    // Read the first byte as packet length (T-mode convention)
+    // Read the first byte as the CC1101 variable-length packet prefix.
     uint8_t pkt_len = 0;
     if (!spi_read_register(registers::FIFO_RX | registers::READ_SINGLE, pkt_len)) {
         state_ = RadioState::Error;
@@ -254,12 +254,15 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         return common::Result<RawRadioFrame>::error(common::ErrorCode::InvalidArgument);
     }
 
-    // L-field + pkt_len payload bytes + 2 appended status bytes arrive in the RX FIFO.
+    // CC1101 packet-length prefix + pkt_len payload bytes + 2 appended status bytes arrive in the
+    // RX FIFO.
     // Drain in chunks (FIFO is 64 bytes); long frames require multiple reads with bounded wait.
     // The 200 ms timeout is intentionally conservative and still needs verification under real
     // burst traffic and CC1101 timing conditions.
     frame.data[0] = pkt_len;
     frame.length = static_cast<uint16_t>(pkt_len + 1);
+    frame.payload_offset = 1;
+    frame.payload_length = pkt_len;
 
     const uint16_t total_after_l = static_cast<uint16_t>(pkt_len + 2);
     uint16_t received = 0;
@@ -349,10 +352,12 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 #else
     // Host test stub: return a synthetic frame
     RawRadioFrame frame{};
-    frame.data[0] = 0x2C;
+    frame.data[0] = 0x02;
     frame.data[1] = 0x44;
     frame.data[2] = 0x93;
     frame.length = 3;
+    frame.payload_offset = 1;
+    frame.payload_length = 2;
     frame.rssi_dbm = -65;
     frame.lqi = 45;
     frame.crc_ok = true;

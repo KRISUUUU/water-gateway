@@ -43,7 +43,7 @@ esp_err_t send_json_escaped_message(httpd_req_t* req, const char* message) {
     };
 
     for (const unsigned char* p = reinterpret_cast<const unsigned char*>(message); *p != '\0'; ++p) {
-        char escaped[6];
+        char escaped[7];
         size_t escaped_len = 0;
         if (*p == '"' || *p == '\\') {
             escaped[0] = '\\';

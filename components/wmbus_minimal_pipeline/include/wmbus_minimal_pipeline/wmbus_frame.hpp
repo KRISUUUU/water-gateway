@@ -10,20 +10,21 @@ struct WmbusFrameMetadata {
     int8_t rssi_dbm = 0;
     uint8_t lqi = 0;
     bool crc_ok = false;
-    uint16_t frame_length = 0;
+    uint16_t captured_frame_length = 0;
+    uint16_t canonical_frame_length = 0;
     int64_t timestamp_ms = 0; // Epoch ms (0 if NTP not synced)
     uint32_t rx_count = 0;    // Monotonic reception counter
 };
 
 struct WmbusFrame {
-    std::vector<uint8_t> raw_bytes; // Canonical raw frame bytes
-    std::vector<uint8_t> original_raw_bytes; // Raw captured bytes before 3-of-6 decode
-    bool decoded_ok = false;
+    std::vector<uint8_t> raw_bytes; // Canonical pipeline bytes: decoded WMBus or encoded payload
+    std::vector<uint8_t> original_raw_bytes; // Exact radio-layer bytes before pipeline decode
+    bool decoded_ok = false; // true only when 3-of-6 decode succeeded and the decoded frame validated
     WmbusFrameMetadata metadata;
 
-    // Presentation helper for API/UI/logging.
-    std::string raw_hex() const;
-    std::string original_raw_hex() const;
+    // Presentation helpers for API/UI/logging.
+    std::string canonical_hex() const;
+    std::string captured_hex() const;
 
     // Basic WMBus T-mode L-field (first byte = length of remaining data)
     uint8_t l_field() const;
@@ -38,8 +39,10 @@ struct WmbusFrame {
     uint32_t device_id() const;
 
     // Conservative identity key for product-layer indexing.
-    // Raw T-mode capture uses signature fallback until 3-of-6 decode exists.
+    // Signature fallback is used until a decoded frame exposes a reliable manufacturer/device pair.
     std::string identity_key() const;
+
+    bool has_reliable_identity() const;
 
     // Best-effort stable key for dedup/indexing without converting to hex.
     std::string dedup_key() const;

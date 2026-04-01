@@ -54,12 +54,13 @@ static void test_payload_status_offline() {
 }
 
 static void test_payload_raw_frame() {
-    auto p = payload_raw_frame("2C4493", "0F6356", true, 3, -65, 45, true, 0x1593, 0x12345678,
+    auto p = payload_raw_frame("0F6356", 3, "2C4493", 3, true, -65, 45, true, 0x1593, 0x12345678,
                                "mfg:1593-id:12345678", "2025-01-15T12:00:00Z", 42);
-    assert(p.find("\"raw_hex\":\"2C4493\"") != std::string::npos);
-    assert(p.find("\"raw_encoded_hex\":\"0F6356\"") != std::string::npos);
+    assert(p.find("\"radio_hex\":\"0F6356\"") != std::string::npos);
+    assert(p.find("\"radio_frame_length\":3") != std::string::npos);
+    assert(p.find("\"canonical_hex\":\"2C4493\"") != std::string::npos);
+    assert(p.find("\"canonical_frame_length\":3") != std::string::npos);
     assert(p.find("\"decoded\":true") != std::string::npos);
-    assert(p.find("\"frame_length\":3") != std::string::npos);
     assert(p.find("\"rssi_dbm\":-65") != std::string::npos);
     assert(p.find("\"lqi\":45") != std::string::npos);
     assert(p.find("\"crc_ok\":true") != std::string::npos);
@@ -68,6 +69,14 @@ static void test_payload_raw_frame() {
     assert(p.find("\"meter_key\":\"mfg:1593-id:12345678\"") != std::string::npos);
     assert(p.find("\"rx_count\":42") != std::string::npos);
     printf("  PASS: payload_raw_frame\n");
+}
+
+static void test_payload_raw_frame_keeps_distinct_lengths() {
+    auto p = payload_raw_frame("11223344", 4, "0B44840D9048460601070000", 12, true, -70, 33, false,
+                               0x0D84, 0x06464890, "mfg:0D84-id:06464890", "ts", 7);
+    assert(p.find("\"radio_frame_length\":4") != std::string::npos);
+    assert(p.find("\"canonical_frame_length\":12") != std::string::npos);
+    printf("  PASS: payload_raw_frame distinct lengths\n");
 }
 
 static void test_payload_event() {
@@ -98,6 +107,7 @@ int main() {
     test_payload_status_online();
     test_payload_status_offline();
     test_payload_raw_frame();
+    test_payload_raw_frame_keeps_distinct_lengths();
     test_payload_event();
     test_payload_telemetry();
     printf("All MQTT payload tests passed.\n");
