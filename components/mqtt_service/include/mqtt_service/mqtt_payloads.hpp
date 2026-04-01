@@ -29,7 +29,8 @@ std::string payload_event(const char* event_type, const char* severity, const ch
                           const char* timestamp);
 
 // Raw frame payload for received WMBus telegrams
-std::string payload_raw_frame(const char* raw_hex, uint16_t frame_length, int8_t rssi_dbm,
+std::string payload_raw_frame(const char* raw_hex, const char* raw_encoded_hex,
+                              bool decoded, uint16_t frame_length, int8_t rssi_dbm,
                               uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
                               uint32_t device_id, const char* meter_key, const char* timestamp,
                               uint32_t rx_count);

@@ -502,7 +502,15 @@ common::Result<void> RadioCc1101::apply_tmode_config() {
             return common::Result<void>::error(common::ErrorCode::RadioSpiError);
         }
     }
+
+    uint8_t sync1 = 0;
+    uint8_t sync0 = 0;
+    if (!spi_read_register(registers::SYNC1, sync1) || !spi_read_register(registers::SYNC0, sync0)) {
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+
     ESP_LOGI(TAG, "T-mode register config applied (%zu registers)", kTmodeConfigSize);
+    ESP_LOGI(TAG, "CC1101 sync word: 0x%02X%02X", sync1, sync0);
     return common::Result<void>::ok();
 }
 

@@ -17,10 +17,13 @@ struct WmbusFrameMetadata {
 
 struct WmbusFrame {
     std::vector<uint8_t> raw_bytes; // Canonical raw frame bytes
+    std::vector<uint8_t> original_raw_bytes; // Raw captured bytes before 3-of-6 decode
+    bool decoded_ok = false;
     WmbusFrameMetadata metadata;
 
     // Presentation helper for API/UI/logging.
     std::string raw_hex() const;
+    std::string original_raw_hex() const;
 
     // Basic WMBus T-mode L-field (first byte = length of remaining data)
     uint8_t l_field() const;

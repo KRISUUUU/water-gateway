@@ -204,6 +204,24 @@
         });
     }
 
+    function apiRaw(method, path, options) {
+        const opts = Object.assign({ method: method, headers: {} }, options || {});
+        opts.headers = Object.assign({}, opts.headers || {});
+        if (token) {
+            opts.headers.Authorization = "Bearer " + token;
+        }
+        return fetch(path, opts).then((r) => {
+            if (r.status === 401) {
+                showSessionExpiredSignIn();
+                throw new Error("unauthorized");
+            }
+            if (!r.ok) {
+                throw new Error("http_" + r.status);
+            }
+            return r;
+        });
+    }
+
     function showSignInScreen() {
         setHiddenIfPresent("#auth-startup-msg", true);
         setHiddenIfPresent("#login-form", false);
@@ -954,9 +972,11 @@
     function loadLogs() {
         api("GET", "/api/logs")
             .then((data) => {
-                const lines = data.entries || [];
-                const filter = $("#log-filter").value;
-                const filtered = filter ? lines.filter((l) => l.severity === filter) : lines;
+                const lines = Array.isArray(data.entries) ? data.entries : [];
+                const filter = ($("#log-filter") && $("#log-filter").value) || "";
+                const filtered = filter
+                    ? lines.filter((l) => String(l.severity || "").toLowerCase() === filter)
+                    : lines;
                 const output = filtered
                     .map((l) => {
                         const ts = l.timestamp_us
@@ -968,9 +988,15 @@
                     })
                     .join("\n");
                 $("#log-output").textContent = output || "No logs.";
-                $("#logs-empty").hidden = filtered.length > 0;
+                $("#logs-empty").hidden = filtered.length !== 0;
             })
-            .catch(() => {});
+            .catch((err) => {
+                if (err && err.message === "unauthorized") {
+                    return;
+                }
+                $("#log-output").textContent = "Failed to load logs.";
+                $("#logs-empty").hidden = false;
+            });
     }
 
     function startRefresh() {
@@ -1193,24 +1219,22 @@
         });
 
         $("#sys-bundle").addEventListener("click", () => {
-            fetch("/api/support-bundle", {
-                headers: {
-                    Authorization: token ? "Bearer " + token : "",
-                },
-            })
-                .then((r) => {
-                    if (!r.ok) {
-                        throw new Error("download_failed");
-                    }
-                    return r.blob();
-                })
+            apiRaw("GET", "/api/support-bundle")
+                .then((r) => r.blob())
                 .then((blob) => {
                     const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
+                    const url = URL.createObjectURL(blob);
+                    a.href = url;
                     a.download = "support-bundle.json";
                     a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
                 })
-                .catch(() => {});
+                .catch((err) => {
+                    if (err && err.message === "unauthorized") {
+                        return;
+                    }
+                    setMsg($("#factory-msg"), "error", "Support bundle download failed.");
+                });
         });
 
         $("#sys-reboot").addEventListener("click", () => {

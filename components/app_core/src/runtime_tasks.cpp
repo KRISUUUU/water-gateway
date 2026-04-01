@@ -408,7 +408,8 @@ static void pipeline_task(void* /*param*/) {
                 } else {
                     enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
                                  mqtt_service::payload_raw_frame(
-                                     frame.raw_hex().c_str(), frame.metadata.frame_length,
+                                     frame.raw_hex().c_str(), frame.original_raw_hex().c_str(),
+                                     frame.decoded_ok, frame.metadata.frame_length,
                                      frame.metadata.rssi_dbm, frame.metadata.lqi,
                                      frame.metadata.crc_ok, frame.manufacturer_id(),
                                      frame.device_id(), derive_meter_key(frame).c_str(), ts_str,
@@ -691,20 +692,20 @@ common::Result<void> AppCore::create_runtime_tasks() {
         cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 8192, nullptr, 7, &pipeline_task_handle,
+    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 12288, nullptr, 7, &pipeline_task_handle,
                                 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: pipeline");
         cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 6144, nullptr, 5, &mqtt_task_handle, 0) !=
+    if (xTaskCreatePinnedToCore(mqtt_task, "mqtt_pub", 8192, nullptr, 5, &mqtt_task_handle, 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: mqtt_pub");
         cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(health_task, "health", 4096, nullptr, 3, &health_task_handle, 0) !=
+    if (xTaskCreatePinnedToCore(health_task, "health", 8192, nullptr, 3, &health_task_handle, 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: health");
         cleanup_runtime_resources();
