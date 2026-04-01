@@ -1,5 +1,6 @@
 #pragma once
 
+#include "radio_cc1101/radio_cc1101.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -10,6 +11,12 @@ struct WmbusFrameMetadata {
     int8_t rssi_dbm = 0;
     uint8_t lqi = 0;
     bool crc_ok = false;
+    bool radio_crc_available = false;
+    bool raw_frame_contract_valid = false;
+    radio_cc1101::RadioBurstEndReason burst_end_reason = radio_cc1101::RadioBurstEndReason::None;
+    uint8_t first_data_byte = 0;
+    uint16_t payload_offset = 0;
+    uint16_t payload_length = 0;
     uint16_t captured_frame_length = 0;
     uint16_t canonical_frame_length = 0;
     int64_t timestamp_ms = 0; // Epoch ms (0 if NTP not synced)

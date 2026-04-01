@@ -38,7 +38,8 @@ class RadioStateMachine {
     // Notify state machine about read-loop outcomes:
     // - success resets the soft-failure streak
     // - NotFound is expected during polling and is ignored
-    // - Timeout / InvalidArgument / RadioSpiError are soft failures that may escalate
+    // - RadioQualityDrop is a framing/boundary issue and does not trigger recovery
+    // - Timeout / RadioSpiError are soft failures that may escalate
     // - RadioFifoOverflow and other hard faults transition to Error immediately
     //
     // Repeated soft-failure escalation thresholds are conservative heuristics and still need

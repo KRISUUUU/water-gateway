@@ -37,6 +37,13 @@ int main() {
     rsm.on_read_success();
     assert(rsm.soft_failure_streak() == 0);
 
+    // Quality drops should not trigger recovery or build a soft-failure streak.
+    const auto attempts_before_quality = rsm.recovery_attempts();
+    rsm.on_read_failure(common::ErrorCode::RadioQualityDrop);
+    assert(rsm.soft_failure_streak() == 0);
+    assert(rsm.recovery_attempts() == attempts_before_quality);
+    assert(rsm.state() == radio_state_machine::RsmState::Receiving);
+
     // Repeated soft failures should escalate to a recovery attempt.
     const auto attempts_before_soft = rsm.recovery_attempts();
     for (int i = 0; i < 5; ++i) {

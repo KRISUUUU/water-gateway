@@ -38,10 +38,9 @@ static std::vector<uint8_t> encode_3of6_for_test(const std::vector<uint8_t>& byt
 static RawRadioFrame make_radio_frame_from_payload(const std::vector<uint8_t>& payload,
                                                    bool reverse_bits = false) {
     RawRadioFrame raw{};
-    assert(payload.size() < RawRadioFrame::MAX_DATA_SIZE);
-    raw.data[0] = static_cast<uint8_t>(payload.size());
-    raw.length = static_cast<uint16_t>(payload.size() + 1U);
-    raw.payload_offset = 1;
+    assert(payload.size() <= RawRadioFrame::MAX_DATA_SIZE);
+    raw.length = static_cast<uint16_t>(payload.size());
+    raw.payload_offset = 0;
     raw.payload_length = static_cast<uint16_t>(payload.size());
     for (size_t i = 0; i < payload.size(); ++i) {
         uint8_t byte = payload[i];
@@ -51,8 +50,10 @@ static RawRadioFrame make_radio_frame_from_payload(const std::vector<uint8_t>& p
                                         ((byte & 0x10U) >> 1U) | ((byte & 0x20U) >> 3U) |
                                         ((byte & 0x40U) >> 5U) | ((byte & 0x80U) >> 7U));
         }
-        raw.data[1 + i] = byte;
+        raw.data[i] = byte;
     }
+    raw.first_data_byte = payload.empty() ? 0U : payload.front();
+    raw.burst_end_reason = RadioBurstEndReason::EmptyPolls;
     return raw;
 }
 
@@ -113,12 +114,18 @@ static void test_from_radio_frame() {
 
     auto& frame = result.value();
     assert(frame.canonical_hex() == "2C44931578563412");
-    assert(frame.captured_hex() == "082C44931578563412");
+    assert(frame.captured_hex() == "2C44931578563412");
     assert(frame.decoded_ok == false);
     assert(frame.metadata.rssi_dbm == -65);
     assert(frame.metadata.lqi == 45);
     assert(frame.metadata.crc_ok == true);
-    assert(frame.metadata.captured_frame_length == 9);
+    assert(frame.metadata.radio_crc_available == false);
+    assert(frame.metadata.raw_frame_contract_valid == true);
+    assert(frame.metadata.burst_end_reason == RadioBurstEndReason::EmptyPolls);
+    assert(frame.metadata.first_data_byte == 0x2C);
+    assert(frame.metadata.payload_offset == 0);
+    assert(frame.metadata.payload_length == 8);
+    assert(frame.metadata.captured_frame_length == 8);
     assert(frame.metadata.canonical_frame_length == 8);
     assert(frame.metadata.timestamp_ms == 1705312800000LL);
     assert(frame.metadata.rx_count == 42);
@@ -136,12 +143,12 @@ static void test_from_radio_frame_empty_fails() {
 
 static void test_invalid_raw_radio_contract_rejected() {
     RawRadioFrame raw{};
-    raw.data[0] = 0x08;
-    raw.data[1] = 0x2C;
-    raw.data[2] = 0x44;
+    raw.data[0] = 0x2C;
+    raw.data[1] = 0x44;
     raw.length = 3;
-    raw.payload_offset = 1;
-    raw.payload_length = 1;
+    raw.payload_offset = 0;
+    raw.payload_length = 2;
+    raw.first_data_byte = raw.data[0];
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
     assert(result.is_error());
@@ -189,13 +196,14 @@ static void test_decode_3of6_sample_frame() {
     RawRadioFrame raw{};
     raw.length = static_cast<uint16_t>(
         WmbusPipeline::hex_to_bytes("0F6356F86798C8811BCC609DB01997D716", raw.data, sizeof(raw.data)));
-    raw.payload_offset = 1;
-    raw.payload_length = static_cast<uint16_t>(raw.length - 1U);
+    raw.payload_offset = 0;
+    raw.payload_length = raw.length;
+    raw.first_data_byte = raw.data[0];
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
-    assert(result.is_error());
-    assert(result.error() == common::ErrorCode::InvalidArgument);
-    printf("  PASS: invalid captured sample rejected by RawRadioFrame contract\n");
+    assert(result.is_ok());
+    assert(result.value().decoded_ok == false);
+    printf("  PASS: undecodable captured sample kept as raw burst\n");
 }
 
 static void test_decode_3of6_invalid_symbol_falls_back_to_raw() {
@@ -232,6 +240,10 @@ static void test_decode_3of6_known_encoded_payload() {
     assert(frame.c_field() == 0x44);
     assert(frame.canonical_hex() == "0B44840D9048460601070000");
     assert(frame.captured_hex() != frame.canonical_hex());
+    assert(frame.metadata.raw_frame_contract_valid == true);
+    assert(frame.metadata.first_data_byte == raw.data[0]);
+    assert(frame.metadata.payload_offset == 0);
+    assert(frame.metadata.payload_length == raw.payload_length);
     assert(frame.metadata.captured_frame_length == raw.length);
     assert(frame.metadata.canonical_frame_length == plain.size());
     assert(frame.identity_key() == "mfg:0D84-id:06464890");

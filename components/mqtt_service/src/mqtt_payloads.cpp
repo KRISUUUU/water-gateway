@@ -31,6 +31,18 @@ std::string to_unformatted_json(cJSON* root) {
     return std::string(printed.get());
 }
 
+const char* burst_end_reason_str(uint8_t reason_value) {
+    switch (reason_value) {
+    case 0:
+        return "none";
+    case 1:
+        return "empty_polls";
+    case 2:
+        return "max_duration";
+    }
+    return "unknown";
+}
+
 } // namespace
 
 std::string payload_status_online(const char* firmware_version, const char* ip_address,
@@ -104,8 +116,12 @@ std::string payload_event(const char* event_type, const char* severity, const ch
 
 std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length,
                               const char* canonical_hex, uint16_t canonical_frame_length,
-                              bool decoded, int8_t rssi_dbm,
-                              uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
+                              bool decoded, bool raw_frame_contract_valid,
+                              uint8_t burst_end_reason,
+                              uint8_t first_data_byte, uint16_t payload_offset,
+                              uint16_t payload_length, int8_t rssi_dbm,
+                              uint8_t lqi, bool crc_ok, bool radio_crc_available,
+                              uint16_t manufacturer_id,
                               uint32_t device_id, const char* meter_key, const char* timestamp,
                               uint32_t rx_count) {
     JsonPtr root = make_object();
@@ -116,13 +132,23 @@ std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length
     cJSON_AddStringToObject(root.get(), "radio_hex", safe_cstr(radio_hex));
     cJSON_AddNumberToObject(root.get(), "radio_frame_length",
                             static_cast<double>(radio_frame_length));
+    cJSON_AddStringToObject(root.get(), "captured_hex", safe_cstr(radio_hex));
+    cJSON_AddNumberToObject(root.get(), "captured_frame_length",
+                            static_cast<double>(radio_frame_length));
     cJSON_AddStringToObject(root.get(), "canonical_hex", safe_cstr(canonical_hex));
     cJSON_AddNumberToObject(root.get(), "canonical_frame_length",
                             static_cast<double>(canonical_frame_length));
     cJSON_AddBoolToObject(root.get(), "decoded", decoded);
+    cJSON_AddBoolToObject(root.get(), "decoded_ok", decoded);
+    cJSON_AddBoolToObject(root.get(), "raw_frame_contract_valid", raw_frame_contract_valid);
+    cJSON_AddStringToObject(root.get(), "burst_end_reason", burst_end_reason_str(burst_end_reason));
+    cJSON_AddNumberToObject(root.get(), "first_data_byte", static_cast<double>(first_data_byte));
+    cJSON_AddNumberToObject(root.get(), "payload_offset", static_cast<double>(payload_offset));
+    cJSON_AddNumberToObject(root.get(), "payload_length", static_cast<double>(payload_length));
     cJSON_AddNumberToObject(root.get(), "rssi_dbm", static_cast<double>(rssi_dbm));
     cJSON_AddNumberToObject(root.get(), "lqi", static_cast<double>(lqi));
     cJSON_AddBoolToObject(root.get(), "crc_ok", crc_ok);
+    cJSON_AddBoolToObject(root.get(), "radio_crc_available", radio_crc_available);
     cJSON_AddNumberToObject(root.get(), "manufacturer_id", static_cast<double>(manufacturer_id));
     cJSON_AddNumberToObject(root.get(), "device_id", static_cast<double>(device_id));
     cJSON_AddStringToObject(root.get(), "meter_key", safe_cstr(meter_key));

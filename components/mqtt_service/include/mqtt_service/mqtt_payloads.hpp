@@ -31,8 +31,12 @@ std::string payload_event(const char* event_type, const char* severity, const ch
 // Radio/canonical frame payload for received WMBus telegrams
 std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length,
                               const char* canonical_hex, uint16_t canonical_frame_length,
-                              bool decoded, int8_t rssi_dbm,
-                              uint8_t lqi, bool crc_ok, uint16_t manufacturer_id,
+                              bool decoded, bool raw_frame_contract_valid,
+                              uint8_t burst_end_reason,
+                              uint8_t first_data_byte, uint16_t payload_offset,
+                              uint16_t payload_length, int8_t rssi_dbm,
+                              uint8_t lqi, bool crc_ok, bool radio_crc_available,
+                              uint16_t manufacturer_id,
                               uint32_t device_id, const char* meter_key, const char* timestamp,
                               uint32_t rx_count);
 

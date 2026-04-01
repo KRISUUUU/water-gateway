@@ -12,8 +12,8 @@ class WmbusPipeline {
   public:
     // Convert a radio-layer packet into a WmbusFrame with metadata.
     // Expected RawRadioFrame contract:
-    // - original bytes come from CC1101 RX FIFO packet data (excluding appended status bytes)
-    // - data[0] is the radio packet-length prefix
+    // - original bytes are the exact data bytes drained from one CC1101 RX burst
+    // - there is no packet-length-prefix semantics in this contract
     // - payload bytes begin at payload_offset and are the only bytes considered for 3-of-6 decode
     // This is the primary pipeline entry point.
     // Pure function — no side effects, fully host-testable.

@@ -75,6 +75,31 @@ const char* radio_state_str(radio_cc1101::RadioState s) {
     return "Unknown";
 }
 
+const char* radio_drop_reason_str(radio_cc1101::RadioDropReason reason) {
+    using radio_cc1101::RadioDropReason;
+    switch (reason) {
+    case RadioDropReason::None:
+        return "none";
+    case RadioDropReason::OversizedBurst:
+        return "oversized_burst";
+    case RadioDropReason::BurstTimeout:
+        return "burst_timeout";
+    }
+    return "unknown";
+}
+
+std::string drop_prefix_hex(const radio_cc1101::RadioDropInfo& drop) {
+    static constexpr char hex_chars[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(static_cast<size_t>(drop.prefix_length) * 2U);
+    for (uint8_t i = 0; i < drop.prefix_length; ++i) {
+        const uint8_t b = drop.prefix[i];
+        out.push_back(hex_chars[(b >> 4U) & 0x0F]);
+        out.push_back(hex_chars[b & 0x0F]);
+    }
+    return out;
+}
+
 const char* mqtt_state_str(mqtt_service::MqttState s) {
     using mqtt_service::MqttState;
     switch (s) {
@@ -166,6 +191,17 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
     cJSON_AddStringToObject(counters, "last_recovery_reason",
                             common::error_code_to_string(static_cast<common::ErrorCode>(
                                 snap.radio_last_recovery_reason_code)));
+    cJSON* last_drop = cJSON_AddObjectToObject(counters, "last_drop");
+    if (!last_drop) {
+        return;
+    }
+    cJSON_AddStringToObject(last_drop, "reason", radio_drop_reason_str(snap.radio_last_drop.reason));
+    cJSON_AddBoolToObject(last_drop, "quality_issue", snap.radio_last_drop.quality_issue);
+    cJSON_AddNumberToObject(last_drop, "captured_length",
+                            static_cast<double>(snap.radio_last_drop.captured_length));
+    cJSON_AddNumberToObject(last_drop, "first_data_byte",
+                            static_cast<double>(snap.radio_last_drop.first_data_byte));
+    cJSON_AddStringToObject(last_drop, "prefix_hex", drop_prefix_hex(snap.radio_last_drop).c_str());
 }
 
 void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
@@ -391,6 +427,7 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
     const auto& rsm = radio_state_machine::RadioStateMachine::instance();
     s.radio_state = radio_cc1101::RadioCc1101::instance().state();
     s.radio = radio_cc1101::RadioCc1101::instance().counters();
+    s.radio_last_drop = radio_cc1101::RadioCc1101::instance().last_drop();
     s.radio_recovery_attempts = rsm.recovery_attempts();
     s.radio_recovery_failures = rsm.recovery_failures();
     s.radio_soft_failure_streak = rsm.soft_failure_streak();

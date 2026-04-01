@@ -33,20 +33,13 @@ bool raw_frame_contract_is_valid(const radio_cc1101::RawRadioFrame& raw) {
     if (raw.length == 0 || raw.length > radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
         return false;
     }
-    if (raw.payload_offset != 1U) {
+    if (raw.payload_offset != 0U) {
         return false;
     }
-    if (raw.payload_offset >= raw.length) {
+    if (raw.payload_length == 0U || raw.payload_length != raw.length) {
         return false;
     }
-    if (raw.payload_length == 0U) {
-        return false;
-    }
-    if (static_cast<size_t>(raw.payload_offset) + static_cast<size_t>(raw.payload_length) !=
-        raw.length) {
-        return false;
-    }
-    if (raw.data[0] != static_cast<uint8_t>(raw.payload_length)) {
+    if (raw.first_data_byte != raw.data[0]) {
         return false;
     }
     return true;
@@ -209,8 +202,6 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     WmbusFrame frame;
     frame.raw_bytes.assign(raw.data, raw.data + raw.length);
     frame.original_raw_bytes = frame.raw_bytes;
-    frame.raw_bytes.assign(raw.data + raw.payload_offset,
-                           raw.data + raw.payload_offset + raw.payload_length);
 
     std::vector<uint8_t> decoded;
     bool decode_ok = decode_3of6_bytes(frame.raw_bytes.data(), frame.raw_bytes.size(), decoded);
@@ -229,6 +220,12 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     frame.metadata.rssi_dbm = raw.rssi_dbm;
     frame.metadata.lqi = raw.lqi;
     frame.metadata.crc_ok = raw.crc_ok;
+    frame.metadata.radio_crc_available = raw.radio_crc_available;
+    frame.metadata.raw_frame_contract_valid = true;
+    frame.metadata.burst_end_reason = raw.burst_end_reason;
+    frame.metadata.first_data_byte = raw.first_data_byte;
+    frame.metadata.payload_offset = raw.payload_offset;
+    frame.metadata.payload_length = raw.payload_length;
     frame.metadata.captured_frame_length = static_cast<uint16_t>(frame.original_raw_bytes.size());
     frame.metadata.canonical_frame_length = static_cast<uint16_t>(frame.raw_bytes.size());
     frame.metadata.timestamp_ms = timestamp_ms;

@@ -15,6 +15,7 @@ namespace diagnostics_service {
 struct DiagnosticsSnapshot {
     radio_cc1101::RadioState radio_state{radio_cc1101::RadioState::Uninitialized};
     radio_cc1101::RadioCounters radio{};
+    radio_cc1101::RadioDropInfo radio_last_drop{};
     bool radio_rx_polling_mode{true};
     bool radio_rx_interrupt_path_active{false};
     std::uint32_t radio_recovery_attempts{0};

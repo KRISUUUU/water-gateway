@@ -113,8 +113,7 @@ void RadioStateMachine::on_read_success() {
 }
 
 bool RadioStateMachine::is_escalating_soft_failure(common::ErrorCode error) const {
-    return error == common::ErrorCode::Timeout || error == common::ErrorCode::InvalidArgument ||
-           error == common::ErrorCode::RadioSpiError;
+    return error == common::ErrorCode::Timeout || error == common::ErrorCode::RadioSpiError;
 }
 
 void RadioStateMachine::publish_radio_error(common::ErrorCode error) {
@@ -128,6 +127,13 @@ void RadioStateMachine::on_read_failure(common::ErrorCode error) {
     }
     if (error == common::ErrorCode::NotFound) {
         // Expected "no frame available" result for the polling RX loop.
+        return;
+    }
+
+    if (error == common::ErrorCode::RadioQualityDrop) {
+        // Framing/boundary quality drops mean RX stayed alive but the captured burst was not
+        // usable. They should not drive recovery storms.
+        soft_failure_streak_ = 0;
         return;
     }
 

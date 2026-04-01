@@ -57,6 +57,10 @@ int main() {
     auto watched = registry.recent_telegrams(meter_registry::TelegramFilter::WatchedOnly);
     assert(!watched.empty());
     assert(watched.front().watched);
+    assert(watched.front().raw_frame_contract_valid == false);
+    assert(watched.front().decoded_ok == false);
+    assert(watched.front().canonical_hex == watched.front().raw_hex);
+    assert(watched.front().canonical_frame_length == watched.front().frame_length);
 
     auto dup = registry.recent_telegrams(meter_registry::TelegramFilter::DuplicatesOnly);
     assert(!dup.empty());
@@ -107,6 +111,14 @@ int main() {
     assert(found_newest);
 
     auto decoded = make_decoded_frame("0B44840D9048460601070000", 20000, true);
+    decoded.original_raw_bytes = {0x0E, 0x16};
+    decoded.metadata.raw_frame_contract_valid = true;
+    decoded.metadata.first_data_byte = 0x0E;
+    decoded.metadata.payload_offset = 0;
+    decoded.metadata.payload_length = 2;
+    decoded.metadata.captured_frame_length = 2;
+    decoded.metadata.canonical_frame_length = static_cast<uint16_t>(decoded.raw_bytes.size());
+    decoded.metadata.radio_crc_available = false;
     registry.observe_frame(decoded, false);
     meters = registry.detected_meters();
     bool found_decoded = false;
@@ -118,5 +130,13 @@ int main() {
         }
     }
     assert(found_decoded);
+    auto all = registry.recent_telegrams(meter_registry::TelegramFilter::All);
+    assert(!all.empty());
+    assert(all.front().decoded_ok == true);
+    assert(all.front().raw_frame_contract_valid == true);
+    assert(all.front().captured_frame_length == 2);
+    assert(all.front().canonical_frame_length == decoded.raw_bytes.size());
+    assert(all.front().first_data_byte == 0x0E);
+    assert(all.front().radio_crc_available == false);
     return 0;
 }

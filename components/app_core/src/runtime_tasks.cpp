@@ -271,8 +271,10 @@ static void radio_rx_task(void* /*param*/) {
         // RX contract for the default polling path:
         // - Success: read_frame() returns a complete frame and we enqueue it for the pipeline.
         // - Expected idle poll: NotFound means no complete frame was ready this iteration.
-        // - Soft failure: Timeout / InvalidArgument / RadioSpiError keep the task alive but are
-        //   reported to the state machine so repeated occurrences can escalate.
+        // - Quality drop: RadioQualityDrop means RX stayed alive but the captured burst could not
+        //   be delimited into a usable frame; it is not treated like a recovery-worthy fault.
+        // - Soft failure: Timeout / RadioSpiError keep the task alive but are reported to the
+        //   state machine so repeated occurrences can escalate.
         // - Recovery/escalation: FIFO overflow and repeated soft failures transition the radio
         //   state machine into recovery; recovery thresholds are still hardware-validated only.
         //
@@ -320,10 +322,12 @@ static void radio_rx_task(void* /*param*/) {
                     const uint32_t timeout_streak =
                         radio_timeout_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
                     update_peak(radio_timeout_streak_peak, timeout_streak);
+                } else if (err == common::ErrorCode::RadioQualityDrop) {
+                    radio_timeout_streak.store(0, std::memory_order_relaxed);
                 } else {
                     radio_timeout_streak.store(0, std::memory_order_relaxed);
+                    radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
                 }
-                radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
             }
             rsm.on_read_failure(result.error());
         }
@@ -380,6 +384,33 @@ static void pipeline_task(void* /*param*/) {
             auto frame_result =
                 wmbus_minimal_pipeline::WmbusPipeline::from_radio_frame(raw, ts, rx_count);
             if (frame_result.is_error()) {
+                char ts_str[40] = "timestamp_unavailable";
+                if (ntp_synced && ts > 0) {
+                    const time_t sec = static_cast<time_t>(ts / 1000);
+                    struct tm t;
+                    gmtime_r(&sec, &t);
+                    strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
+                } else if (ts > 0) {
+                    std::snprintf(ts_str, sizeof(ts_str), "monotonic_ms:%lld",
+                                  static_cast<long long>(ts));
+                }
+
+                if (esp_get_free_heap_size() >= 8192U) {
+                    const std::string captured_hex =
+                        wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
+                    const std::string canonical_hex =
+                        wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
+                    enqueue_mqtt(
+                        mqtt_service::topic_raw_frame(cached_cfg.mqtt.prefix,
+                                                      cached_cfg.device.hostname),
+                        mqtt_service::payload_raw_frame(
+                            captured_hex.c_str(), raw.length, canonical_hex.c_str(),
+                            raw.payload_length, false, false,
+                            static_cast<uint8_t>(raw.burst_end_reason),
+                            raw.first_data_byte, raw.payload_offset, raw.payload_length,
+                            raw.rssi_dbm, raw.lqi, raw.crc_ok, raw.radio_crc_available, 0, 0,
+                            "sig:INVALID_RAW", ts_str, rx_count));
+                }
                 continue;
             }
 
@@ -412,8 +443,12 @@ static void pipeline_task(void* /*param*/) {
                                      frame.metadata.captured_frame_length,
                                      frame.canonical_hex().c_str(),
                                      frame.metadata.canonical_frame_length, frame.decoded_ok,
-                                     frame.metadata.rssi_dbm, frame.metadata.lqi,
-                                     frame.metadata.crc_ok, frame.manufacturer_id(),
+                                     frame.metadata.raw_frame_contract_valid,
+                                     static_cast<uint8_t>(frame.metadata.burst_end_reason),
+                                     frame.metadata.first_data_byte, frame.metadata.payload_offset,
+                                     frame.metadata.payload_length, frame.metadata.rssi_dbm,
+                                     frame.metadata.lqi, frame.metadata.crc_ok,
+                                     frame.metadata.radio_crc_available, frame.manufacturer_id(),
                                      frame.device_id(), derive_meter_key(frame).c_str(), ts_str,
                                      rx_count));
                 }

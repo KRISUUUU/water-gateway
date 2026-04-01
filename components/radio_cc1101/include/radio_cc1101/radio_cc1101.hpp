@@ -4,6 +4,7 @@
 #include "common/result.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 namespace radio_cc1101 {
 
@@ -29,23 +30,43 @@ struct RadioCounters {
     uint32_t spi_errors = 0;
 };
 
+enum class RadioDropReason : uint8_t {
+    None = 0,
+    OversizedBurst,
+    BurstTimeout,
+};
+
+enum class RadioBurstEndReason : uint8_t {
+    None = 0,
+    EmptyPolls,
+    MaxDuration,
+};
+
+struct RadioDropInfo {
+    RadioDropReason reason = RadioDropReason::None;
+    uint16_t captured_length = 0;
+    uint8_t first_data_byte = 0;
+    uint8_t prefix[8]{};
+    uint8_t prefix_length = 0;
+    bool quality_issue = false;
+};
+
 struct RawRadioFrame {
     static constexpr size_t MAX_DATA_SIZE = 290;
 
-    // Exact data bytes drained from the CC1101 RX FIFO, excluding the appended status bytes.
-    // In the current variable-length packet-engine contract this includes:
-    // - data[0]: CC1101 packet length prefix
-    // - data[payload_offset .. payload_offset + payload_length): packet payload bytes
-    //
-    // This buffer is intentionally not "already decoded WMBus". It is the radio-layer packet as
-    // delivered by the CC1101 packet engine.
+    // Exact data bytes drained from the CC1101 RX FIFO for one raw receive burst.
+    // In the current raw-capture contract there is no packet-length prefix semantics:
+    // the whole buffer is the radio payload that should be handed to the pipeline.
     uint8_t data[MAX_DATA_SIZE]{};
     uint16_t length = 0;
     uint16_t payload_offset = 0;
     uint16_t payload_length = 0;
+    uint8_t first_data_byte = 0;
+    RadioBurstEndReason burst_end_reason = RadioBurstEndReason::None;
     int8_t rssi_dbm = 0;
     uint8_t lqi = 0;
     bool crc_ok = false;
+    bool radio_crc_available = false;
 };
 
 // SPI pin configuration
@@ -83,19 +104,20 @@ class RadioCc1101 {
     common::Result<void> go_idle();
 
     // Polling-mode RX contract:
-    // - Success: a complete CC1101 packet plus trailing RSSI/LQI/CRC status was drained from the
-    //   FIFO. RawRadioFrame contains the exact packet bytes emitted by the packet engine, not a
-    //   decoded Wireless M-Bus frame.
-    // - Soft failure: NotFound means no complete frame is currently available; Timeout and
-    //   InvalidArgument mean polling observed partial/invalid FIFO state and the caller may keep
-    //   RX alive or escalate after repeated occurrences.
+    // - Success: one raw receive burst was drained from the FIFO. RawRadioFrame contains the exact
+    //   radio bytes that should be handed to the pipeline, without CC1101 length-prefix semantics.
+    // - Expected idle: NotFound means no complete frame is currently available.
+    // - Quality drop: RadioQualityDrop means a burst was seen but rejected due to framing /
+    //   boundary issues such as timeout or oversize capture.
+    // - Soft failure: Timeout and RadioSpiError still represent RX-path problems that the caller
+    //   may keep alive or escalate after repeated occurrences.
     // - Recovery trigger: FIFO overflow returns RadioFifoOverflow immediately; repeated soft
     //   failures are escalated by RadioStateMachine.
     // - Hardware gap: burst traffic, FIFO timing margins, and poll-vs-interrupt trade-offs still
     //   require real ESP32 + CC1101 validation.
     //
-    // Read one packet-engine frame from the RX FIFO. Long frames are drained in <=64 B bursts
-    // with a bounded wait (no single-FIFO assumption); timeout flushes FIFO on stall.
+    // Read one raw receive burst from the RX FIFO. Long frames are drained in <=64 B bursts
+    // with a bounded wait; burst end is detected by an inter-byte idle gap while RX remains active.
     common::Result<RawRadioFrame> read_frame();
 
     // Flush RX FIFO (used during error recovery)
@@ -110,6 +132,7 @@ class RadioCc1101 {
     const RadioCounters& counters() const {
         return counters_;
     }
+    RadioDropInfo last_drop() const;
 
     // Read chip part number and version for identification
     bool verify_chip_id();
@@ -127,6 +150,7 @@ class RadioCc1101 {
     common::Result<void> apply_tmode_config();
     int8_t convert_rssi(uint8_t raw_rssi);
     common::Result<uint8_t> read_marcstate();
+    void record_drop(RadioDropReason reason, const uint8_t* data, uint16_t length, bool quality_issue);
 
     void* spi_handle_ = nullptr; // spi_device_handle_t
 #endif
@@ -134,6 +158,8 @@ class RadioCc1101 {
     bool initialized_ = false;
     RadioState state_ = RadioState::Uninitialized;
     RadioCounters counters_{};
+    mutable std::mutex last_drop_mutex_{};
+    RadioDropInfo last_drop_{};
     SpiPins pins_{};
     SpiBusConfig bus_config_{};
 };

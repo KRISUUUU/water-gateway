@@ -72,6 +72,7 @@ enum class ErrorCode : uint16_t {
     RadioFifoOverflow = 902,
     RadioResetFailed = 903,
     RadioNotReady = 904,
+    RadioQualityDrop = 905,
 
     // Auth (10xx)
     AuthFailed = 1000,
@@ -180,6 +181,8 @@ inline const char* error_code_to_string(ErrorCode code) {
         return "RadioResetFailed";
     case ErrorCode::RadioNotReady:
         return "RadioNotReady";
+    case ErrorCode::RadioQualityDrop:
+        return "RadioQualityDrop";
     case ErrorCode::AuthFailed:
         return "AuthFailed";
     case ErrorCode::AuthSessionExpired:

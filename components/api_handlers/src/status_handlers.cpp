@@ -48,6 +48,31 @@ esp_err_t send_json_fragment(httpd_req_t* req, const std::string& fragment, bool
     return send_chunk(req, chunk);
 }
 
+const char* radio_drop_reason_name(radio_cc1101::RadioDropReason reason) {
+    using radio_cc1101::RadioDropReason;
+    switch (reason) {
+    case RadioDropReason::None:
+        return "none";
+    case RadioDropReason::OversizedBurst:
+        return "oversized_burst";
+    case RadioDropReason::BurstTimeout:
+        return "burst_timeout";
+    }
+    return "unknown";
+}
+
+std::string radio_drop_prefix_hex(const radio_cc1101::RadioDropInfo& drop) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(static_cast<size_t>(drop.prefix_length) * 2U);
+    for (uint8_t i = 0; i < drop.prefix_length; ++i) {
+        const uint8_t b = drop.prefix[i];
+        out.push_back(kHex[(b >> 4U) & 0x0F]);
+        out.push_back(kHex[b & 0x0F]);
+    }
+    return out;
+}
+
 template <typename Builder>
 esp_err_t send_json_object_section(httpd_req_t* req, bool& first_field, Builder&& builder) {
     JsonPtr root = make_json_object();
@@ -199,6 +224,7 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
                             const mqtt_service::MqttStatus& mqtt, const radio_cc1101::RadioCc1101& radio,
                             const ota_manager::OtaStatus& ota) {
     const auto& counters = radio.counters();
+    const auto last_drop = radio.last_drop();
     cJSON_AddStringToObject(root, "mode", cfg.wifi.is_configured() ? "normal" : "provisioning");
     cJSON_AddStringToObject(root, "firmware_version", ota.current_version);
     cJSON* wifi_obj = cJSON_AddObjectToObject(root, "wifi");
@@ -231,6 +257,15 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
     cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(counters.frames_incomplete));
     cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long", static_cast<double>(counters.frames_dropped_too_long));
     cJSON_AddNumberToObject(radio_obj, "fifo_overflows", static_cast<double>(counters.fifo_overflows));
+    cJSON* last_drop_obj = cJSON_AddObjectToObject(radio_obj, "last_drop");
+    cJSON_AddStringToObject(last_drop_obj, "reason", radio_drop_reason_name(last_drop.reason));
+    cJSON_AddBoolToObject(last_drop_obj, "quality_issue", last_drop.quality_issue);
+    cJSON_AddNumberToObject(last_drop_obj, "captured_length",
+                            static_cast<double>(last_drop.captured_length));
+    cJSON_AddNumberToObject(last_drop_obj, "first_data_byte",
+                            static_cast<double>(last_drop.first_data_byte));
+    cJSON_AddStringToObject(last_drop_obj, "prefix_hex",
+                            radio_drop_prefix_hex(last_drop).c_str());
     cJSON* queues = cJSON_AddObjectToObject(root, "queues");
     cJSON* frame_q = cJSON_AddObjectToObject(queues, "frame_queue");
     cJSON_AddNumberToObject(frame_q, "depth", static_cast<double>(metrics.queues.frame_queue_depth));

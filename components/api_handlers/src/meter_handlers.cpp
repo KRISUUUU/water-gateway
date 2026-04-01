@@ -7,6 +7,19 @@
 namespace api_handlers::detail {
 
 namespace {
+const char* burst_end_reason_name(radio_cc1101::RadioBurstEndReason reason) {
+    using radio_cc1101::RadioBurstEndReason;
+    switch (reason) {
+    case RadioBurstEndReason::None:
+        return "none";
+    case RadioBurstEndReason::EmptyPolls:
+        return "empty_polls";
+    case RadioBurstEndReason::MaxDuration:
+        return "max_duration";
+    }
+    return "unknown";
+}
+
 esp_err_t begin_stream_array(httpd_req_t* req, const char* key) {
     httpd_resp_set_type(req, "application/json");
     apply_json_security_headers(req);
@@ -47,10 +60,31 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
         row += ",\"raw_hex\":\"";
         if (is_hex_string(t.raw_hex)) row += t.raw_hex; else json_escape_append(row, t.raw_hex);
         row += "\",\"frame_length\":" + std::to_string(static_cast<unsigned int>(t.frame_length));
+        row += ",\"captured_hex\":\"";
+        if (is_hex_string(t.captured_hex)) row += t.captured_hex; else json_escape_append(row, t.captured_hex);
+        row += "\",\"captured_frame_length\":" +
+               std::to_string(static_cast<unsigned int>(t.captured_frame_length));
+        row += ",\"payload_offset\":" + std::to_string(static_cast<unsigned int>(t.payload_offset));
+        row += ",\"payload_length\":" + std::to_string(static_cast<unsigned int>(t.payload_length));
+        row += ",\"first_data_byte\":" +
+               std::to_string(static_cast<unsigned int>(t.first_data_byte));
+        row += ",\"canonical_hex\":\"";
+        if (is_hex_string(t.canonical_hex)) row += t.canonical_hex; else json_escape_append(row, t.canonical_hex);
+        row += "\",\"canonical_frame_length\":" +
+               std::to_string(static_cast<unsigned int>(t.canonical_frame_length));
+        row += ",\"decoded_ok\":";
+        row += t.decoded_ok ? "true" : "false";
+        row += ",\"raw_frame_contract_valid\":";
+        row += t.raw_frame_contract_valid ? "true" : "false";
+        row += ",\"burst_end_reason\":\"";
+        row += burst_end_reason_name(t.burst_end_reason);
+        row += "\"";
         row += ",\"rssi_dbm\":" + std::to_string(static_cast<int>(t.rssi_dbm));
         row += ",\"lqi\":" + std::to_string(static_cast<unsigned int>(t.lqi));
         row += ",\"crc_ok\":";
         row += t.crc_ok ? "true" : "false";
+        row += ",\"radio_crc_available\":";
+        row += t.radio_crc_available ? "true" : "false";
         row += ",\"duplicate\":";
         row += t.duplicate ? "true" : "false";
         row += ",\"meter_key\":\"";

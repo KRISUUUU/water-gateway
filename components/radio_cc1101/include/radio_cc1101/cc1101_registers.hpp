@@ -123,8 +123,8 @@ struct TmodeRegisterConfig {
 };
 
 // T-mode: 868.95 MHz, 32.768 kbaud Manchester (effectively 100 kbps 3-of-6)
-// The CC1101 is configured for asynchronous serial mode, as the T-mode
-// 3-of-6 encoding is typically decoded in software post-capture.
+// The CC1101 is configured for sync-based raw FIFO capture: the radio finds sync and fills RX
+// FIFO, while software drains whole bursts and performs any 3-of-6 decode post-capture.
 static constexpr TmodeRegisterConfig kTmodeConfig[] = {
     {registers::IOCFG2, 0x06},   // GDO2: sync word sent/received
     {registers::IOCFG0, 0x00},   // GDO0: CLK_XOSC/192 (not used, low)
@@ -132,12 +132,12 @@ static constexpr TmodeRegisterConfig kTmodeConfig[] = {
                                  // the threshold/GDO setting does not define packet completion
     {registers::SYNC1, 0x54},    // WMBus T-mode sync word MSB
     {registers::SYNC0, 0x3D},    // WMBus T-mode sync word LSB
-    {registers::PKTLEN, 0xFF},   // Variable-length upper bound: first RX FIFO byte may advertise
-                                 // up to 255 payload bytes before appended status
-    {registers::PKTCTRL1, 0x04}, // Append status (RSSI/LQI/CRC) to RX FIFO
-    {registers::PKTCTRL0, 0x05}, // Variable-length mode, whitening disabled; CC1101 prepends its
-                                 // packet-length byte in RX FIFO and the pipeline decodes only the
-                                 // payload bytes after that prefix
+    {registers::PKTLEN, 0xFF},   // Upper bound retained for FIFO protection; no packet-length
+                                 // prefix semantics are used by the software pipeline
+    {registers::PKTCTRL1, 0x00}, // No address filtering, no appended status bytes in RX FIFO
+    {registers::PKTCTRL0, 0x02}, // Infinite packet length, whitening disabled, CRC disabled:
+                                 // read_frame() drains raw RX bursts and determines packet
+                                 // boundaries by FIFO activity instead of a CC1101 length prefix
     {registers::FSCTRL1, 0x08},  // IF frequency
     {registers::FSCTRL0, 0x00},  // Frequency offset
     // 868.95 MHz: FREQ = 868.95 * 2^16 / 26 = 0x2188CA
