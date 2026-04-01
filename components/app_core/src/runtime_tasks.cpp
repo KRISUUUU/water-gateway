@@ -662,7 +662,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
         return rx_start;
     }
 
-    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 4096, nullptr, 10, &radio_task_handle,
+    if (xTaskCreatePinnedToCore(radio_rx_task, "radio_rx", 8192, nullptr, 10, &radio_task_handle,
                                 1) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: radio_rx");

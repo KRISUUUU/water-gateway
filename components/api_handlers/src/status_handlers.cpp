@@ -9,6 +9,8 @@
 #include "metrics_service/metrics_service.hpp"
 #include "ntp_service/ntp_service.hpp"
 
+#include <memory>
+
 namespace api_handlers::detail {
 
 namespace {
@@ -192,23 +194,26 @@ esp_err_t handle_status(httpd_req_t* req) {
     auto metrics_res = metrics_service::MetricsService::instance().snapshot();
     if (metrics_res.is_error()) return send_json(req, 500, "{\"error\":\"metrics_snapshot_failed\"}");
 
-    const auto cfg = config_store::ConfigStore::instance().config();
-    const auto cfg_runtime = config_store::ConfigStore::instance().runtime_status();
-    const auto wifi = wifi_manager::WifiManager::instance().status();
-    const auto mqtt = mqtt_service::MqttService::instance().status();
-    const auto ota = ota_manager::OtaManager::instance().status();
+    auto health = std::make_unique<health_monitor::HealthSnapshot>(health_res.value());
+    auto metrics = std::make_unique<metrics_service::RuntimeMetrics>(metrics_res.value());
+    auto cfg = std::make_unique<config_store::AppConfig>(config_store::ConfigStore::instance().config());
+    auto cfg_runtime =
+        std::make_unique<config_store::ConfigRuntimeStatus>(config_store::ConfigStore::instance().runtime_status());
+    auto wifi = std::make_unique<wifi_manager::WifiStatus>(wifi_manager::WifiManager::instance().status());
+    auto mqtt = std::make_unique<mqtt_service::MqttStatus>(mqtt_service::MqttService::instance().status());
+    auto ota = std::make_unique<ota_manager::OtaStatus>(ota_manager::OtaManager::instance().status());
     const auto& radio = radio_cc1101::RadioCc1101::instance();
     JsonPtr root = make_json_object();
     if (!root) {
         return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
 
-    add_health_json(root.get(), health_res.value());
-    add_metrics_json(root.get(), metrics_res.value());
+    add_health_json(root.get(), *health);
+    add_metrics_json(root.get(), *metrics);
     add_time_json(root.get());
-    add_security_json(root.get(), cfg);
-    add_config_runtime_json(root.get(), cfg_runtime);
-    add_runtime_links_json(root.get(), metrics_res.value(), cfg, wifi, mqtt, radio, ota);
+    add_security_json(root.get(), *cfg);
+    add_config_runtime_json(root.get(), *cfg_runtime);
+    add_runtime_links_json(root.get(), *metrics, *cfg, *wifi, *mqtt, radio, *ota);
     return send_json_root(req, 200, root);
 }
 

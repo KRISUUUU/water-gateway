@@ -58,7 +58,7 @@ esp_err_t handle_ota_upload(httpd_req_t* req) {
         return send_json(req, 500, "{\"error\":\"ota_begin_failed\"}");
     }
 
-    constexpr size_t kChunkSize = 2048;
+    constexpr size_t kChunkSize = 4096;
     char chunk[kChunkSize];
     int remaining = req->content_len;
     while (remaining > 0) {

@@ -137,7 +137,15 @@ common::Result<void> RadioCc1101::start_rx() {
         state_ = RadioState::Error;
         return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
-    vTaskDelay(pdMS_TO_TICKS(1));
+
+    // Wait for CC1101 to finish calibration and enter RX.
+    for (int i = 0; i < 50; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(2));
+        auto marc_check = read_marcstate();
+        if (marc_check.is_ok() && marc_check.value() == registers::MARCSTATE_RX) {
+            break;
+        }
+    }
 
     auto marc_result = read_marcstate();
     if (marc_result.is_error()) {

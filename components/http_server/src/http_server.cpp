@@ -200,6 +200,9 @@ common::Result<void> HttpServer::start(uint16_t port) {
     cfg.max_uri_handlers = 32;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
+    cfg.recv_wait_timeout = 30;
+    cfg.send_wait_timeout = 30;
+    cfg.lru_purge_enable = true;
 
     esp_err_t err = httpd_start(&server_, &cfg);
     if (err != ESP_OK) {
