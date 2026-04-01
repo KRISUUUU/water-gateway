@@ -940,7 +940,7 @@
     function loadSupport() {
         const summary = $("#support-summary");
         clearChildren(summary);
-        Promise.all([api("GET", "/api/status"), api("GET", "/api/ota/status"), api("GET", "/api/watchlist")])
+        Promise.all([api("GET", "/api/status/full"), api("GET", "/api/ota/status"), api("GET", "/api/watchlist")])
             .then(([status, ota, watch]) => {
                 summary.appendChild(kvRow("Firmware", status.firmware_version));
                 summary.appendChild(kvRow("Mode", status.mode));

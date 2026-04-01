@@ -597,6 +597,12 @@ static void health_task(void* /*param*/) {
         ESP_LOGI(TAG, "Heap: free=%lu min=%lu",
                  static_cast<unsigned long>(esp_get_free_heap_size()),
                  static_cast<unsigned long>(esp_get_minimum_free_heap_size()));
+        ESP_LOGI(
+            TAG, "Stack HWM: radio=%lu pipeline=%lu mqtt=%lu health=%lu",
+            static_cast<unsigned long>(radio_task_handle ? uxTaskGetStackHighWaterMark(radio_task_handle) : 0),
+            static_cast<unsigned long>(pipeline_task_handle ? uxTaskGetStackHighWaterMark(pipeline_task_handle) : 0),
+            static_cast<unsigned long>(mqtt_task_handle ? uxTaskGetStackHighWaterMark(mqtt_task_handle) : 0),
+            static_cast<unsigned long>(health_task_handle ? uxTaskGetStackHighWaterMark(health_task_handle) : 0));
         sample_queue_levels();
         sample_task_stack_watermarks();
 
@@ -685,7 +691,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
         cleanup_runtime_resources();
         return common::Result<void>::error(common::ErrorCode::Unknown);
     }
-    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 4096, nullptr, 7, &pipeline_task_handle,
+    if (xTaskCreatePinnedToCore(pipeline_task, "pipeline", 8192, nullptr, 7, &pipeline_task_handle,
                                 0) !=
         pdPASS) {
         ESP_LOGE(TAG, "Failed to create task: pipeline");

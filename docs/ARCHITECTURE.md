@@ -343,7 +343,8 @@ Browser → HTTP GET/POST → httpd task
         │
         └─ route to ApiHandler
             ├─ GET /api/bootstrap → startup mode/password-set hints for frontend routing
-            ├─ GET /api/status → HealthMonitor + MetricsService snapshot
+            ├─ GET /api/status → compact dashboard snapshot
+            ├─ GET /api/status/full → full runtime + diagnostics snapshot
             ├─ GET /api/telegrams → recent frame buffer
             ├─ GET /api/diagnostics → DiagnosticsService snapshot
             ├─ GET /api/config → ConfigStore::config() (redacted)
@@ -471,6 +472,7 @@ Defined in detail in `docs/MQTT_TOPICS.md`.
 | Page | API Endpoints Used | Purpose |
 |------|-------------------|---------|
 | Dashboard | `/api/status` | Health, uptime, key counters |
+| Support | `/api/status/full`, `/api/ota/status`, `/api/watchlist` | Full diagnostic summary and support context |
 | Live Telegrams | `/api/telegrams` | Recent raw frames with metadata |
 | RF Diagnostics | `/api/diagnostics/radio` | RSSI histogram, error counts, radio state |
 | MQTT Status | `/api/diagnostics/mqtt` | Connection state, publish counts, errors |

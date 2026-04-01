@@ -115,7 +115,8 @@ Main sections:
 | POST | `/api/auth/login` | No | Returns bearer token |
 | POST | `/api/auth/logout` | Yes | Invalidates current session |
 | POST | `/api/auth/password` | Yes | Change admin password (requires current password when already set) |
-| GET | `/api/status` | Yes | Mode + health + metrics + WiFi/MQTT/radio summary + time sync/fallback + reset reason + task stack headroom + build security posture (`security.build`) |
+| GET | `/api/status` | Yes | Small dashboard status: mode + health + WiFi/MQTT/radio summary + basic metrics/time |
+| GET | `/api/status/full` | Yes | Pełne dane diagnostyczne (kolejki, stack, config store, security) |
 | GET | `/api/telegrams` | Yes | Recent telegrams; optional `?filter=watched\|unknown\|duplicates\|crc_fail` |
 | GET | `/api/meters/detected` | Yes | Detected meter model; optional `?filter=watched\|unknown` |
 | GET | `/api/watchlist` | Yes | Watchlist entries |

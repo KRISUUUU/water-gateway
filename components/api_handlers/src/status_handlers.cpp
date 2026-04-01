@@ -10,10 +10,58 @@
 #include "ntp_service/ntp_service.hpp"
 
 #include <memory>
+#include <string>
 
 namespace api_handlers::detail {
 
 namespace {
+bool serialize_json_object(cJSON* root, std::string& out) {
+    if (!root) {
+        return false;
+    }
+    JsonStringPtr printed(cJSON_PrintUnformatted(root), cJSON_free);
+    if (!printed) {
+        return false;
+    }
+    out.assign(printed.get());
+    return true;
+}
+
+esp_err_t send_chunk(httpd_req_t* req, const std::string& chunk) {
+    return httpd_resp_send_chunk(req, chunk.c_str(), static_cast<ssize_t>(chunk.size()));
+}
+
+esp_err_t send_chunk(httpd_req_t* req, const char* chunk) {
+    return httpd_resp_send_chunk(req, chunk, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t send_json_fragment(httpd_req_t* req, const std::string& fragment, bool& first_field) {
+    if (fragment.size() < 2 || fragment.front() != '{' || fragment.back() != '}') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::string chunk;
+    if (!first_field) {
+        chunk.push_back(',');
+    }
+    chunk.append(fragment, 1, fragment.size() - 2);
+    first_field = false;
+    return send_chunk(req, chunk);
+}
+
+template <typename Builder>
+esp_err_t send_json_object_section(httpd_req_t* req, bool& first_field, Builder&& builder) {
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return ESP_ERR_NO_MEM;
+    }
+    builder(root.get());
+    std::string json;
+    if (!serialize_json_object(root.get(), json)) {
+        return ESP_ERR_NO_MEM;
+    }
+    return send_json_fragment(req, json, first_field);
+}
+
 void add_health_json(cJSON* root, const health_monitor::HealthSnapshot& health) {
     cJSON* obj = cJSON_AddObjectToObject(root, "health");
     cJSON_AddStringToObject(obj, "state", health_monitor::HealthMonitor::state_to_string(health.state));
@@ -25,6 +73,14 @@ void add_health_json(cJSON* root, const health_monitor::HealthSnapshot& health) 
     cJSON_AddNumberToObject(obj, "last_transition_uptime_s", static_cast<double>(health.last_transition_uptime_s));
     cJSON_AddNumberToObject(obj, "last_warning_uptime_s", static_cast<double>(health.last_warning_uptime_s));
     cJSON_AddNumberToObject(obj, "last_error_uptime_s", static_cast<double>(health.last_error_uptime_s));
+}
+
+void add_health_summary_json(cJSON* root, const health_monitor::HealthSnapshot& health) {
+    cJSON* obj = cJSON_AddObjectToObject(root, "health");
+    cJSON_AddStringToObject(obj, "state", health_monitor::HealthMonitor::state_to_string(health.state));
+    cJSON_AddNumberToObject(obj, "warning_count", static_cast<double>(health.warning_count));
+    cJSON_AddNumberToObject(obj, "error_count", static_cast<double>(health.error_count));
+    cJSON_AddNumberToObject(obj, "uptime_s", static_cast<double>(health.uptime_s));
 }
 
 void add_metrics_json(cJSON* root, const metrics_service::RuntimeMetrics& metrics) {
@@ -62,6 +118,14 @@ void add_metrics_json(cJSON* root, const metrics_service::RuntimeMetrics& metric
     cJSON_AddNumberToObject(tasks, "health_stack_hwm_words", static_cast<double>(metrics.tasks.health_stack_hwm_words));
 }
 
+void add_metrics_summary_json(cJSON* root, const metrics_service::RuntimeMetrics& metrics) {
+    cJSON* obj = cJSON_AddObjectToObject(root, "metrics");
+    cJSON_AddNumberToObject(obj, "uptime_s", static_cast<double>(metrics.uptime_s));
+    cJSON_AddNumberToObject(obj, "free_heap_bytes", static_cast<double>(metrics.free_heap_bytes));
+    cJSON_AddNumberToObject(obj, "min_free_heap_bytes", static_cast<double>(metrics.min_free_heap_bytes));
+    cJSON_AddStringToObject(obj, "reset_reason", reset_reason_str(metrics.reset_reason_code));
+}
+
 void add_time_json(cJSON* root) {
     const auto ntp_status = ntp_service::NtpService::instance().status();
     const int64_t now_epoch_ms = ntp_service::NtpService::instance().now_epoch_ms();
@@ -72,6 +136,14 @@ void add_time_json(cJSON* root) {
     cJSON_AddNumberToObject(time, "monotonic_ms", static_cast<double>(ntp_service::NtpService::instance().monotonic_now_ms()));
     cJSON_AddBoolToObject(time, "timestamp_uses_monotonic_fallback", now_epoch_ms <= 0);
     cJSON_AddStringToObject(time, "timestamp_source", now_epoch_ms > 0 ? "epoch" : "monotonic");
+}
+
+void add_time_summary_json(cJSON* root) {
+    const auto ntp_status = ntp_service::NtpService::instance().status();
+    const int64_t now_epoch_ms = ntp_service::NtpService::instance().now_epoch_ms();
+    cJSON* time = cJSON_AddObjectToObject(root, "time");
+    cJSON_AddBoolToObject(time, "ntp_synchronized", ntp_status.synchronized);
+    cJSON_AddNumberToObject(time, "now_epoch_ms", static_cast<double>(now_epoch_ms));
 }
 
 void add_security_json(cJSON* root, const config_store::AppConfig& cfg) {
@@ -182,9 +254,122 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
     cJSON_AddNumberToObject(outbox, "outbox_carry_retry_attempts", static_cast<double>(mqtt.outbox_carry_retry_attempts));
     cJSON_AddNumberToObject(outbox, "outbox_carry_drops", static_cast<double>(mqtt.outbox_carry_drops));
 }
+
+void add_runtime_links_summary_json(cJSON* root, const config_store::AppConfig& cfg,
+                                    const wifi_manager::WifiStatus& wifi,
+                                    const mqtt_service::MqttStatus& mqtt,
+                                    const radio_cc1101::RadioCc1101& radio,
+                                    const ota_manager::OtaStatus& ota) {
+    const auto& counters = radio.counters();
+    cJSON_AddStringToObject(root, "mode", cfg.wifi.is_configured() ? "normal" : "provisioning");
+    cJSON_AddStringToObject(root, "firmware_version", ota.current_version);
+    cJSON* wifi_obj = cJSON_AddObjectToObject(root, "wifi");
+    cJSON_AddStringToObject(wifi_obj, "state", wifi_state_name(wifi.state));
+    cJSON_AddStringToObject(wifi_obj, "ip_address", wifi.ip_address);
+    cJSON_AddNumberToObject(wifi_obj, "rssi_dbm", static_cast<double>(wifi.rssi_dbm));
+    cJSON_AddStringToObject(wifi_obj, "ssid", wifi.ssid);
+    cJSON_AddNumberToObject(wifi_obj, "reconnect_count", static_cast<double>(wifi.reconnect_count));
+    cJSON* mqtt_obj = cJSON_AddObjectToObject(root, "mqtt");
+    cJSON_AddStringToObject(mqtt_obj, "state", mqtt_state_name(mqtt.state));
+    cJSON_AddNumberToObject(mqtt_obj, "publish_count", static_cast<double>(mqtt.publish_count));
+    cJSON_AddNumberToObject(mqtt_obj, "publish_failures", static_cast<double>(mqtt.publish_failures));
+    cJSON_AddNumberToObject(mqtt_obj, "reconnect_count", static_cast<double>(mqtt.reconnect_count));
+    cJSON* radio_obj = cJSON_AddObjectToObject(root, "radio");
+    cJSON_AddStringToObject(radio_obj, "state", radio_state_name(radio.state()));
+    cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(counters.frames_received));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(counters.frames_crc_ok));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(counters.frames_crc_fail));
+    cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(counters.frames_incomplete));
+    cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long",
+                            static_cast<double>(counters.frames_dropped_too_long));
+}
+
+esp_err_t send_status_full_chunked(httpd_req_t* req, const health_monitor::HealthSnapshot& health,
+                                   const metrics_service::RuntimeMetrics& metrics,
+                                   const config_store::AppConfig& cfg,
+                                   const config_store::ConfigRuntimeStatus& cfg_runtime,
+                                   const wifi_manager::WifiStatus& wifi,
+                                   const mqtt_service::MqttStatus& mqtt,
+                                   const radio_cc1101::RadioCc1101& radio,
+                                   const ota_manager::OtaStatus& ota) {
+    httpd_resp_set_type(req, "application/json");
+    apply_json_security_headers(req);
+    httpd_resp_set_status(req, "200 OK");
+
+    esp_err_t err = send_chunk(req, "{");
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    bool first_field = true;
+    err = send_json_object_section(
+        req, first_field,
+        [&](cJSON* root) { add_runtime_links_json(root, metrics, cfg, wifi, mqtt, radio, ota); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_json_object_section(req, first_field,
+                                   [&](cJSON* root) { add_health_json(root, health); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_json_object_section(req, first_field,
+                                   [&](cJSON* root) { add_metrics_json(root, metrics); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_json_object_section(req, first_field, [&](cJSON* root) { add_time_json(root); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_json_object_section(req, first_field,
+                                   [&](cJSON* root) { add_security_json(root, cfg); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_json_object_section(req, first_field,
+                                   [&](cJSON* root) { add_config_runtime_json(root, cfg_runtime); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_chunk(req, "}");
+    if (err != ESP_OK) {
+        return err;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
+}
 } // namespace
 
 esp_err_t handle_status(httpd_req_t* req) {
+    const esp_err_t auth = require_auth(req);
+    if (auth != ESP_OK) {
+        return auth;
+    }
+    auto health_res = health_monitor::HealthMonitor::instance().snapshot();
+    if (health_res.is_error()) return send_json(req, 500, "{\"error\":\"health_snapshot_failed\"}");
+    auto metrics_res = metrics_service::MetricsService::instance().snapshot();
+    if (metrics_res.is_error()) return send_json(req, 500, "{\"error\":\"metrics_snapshot_failed\"}");
+
+    auto health = std::make_unique<health_monitor::HealthSnapshot>(health_res.value());
+    auto metrics = std::make_unique<metrics_service::RuntimeMetrics>(metrics_res.value());
+    auto cfg = std::make_unique<config_store::AppConfig>(config_store::ConfigStore::instance().config());
+    auto wifi = std::make_unique<wifi_manager::WifiStatus>(wifi_manager::WifiManager::instance().status());
+    auto mqtt = std::make_unique<mqtt_service::MqttStatus>(mqtt_service::MqttService::instance().status());
+    auto ota = std::make_unique<ota_manager::OtaStatus>(ota_manager::OtaManager::instance().status());
+    const auto& radio = radio_cc1101::RadioCc1101::instance();
+    JsonPtr root = make_json_object();
+    if (!root) {
+        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
+    }
+
+    add_runtime_links_summary_json(root.get(), *cfg, *wifi, *mqtt, radio, *ota);
+    add_health_summary_json(root.get(), *health);
+    add_metrics_summary_json(root.get(), *metrics);
+    add_time_summary_json(root.get());
+    return send_json_root(req, 200, root);
+}
+
+esp_err_t handle_status_full(httpd_req_t* req) {
     const esp_err_t auth = require_auth(req);
     if (auth != ESP_OK) {
         return auth;
@@ -203,18 +388,9 @@ esp_err_t handle_status(httpd_req_t* req) {
     auto mqtt = std::make_unique<mqtt_service::MqttStatus>(mqtt_service::MqttService::instance().status());
     auto ota = std::make_unique<ota_manager::OtaStatus>(ota_manager::OtaManager::instance().status());
     const auto& radio = radio_cc1101::RadioCc1101::instance();
-    JsonPtr root = make_json_object();
-    if (!root) {
-        return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
-    }
 
-    add_health_json(root.get(), *health);
-    add_metrics_json(root.get(), *metrics);
-    add_time_json(root.get());
-    add_security_json(root.get(), *cfg);
-    add_config_runtime_json(root.get(), *cfg_runtime);
-    add_runtime_links_json(root.get(), *metrics, *cfg, *wifi, *mqtt, radio, *ota);
-    return send_json_root(req, 200, root);
+    return send_status_full_chunked(req, *health, *metrics, *cfg, *cfg_runtime, *wifi, *mqtt, radio,
+                                    *ota);
 }
 
 } // namespace api_handlers::detail
