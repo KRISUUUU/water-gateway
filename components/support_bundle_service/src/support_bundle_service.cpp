@@ -196,7 +196,7 @@ cJSON* build_logs_json() {
         }
         cJSON_AddNumberToObject(item, "timestamp_us", static_cast<double>(e.timestamp_us));
         cJSON_AddStringToObject(item, "severity", log_severity_str(e.severity));
-        cJSON_AddStringToObject(item, "message", e.message.c_str());
+        cJSON_AddStringToObject(item, "message", e.message);
         cJSON_AddItemToArray(arr, item);
     }
     return arr;

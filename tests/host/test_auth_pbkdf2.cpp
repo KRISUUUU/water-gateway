@@ -73,7 +73,7 @@ static void test_persistent_log_buffer_append_and_lines() {
     assert(append.is_ok());
     auto lines = buffer.lines();
     assert(lines.size() == before + 1);
-    assert(lines.back().message == "unit-test-line");
+    assert(std::strcmp(lines.back().message, "unit-test-line") == 0);
     assert(lines.back().severity == LogSeverity::Warning);
     printf("  PASS: persistent log append/lines\n");
 }
@@ -89,9 +89,23 @@ static void test_persistent_log_buffer_evicts_oldest() {
 
     auto lines = buffer.lines();
     assert(lines.size() == PersistentLogBuffer::kMaxLines);
-    assert(lines.front().message != "log-000");
-    assert(lines.back().message == "log-204");
+    assert(std::strcmp(lines.front().message, "log-000") != 0);
+    assert(std::strcmp(lines.back().message, "log-204") == 0);
     printf("  PASS: persistent log evicts oldest\n");
+}
+
+static void test_persistent_log_buffer_truncates_and_null_terminates() {
+    auto& buffer = PersistentLogBuffer::instance();
+    std::string long_line(PersistentLogBuffer::kMaxMessageChars + 32, 'x');
+    auto append = buffer.append(LogSeverity::Error, long_line.c_str());
+    assert(append.is_ok());
+
+    auto lines = buffer.lines();
+    assert(!lines.empty());
+    const auto& last = lines.back();
+    assert(last.message[PersistentLogBuffer::kMaxMessageChars - 1] == '\0');
+    assert(std::strlen(last.message) == PersistentLogBuffer::kMaxMessageChars - 1);
+    printf("  PASS: persistent log truncates long entries\n");
 }
 
 int main() {
@@ -101,6 +115,7 @@ int main() {
     test_verify_legacy_format();
     test_persistent_log_buffer_append_and_lines();
     test_persistent_log_buffer_evicts_oldest();
+    test_persistent_log_buffer_truncates_and_null_terminates();
     printf("All PBKDF2/log buffer tests passed.\n");
     return 0;
 }

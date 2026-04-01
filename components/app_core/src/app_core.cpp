@@ -43,7 +43,7 @@ int persistent_log_vprintf(const char* fmt, va_list args) {
     if (!s_log_hook_reentrant) {
         s_log_hook_reentrant = true;
 
-        char rendered[256] = {};
+        char rendered[persistent_log_buffer::PersistentLogBuffer::kMaxMessageChars] = {};
         va_list copy;
         va_copy(copy, args);
         std::vsnprintf(rendered, sizeof(rendered), fmt, copy);
