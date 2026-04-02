@@ -1,4 +1,5 @@
 #include "host_test_stubs.hpp"
+#include "radio_cc1101/radio_cc1101.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
 #include "mqtt_service/mqtt_payloads.hpp"
 #include <cassert>
@@ -102,6 +103,21 @@ static void test_payload_event() {
     printf("  PASS: payload_event\n");
 }
 
+static void test_payload_raw_frame_compact() {
+    auto p = payload_raw_frame_compact("oversized_capture_compact", 290,
+                                       static_cast<uint8_t>(radio_cc1101::RadioBurstEndReason::MaxDuration),
+                                       0x54, "A1B2C3D4", 20, -71, 12,
+                                       "sig:ABC", "2026-04-02T12:00:00Z", 99);
+    assert(p.find("\"compact\":true") != std::string::npos);
+    assert(p.find("\"reason\":\"oversized_capture_compact\"") != std::string::npos);
+    assert(p.find("\"captured_frame_length\":290") != std::string::npos);
+    assert(p.find("\"prefix_hex\":\"A1B2C3D4\"") != std::string::npos);
+    assert(p.find("\"elapsed_ms\":20") != std::string::npos);
+    assert(p.find("\"radio_hex\"") == std::string::npos);
+    assert(p.find("\"canonical_hex\"") == std::string::npos);
+    printf("  PASS: payload_raw_frame_compact\n");
+}
+
 static void test_payload_telemetry() {
     auto p = payload_telemetry(86400, 120000, 95000, -55, "connected", "rx_active",
                                 4523, 4400, 120, 3, 4420, 2, "2025-01-15T12:00:00Z");
@@ -124,6 +140,7 @@ int main() {
     test_payload_raw_frame();
     test_payload_raw_frame_keeps_distinct_lengths();
     test_payload_event();
+    test_payload_raw_frame_compact();
     test_payload_telemetry();
     printf("All MQTT payload tests passed.\n");
     return 0;

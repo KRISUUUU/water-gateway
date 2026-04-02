@@ -157,4 +157,30 @@ std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length
     return to_unformatted_json(root.get());
 }
 
+std::string payload_raw_frame_compact(const char* reason, uint16_t captured_frame_length,
+                                      uint8_t burst_end_reason, uint8_t first_data_byte,
+                                      const char* prefix_hex, uint16_t elapsed_ms,
+                                      int8_t rssi_dbm, uint8_t lqi, const char* meter_key,
+                                      const char* timestamp, uint32_t rx_count) {
+    JsonPtr root = make_object();
+    if (!root) {
+        return "{}";
+    }
+
+    cJSON_AddBoolToObject(root.get(), "compact", true);
+    cJSON_AddStringToObject(root.get(), "reason", safe_cstr(reason));
+    cJSON_AddStringToObject(root.get(), "burst_end_reason", burst_end_reason_str(burst_end_reason));
+    cJSON_AddNumberToObject(root.get(), "captured_frame_length",
+                            static_cast<double>(captured_frame_length));
+    cJSON_AddNumberToObject(root.get(), "first_data_byte", static_cast<double>(first_data_byte));
+    cJSON_AddStringToObject(root.get(), "prefix_hex", safe_cstr(prefix_hex));
+    cJSON_AddNumberToObject(root.get(), "elapsed_ms", static_cast<double>(elapsed_ms));
+    cJSON_AddNumberToObject(root.get(), "rssi_dbm", static_cast<double>(rssi_dbm));
+    cJSON_AddNumberToObject(root.get(), "lqi", static_cast<double>(lqi));
+    cJSON_AddStringToObject(root.get(), "meter_key", safe_cstr(meter_key));
+    cJSON_AddStringToObject(root.get(), "timestamp", safe_cstr(timestamp));
+    cJSON_AddNumberToObject(root.get(), "rx_count", static_cast<double>(rx_count));
+    return to_unformatted_json(root.get());
+}
+
 } // namespace mqtt_service

@@ -40,4 +40,10 @@ std::string payload_raw_frame(const char* radio_hex, uint16_t radio_frame_length
                               uint32_t device_id, const char* meter_key, const char* timestamp,
                               uint32_t rx_count);
 
+std::string payload_raw_frame_compact(const char* reason, uint16_t captured_frame_length,
+                                      uint8_t burst_end_reason, uint8_t first_data_byte,
+                                      const char* prefix_hex, uint16_t elapsed_ms,
+                                      int8_t rssi_dbm, uint8_t lqi, const char* meter_key,
+                                      const char* timestamp, uint32_t rx_count);
+
 } // namespace mqtt_service

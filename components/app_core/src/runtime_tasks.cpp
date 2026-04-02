@@ -48,6 +48,7 @@ static constexpr uint32_t kCriticalTaskStallMs = 5000;
 static constexpr uint32_t kRadioPollDelayMs = 2;
 static constexpr size_t kMqttOutboxTopicCapacity = 128;
 static constexpr size_t kMqttOutboxPayloadCapacity = 896;
+static constexpr size_t kCompactRawPrefixBytes = 8;
 
 static std::atomic<uint32_t> frame_queue_max_depth{0};
 static std::atomic<uint32_t> frame_enqueue_success{0};
@@ -257,6 +258,12 @@ static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& fr
     return frame.identity_key();
 }
 
+static std::string raw_prefix_hex(const uint8_t* data, uint16_t length) {
+    const size_t prefix_len =
+        std::min(static_cast<size_t>(length), static_cast<size_t>(kCompactRawPrefixBytes));
+    return wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(data, prefix_len);
+}
+
 static void radio_rx_task(void* /*param*/) {
     auto& radio = radio_cc1101::RadioCc1101::instance();
     auto& rsm = radio_state_machine::RadioStateMachine::instance();
@@ -396,20 +403,30 @@ static void pipeline_task(void* /*param*/) {
                 }
 
                 if (esp_get_free_heap_size() >= 8192U) {
-                    const std::string captured_hex =
-                        wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
-                    const std::string canonical_hex =
-                        wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
-                    enqueue_mqtt(
-                        mqtt_service::topic_raw_frame(cached_cfg.mqtt.prefix,
-                                                      cached_cfg.device.hostname),
-                        mqtt_service::payload_raw_frame(
+                    std::string payload;
+                    if (raw.length >= radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
+                        const std::string prefix_hex = raw_prefix_hex(raw.data, raw.length);
+                        payload = mqtt_service::payload_raw_frame_compact(
+                            "invalid_raw_oversize", raw.length,
+                            static_cast<uint8_t>(raw.burst_end_reason), raw.first_data_byte,
+                            prefix_hex.c_str(), raw.capture_elapsed_ms, raw.rssi_dbm, raw.lqi,
+                            "sig:INVALID_RAW", ts_str, rx_count);
+                    } else {
+                        const std::string captured_hex =
+                            wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
+                        const std::string canonical_hex =
+                            wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
+                        payload = mqtt_service::payload_raw_frame(
                             captured_hex.c_str(), raw.length, canonical_hex.c_str(),
                             raw.payload_length, false, false,
                             static_cast<uint8_t>(raw.burst_end_reason),
                             raw.first_data_byte, raw.payload_offset, raw.payload_length,
                             raw.rssi_dbm, raw.lqi, raw.crc_ok, raw.radio_crc_available, 0, 0,
-                            "sig:INVALID_RAW", ts_str, rx_count));
+                            "sig:INVALID_RAW", ts_str, rx_count);
+                    }
+                    enqueue_mqtt(mqtt_service::topic_raw_frame(cached_cfg.mqtt.prefix,
+                                                               cached_cfg.device.hostname),
+                                 payload);
                 }
                 continue;
             }
@@ -437,20 +454,32 @@ static void pipeline_task(void* /*param*/) {
                     ESP_LOGW(TAG, "Low heap (%lu bytes), skipping MQTT enqueue",
                              static_cast<unsigned long>(esp_get_free_heap_size()));
                 } else {
+                    std::string payload;
+                    if (frame.metadata.captured_frame_length >=
+                        radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
+                        const std::string prefix_hex =
+                            raw_prefix_hex(frame.original_raw_bytes.data(),
+                                           frame.metadata.captured_frame_length);
+                        payload = mqtt_service::payload_raw_frame_compact(
+                            "oversized_capture_compact", frame.metadata.captured_frame_length,
+                            static_cast<uint8_t>(frame.metadata.burst_end_reason),
+                            frame.metadata.first_data_byte, prefix_hex.c_str(),
+                            frame.metadata.capture_elapsed_ms, frame.metadata.rssi_dbm,
+                            frame.metadata.lqi, derive_meter_key(frame).c_str(), ts_str, rx_count);
+                    } else {
+                        payload = mqtt_service::payload_raw_frame(
+                            frame.captured_hex().c_str(), frame.metadata.captured_frame_length,
+                            frame.canonical_hex().c_str(), frame.metadata.canonical_frame_length,
+                            frame.decoded_ok, frame.metadata.raw_frame_contract_valid,
+                            static_cast<uint8_t>(frame.metadata.burst_end_reason),
+                            frame.metadata.first_data_byte, frame.metadata.payload_offset,
+                            frame.metadata.payload_length, frame.metadata.rssi_dbm,
+                            frame.metadata.lqi, frame.metadata.crc_ok,
+                            frame.metadata.radio_crc_available, frame.manufacturer_id(),
+                            frame.device_id(), derive_meter_key(frame).c_str(), ts_str, rx_count);
+                    }
                     enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
-                                 mqtt_service::payload_raw_frame(
-                                     frame.captured_hex().c_str(),
-                                     frame.metadata.captured_frame_length,
-                                     frame.canonical_hex().c_str(),
-                                     frame.metadata.canonical_frame_length, frame.decoded_ok,
-                                     frame.metadata.raw_frame_contract_valid,
-                                     static_cast<uint8_t>(frame.metadata.burst_end_reason),
-                                     frame.metadata.first_data_byte, frame.metadata.payload_offset,
-                                     frame.metadata.payload_length, frame.metadata.rssi_dbm,
-                                     frame.metadata.lqi, frame.metadata.crc_ok,
-                                     frame.metadata.radio_crc_available, frame.manufacturer_id(),
-                                     frame.device_id(), derive_meter_key(frame).c_str(), ts_str,
-                                     rx_count));
+                                 payload);
                 }
             }
 

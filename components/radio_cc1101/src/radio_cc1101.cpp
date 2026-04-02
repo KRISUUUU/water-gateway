@@ -15,7 +15,10 @@ static const char* TAG = "radio_cc1101";
 namespace radio_cc1101 {
 
 namespace {
-#ifndef HOST_TEST_BUILD
+#ifdef HOST_TEST_BUILD
+constexpr uint32_t kRawBurstMaxDurationTicks = 20;
+constexpr uint32_t kBurstEndEmptyPolls = 2;
+#else
 constexpr TickType_t kRawBurstMaxDurationTicks = pdMS_TO_TICKS(20);
 constexpr uint32_t kBurstEndEmptyPolls = 2;
 
@@ -57,6 +60,17 @@ void prefix_to_hex(const uint8_t* data, uint8_t length, char* out, size_t out_si
 }
 #endif
 } // namespace
+
+RawBurstTimeoutAction raw_burst_timeout_action(uint32_t elapsed_ticks, uint16_t received,
+                                               uint32_t max_duration_ticks) {
+    if (elapsed_ticks < max_duration_ticks) {
+        return RawBurstTimeoutAction::Continue;
+    }
+    if (received == 0U) {
+        return RawBurstTimeoutAction::ReturnNotFound;
+    }
+    return RawBurstTimeoutAction::EndBurst;
+}
 
 RadioCc1101& RadioCc1101::instance() {
     static RadioCc1101 radio;
@@ -149,6 +163,11 @@ common::Result<void> RadioCc1101::initialize(const SpiPins& pins, const SpiBusCo
         return config_result;
     }
 
+    ESP_LOGI(TAG,
+             "RF_HOTFIX_V2 active timeout_ticks=%lu timeout_ms=%lu max_data=%u pktctrl0=0x02",
+             static_cast<unsigned long>(kRawBurstMaxDurationTicks),
+             static_cast<unsigned long>(pdTICKS_TO_MS(kRawBurstMaxDurationTicks)),
+             static_cast<unsigned int>(RawRadioFrame::MAX_DATA_SIZE));
     ESP_LOGI(TAG, "CC1101 initialized for T-mode 868.95 MHz");
 #endif
 
@@ -293,6 +312,32 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     uint32_t consecutive_empty_polls = 0;
 
     while (true) {
+        const TickType_t now_tick = xTaskGetTickCount();
+        const uint32_t elapsed_ms =
+            static_cast<uint32_t>(pdTICKS_TO_MS(static_cast<TickType_t>(now_tick - start_tick)));
+        const auto timeout_action = raw_burst_timeout_action(
+            static_cast<uint32_t>(now_tick - start_tick), received, kRawBurstMaxDurationTicks);
+        if (timeout_action == RawBurstTimeoutAction::ReturnNotFound) {
+            counters_.rx_not_found++;
+            return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
+        }
+        if (timeout_action == RawBurstTimeoutAction::EndBurst) {
+            frame.capture_elapsed_ms =
+                static_cast<uint16_t>(elapsed_ms <= 0xFFFFU ? elapsed_ms : 0xFFFFU);
+            frame.burst_end_reason = RadioBurstEndReason::MaxDuration;
+#ifndef HOST_TEST_BUILD
+            char prefix_hex[17];
+            prefix_to_hex(frame.data, static_cast<uint8_t>(received < 8U ? received : 8U),
+                          prefix_hex, sizeof(prefix_hex));
+            ESP_LOGI(TAG,
+                     "RF_HOTFIX_V2 timeout_close len=%u elapsed_ms=%lu first=0x%02X prefix=%s",
+                     static_cast<unsigned int>(received),
+                     static_cast<unsigned long>(elapsed_ms),
+                     static_cast<unsigned int>(received > 0 ? frame.data[0] : 0U), prefix_hex);
+#endif
+            break;
+        }
+
         uint8_t rxb = 0;
         if (!spi_read_register(registers::RXBYTES | registers::READ_BURST, rxb)) {
             state_ = RadioState::Error;
@@ -313,31 +358,12 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
         }
         if (avail == 0) {
-            const TickType_t now_tick = xTaskGetTickCount();
             if (received > 0) {
                 consecutive_empty_polls++;
                 if (consecutive_empty_polls >= kBurstEndEmptyPolls) {
                     frame.burst_end_reason = RadioBurstEndReason::EmptyPolls;
                     break;
                 }
-            }
-            if ((now_tick - start_tick) >= kRawBurstMaxDurationTicks) {
-                if (received == 0) {
-                    counters_.rx_not_found++;
-                    return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
-                }
-                frame.burst_end_reason = RadioBurstEndReason::MaxDuration;
-#ifndef HOST_TEST_BUILD
-                char prefix_hex[17];
-                prefix_to_hex(frame.data, static_cast<uint8_t>(received < 8U ? received : 8U),
-                              prefix_hex, sizeof(prefix_hex));
-                ESP_LOGI(TAG,
-                         "Ending raw RX burst (reason=%s len=%u first=0x%02X prefix=%s)",
-                         burst_end_reason_str(RadioBurstEndReason::MaxDuration),
-                         static_cast<unsigned int>(received),
-                         static_cast<unsigned int>(received > 0 ? frame.data[0] : 0U), prefix_hex);
-#endif
-                break;
             }
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;
@@ -351,14 +377,21 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
             static_cast<uint16_t>(RawRadioFrame::MAX_DATA_SIZE - received);
         if (remaining_capacity == 0) {
             counters_.frames_dropped_too_long++;
+            const uint16_t elapsed_ms_u16 =
+                static_cast<uint16_t>(elapsed_ms <= 0xFFFFU ? elapsed_ms : 0xFFFFU);
+            frame.capture_elapsed_ms = elapsed_ms_u16;
             record_drop(RadioDropReason::OversizedBurst, frame.data, received, true);
 #ifndef HOST_TEST_BUILD
+            {
+                std::lock_guard<std::mutex> lock(last_drop_mutex_);
+                last_drop_.elapsed_ms = elapsed_ms_u16;
+            }
             char prefix_hex[17];
             prefix_to_hex(frame.data, last_drop().prefix_length, prefix_hex, sizeof(prefix_hex));
             ESP_LOGW(TAG,
-                     "Dropping raw RX burst (reason=%s len=%u first=0x%02X prefix=%s classification=quality_issue)",
-                     drop_reason_str(RadioDropReason::OversizedBurst),
+                     "RF_HOTFIX_V2 oversized_drop len=%u elapsed_ms=%lu first=0x%02X prefix=%s classification=quality_issue",
                      static_cast<unsigned int>(received),
+                     static_cast<unsigned long>(elapsed_ms),
                      static_cast<unsigned int>(received > 0 ? frame.data[0] : 0U), prefix_hex);
 #endif
             auto flush_result = flush_rx_fifo();
@@ -392,6 +425,11 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
     frame.length = received;
     frame.payload_length = received;
+    if (frame.capture_elapsed_ms == 0U) {
+        const uint32_t elapsed_ms =
+            static_cast<uint32_t>(pdTICKS_TO_MS(static_cast<TickType_t>(xTaskGetTickCount() - start_tick)));
+        frame.capture_elapsed_ms = static_cast<uint16_t>(elapsed_ms <= 0xFFFFU ? elapsed_ms : 0xFFFFU);
+    }
     frame.first_data_byte = frame.data[0];
     if (frame.burst_end_reason == RadioBurstEndReason::None) {
         frame.burst_end_reason = RadioBurstEndReason::EmptyPolls;
@@ -505,6 +543,7 @@ void RadioCc1101::record_drop(RadioDropReason reason, const uint8_t* data, uint1
     std::lock_guard<std::mutex> lock(last_drop_mutex_);
     last_drop_.reason = reason;
     last_drop_.captured_length = length;
+    last_drop_.elapsed_ms = 0;
     last_drop_.first_data_byte = (data && length > 0) ? data[0] : 0U;
     last_drop_.quality_issue = quality_issue;
     last_drop_.prefix_length = static_cast<uint8_t>(length < sizeof(last_drop_.prefix)

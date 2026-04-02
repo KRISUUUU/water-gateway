@@ -81,20 +81,13 @@ bool decode_3of6_bytes(const uint8_t* raw, size_t raw_len, std::vector<uint8_t>&
         const uint8_t lo = kDecode3of6Low[sym2];
 
         if (hi == 0xFF || lo == 0xFF) {
-            out.clear();
-            return false;
+            break;
         }
 
         out.push_back(static_cast<uint8_t>(hi | lo));
     }
 
     if (out.empty()) {
-        return false;
-    }
-
-    const size_t trailing_bits = total_bits % 12U;
-    if (trailing_bits != 0U && read_bits(total_bits - trailing_bits, trailing_bits) != 0U) {
-        out.clear();
         return false;
     }
     return true;
@@ -111,6 +104,21 @@ bool validate_decoded_frame(const std::vector<uint8_t>& decoded) {
     }
 
     return true;
+}
+
+bool normalize_decoded_candidate(const std::vector<uint8_t>& decoded, std::vector<uint8_t>& normalized) {
+    normalized.clear();
+    if (decoded.empty()) {
+        return false;
+    }
+
+    normalized = decoded;
+    const size_t expected_size = static_cast<size_t>(normalized[0]) + 1U;
+    if (normalized.size() > expected_size) {
+        normalized.resize(expected_size);
+    }
+
+    return validate_decoded_frame(normalized);
 }
 } // namespace
 
@@ -204,16 +212,24 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     frame.original_raw_bytes = frame.raw_bytes;
 
     std::vector<uint8_t> decoded;
-    bool decode_ok = decode_3of6_bytes(frame.raw_bytes.data(), frame.raw_bytes.size(), decoded);
-    if ((!decode_ok || decoded.empty()) && !frame.raw_bytes.empty()) {
+    std::vector<uint8_t> normalized;
+    bool decoded_valid = false;
+
+    if (decode_3of6_bytes(frame.raw_bytes.data(), frame.raw_bytes.size(), decoded)) {
+        decoded_valid = normalize_decoded_candidate(decoded, normalized);
+    }
+
+    if (!decoded_valid && !frame.raw_bytes.empty()) {
         std::vector<uint8_t> reversed(frame.raw_bytes);
         for (auto& b : reversed) {
             b = reverse_bits8(b);
         }
-        decode_ok = decode_3of6_bytes(reversed.data(), reversed.size(), decoded);
+        if (decode_3of6_bytes(reversed.data(), reversed.size(), decoded)) {
+            decoded_valid = normalize_decoded_candidate(decoded, normalized);
+        }
     }
-    if (decode_ok && validate_decoded_frame(decoded)) {
-        frame.raw_bytes = std::move(decoded);
+    if (decoded_valid) {
+        frame.raw_bytes = std::move(normalized);
         frame.decoded_ok = true;
     }
 
@@ -226,6 +242,7 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     frame.metadata.first_data_byte = raw.first_data_byte;
     frame.metadata.payload_offset = raw.payload_offset;
     frame.metadata.payload_length = raw.payload_length;
+    frame.metadata.capture_elapsed_ms = raw.capture_elapsed_ms;
     frame.metadata.captured_frame_length = static_cast<uint16_t>(frame.original_raw_bytes.size());
     frame.metadata.canonical_frame_length = static_cast<uint16_t>(frame.raw_bytes.size());
     frame.metadata.timestamp_ms = timestamp_ms;

@@ -165,6 +165,12 @@ add_host_test(test_wmbus_pipeline
     "${COMP_DIR}/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp"
 )
 
+# ---- test_radio_cc1101 ----
+add_host_test(test_radio_cc1101
+    test_radio_cc1101.cpp
+    "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
+)
+
 # ---- test_meter_registry ----
 add_host_test(test_meter_registry
     test_meter_registry.cpp

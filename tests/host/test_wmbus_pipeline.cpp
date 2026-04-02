@@ -62,6 +62,17 @@ static RawRadioFrame make_radio_frame_from_plain_3of6(const std::vector<uint8_t>
     return make_radio_frame_from_payload(encode_3of6_for_test(plain), reverse_bits);
 }
 
+static std::vector<uint8_t> reversed_bits_copy(const std::vector<uint8_t>& bytes) {
+    std::vector<uint8_t> out = bytes;
+    for (auto& byte : out) {
+        byte = static_cast<uint8_t>(((byte & 0x01U) << 7U) | ((byte & 0x02U) << 5U) |
+                                    ((byte & 0x04U) << 3U) | ((byte & 0x08U) << 1U) |
+                                    ((byte & 0x10U) >> 1U) | ((byte & 0x20U) >> 3U) |
+                                    ((byte & 0x40U) >> 5U) | ((byte & 0x80U) >> 7U));
+    }
+    return out;
+}
+
 static void test_bytes_to_hex_basic() {
     uint8_t data[] = {0x2C, 0x44, 0x93, 0x15};
     auto hex = WmbusPipeline::bytes_to_hex(data, 4);
@@ -214,7 +225,7 @@ static void test_decode_3of6_invalid_symbol_falls_back_to_raw() {
     const auto& frame = result.value();
     assert(frame.decoded_ok == false);
     assert(frame.canonical_hex() == "0000");
-    assert(frame.captured_hex() == "020000");
+    assert(frame.captured_hex() == "0000");
     printf("  PASS: invalid 3-of-6 symbols fall back to raw\n");
 }
 
@@ -277,6 +288,60 @@ static void test_decode_3of6_reversed_bit_order_supported() {
     assert(frame.decoded_ok == true);
     assert(frame.raw_bytes == plain);
     printf("  PASS: reversed-bit 3-of-6 payload decoded\n");
+}
+
+static void test_decode_3of6_accepts_trailing_invalid_noise() {
+    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
+                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    std::vector<uint8_t> encoded = encode_3of6_for_test(plain);
+    encoded.push_back(0xFF);
+    encoded.push_back(0xFF);
+    RawRadioFrame raw = make_radio_frame_from_payload(encoded);
+
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
+    assert(result.is_ok());
+    const auto& frame = result.value();
+    assert(frame.decoded_ok == true);
+    assert(frame.raw_bytes == plain);
+    assert(frame.captured_hex() == WmbusPipeline::bytes_to_hex(encoded));
+    assert(frame.identity_key() == "mfg:0D84-id:06464890");
+    printf("  PASS: trailing invalid 3-of-6 noise is ignored\n");
+}
+
+static void test_decode_3of6_trims_extra_decodable_bytes_by_l_field() {
+    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
+                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    std::vector<uint8_t> extended = plain;
+    extended.push_back(0xAB);
+    extended.push_back(0xCD);
+    RawRadioFrame raw = make_radio_frame_from_plain_3of6(extended);
+
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
+    assert(result.is_ok());
+    const auto& frame = result.value();
+    assert(frame.decoded_ok == true);
+    assert(frame.raw_bytes == plain);
+    assert(frame.canonical_hex() == "0B44840D9048460601070000");
+    assert(frame.metadata.captured_frame_length == raw.length);
+    assert(frame.metadata.canonical_frame_length == plain.size());
+    printf("  PASS: extra decodable suffix trimmed by L-field\n");
+}
+
+static void test_reverse_bits_retry_runs_after_partial_invalid_forward_decode() {
+    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
+                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    std::vector<uint8_t> reversed = reversed_bits_copy(encode_3of6_for_test(plain));
+    reversed.push_back(0xFF);
+    reversed.push_back(0xFF);
+    RawRadioFrame raw = make_radio_frame_from_payload(reversed);
+
+    auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
+    assert(result.is_ok());
+    const auto& frame = result.value();
+    assert(frame.decoded_ok == true);
+    assert(frame.raw_bytes == plain);
+    assert(frame.identity_key() == "mfg:0D84-id:06464890");
+    printf("  PASS: reverse-bit retry survives partial forward decode\n");
 }
 
 static void test_decode_3of6_does_not_accept_wrong_offset() {
@@ -354,6 +419,9 @@ int main() {
     test_decode_3of6_known_encoded_payload();
     test_decode_3of6_diehl_dme_payload();
     test_decode_3of6_reversed_bit_order_supported();
+    test_decode_3of6_accepts_trailing_invalid_noise();
+    test_decode_3of6_trims_extra_decodable_bytes_by_l_field();
+    test_reverse_bits_retry_runs_after_partial_invalid_forward_decode();
     test_decode_3of6_does_not_accept_wrong_offset();
     test_decode_3of6_rejects_structurally_invalid_candidate();
     test_decode_3of6_rejects_truncated_payload();

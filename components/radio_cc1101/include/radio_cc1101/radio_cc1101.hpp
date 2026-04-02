@@ -42,9 +42,19 @@ enum class RadioBurstEndReason : uint8_t {
     MaxDuration,
 };
 
+enum class RawBurstTimeoutAction : uint8_t {
+    Continue = 0,
+    ReturnNotFound,
+    EndBurst,
+};
+
+RawBurstTimeoutAction raw_burst_timeout_action(uint32_t elapsed_ticks, uint16_t received,
+                                               uint32_t max_duration_ticks);
+
 struct RadioDropInfo {
     RadioDropReason reason = RadioDropReason::None;
     uint16_t captured_length = 0;
+    uint16_t elapsed_ms = 0;
     uint8_t first_data_byte = 0;
     uint8_t prefix[8]{};
     uint8_t prefix_length = 0;
@@ -61,6 +71,7 @@ struct RawRadioFrame {
     uint16_t length = 0;
     uint16_t payload_offset = 0;
     uint16_t payload_length = 0;
+    uint16_t capture_elapsed_ms = 0;
     uint8_t first_data_byte = 0;
     RadioBurstEndReason burst_end_reason = RadioBurstEndReason::None;
     int8_t rssi_dbm = 0;

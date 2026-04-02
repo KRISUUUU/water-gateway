@@ -17,6 +17,7 @@ struct WmbusFrameMetadata {
     uint8_t first_data_byte = 0;
     uint16_t payload_offset = 0;
     uint16_t payload_length = 0;
+    uint16_t capture_elapsed_ms = 0;
     uint16_t captured_frame_length = 0;
     uint16_t canonical_frame_length = 0;
     int64_t timestamp_ms = 0; // Epoch ms (0 if NTP not synced)
