@@ -40,8 +40,10 @@ struct RuntimeTaskMetrics {
 
 struct RuntimeSessionMetrics {
     std::uint32_t completed{0};
-    std::uint32_t crc_ok{0};
-    std::uint32_t crc_fail{0};
+    // Link-layer validation outcomes (reported by pipeline task after software CRC/block check).
+    // These are NOT radio hardware CRC results — radio CRC is disabled in the T-mode profile.
+    std::uint32_t link_validated{0};
+    std::uint32_t link_rejected{0};
     std::uint32_t incomplete{0};
     std::uint32_t dropped_too_long{0};
 };
@@ -95,8 +97,14 @@ class MetricsService {
     static void reset_queue_metrics();
     static void reset_task_metrics();
 
-    static void report_session_completed(bool crc_ok);
+    /// Report that the session engine produced a complete exact-frame capture.
+    /// Does not imply CRC validity — radio CRC is disabled in T-mode.
+    static void report_session_completed();
     static void report_session_aborted();
+
+    /// Report link-layer validation outcomes (pipeline task, after software CRC/block check).
+    static void report_telegram_validated();
+    static void report_telegram_link_rejected();
     static void reset_session_metrics();
 
   private:

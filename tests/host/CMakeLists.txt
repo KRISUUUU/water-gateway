@@ -35,6 +35,7 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/health_monitor/include"
     "${COMP_DIR}/metrics_service/include"
     "${COMP_DIR}/persistent_log_buffer/include"
+    "${COMP_DIR}/app_core/include"
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
@@ -263,6 +264,11 @@ add_host_test(test_radio_state_machine
     "${COMP_DIR}/radio_state_machine/src/radio_state_machine.cpp"
 )
 
+# ---- test_radio_rx_wake_model ----
+add_host_test(test_radio_rx_wake_model
+    test_radio_rx_wake_model.cpp
+)
+
 # ---- test_wmbus_tmode_framer ----
 add_host_test(test_wmbus_tmode_framer
     test_wmbus_tmode_framer.cpp
@@ -285,4 +291,6 @@ add_host_test(test_wmbus_link
     "${COMP_DIR}/wmbus_link/src/wmbus_link.cpp"
     "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
     "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
+    "${COMP_DIR}/rf_diagnostics/src/rf_diagnostics.cpp"
+    ${CJSON_SRC}
 )

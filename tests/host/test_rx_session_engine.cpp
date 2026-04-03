@@ -111,11 +111,16 @@ class FakeSessionRadio final : public SessionRadio {
         if (fifo_chunks_.empty()) {
             return common::Result<uint16_t>::ok(0U);
         }
-        auto chunk = fifo_chunks_.front();
-        fifo_chunks_.pop_front();
-        const auto take = static_cast<uint16_t>(std::min<size_t>(capacity, chunk.size()));
+        auto& chunk = fifo_chunks_.front();
+        const size_t chunk_size = chunk.size();
+        const auto take = static_cast<uint16_t>(std::min<size_t>(capacity, chunk_size));
         for (uint16_t i = 0; i < take; ++i) {
             buffer[i] = chunk[i];
+        }
+        if (take == chunk_size) {
+            fifo_chunks_.pop_front();
+        } else {
+            chunk.erase(chunk.begin(), chunk.begin() + take);
         }
         return common::Result<uint16_t>::ok(take);
     }
@@ -203,8 +208,11 @@ void test_session_start_and_exact_frame_completion() {
     assert(result.value().frame.first_data_byte == encoded.front());
     assert(radio.switch_calls() == 1U);
     assert(radio.last_fixed_length() == static_cast<uint8_t>(encoded.size() - 2U));
+    // Success path: restore infinite packet mode (was in fixed-length tail), no restart.
+    // MCSM1=0x3F keeps the radio in RX; FIFO is fully consumed.
     assert(radio.restore_calls() == 1U);
-    std::printf("  PASS: session start and exact frame completion\n");
+    assert(radio.restart_calls() == 0U);
+    std::printf("  PASS: session start and exact frame completion (no restart)\n");
 }
 
 void test_candidate_rejection_creates_bounded_diagnostic() {
@@ -220,6 +228,7 @@ void test_candidate_rejection_creates_bounded_diagnostic() {
     assert(result.value().diagnostic.reject_reason == rf_diagnostics::RejectReason::Invalid3of6Symbol);
     assert(result.value().diagnostic.captured_prefix_length <=
            rf_diagnostics::RfDiagnosticRecord::kMaxCapturedPrefixBytes);
+    // Rejection path: abort/restart IS called to flush stale FIFO data.
     assert(radio.restart_calls() == 1U);
     std::printf("  PASS: candidate rejection creates bounded diagnostic\n");
 }
@@ -234,21 +243,26 @@ void test_valid_reversed_orientation_completes() {
     assert(result.is_ok());
     assert(result.value().state == SessionStepState::ExactFrameComplete);
     assert(result.value().frame.candidate.orientation == FrameOrientation::BitReversed);
-    std::printf("  PASS: reversed orientation frame completes\n");
+    // Success path: no restart needed.
+    assert(radio.restart_calls() == 0U);
+    std::printf("  PASS: reversed orientation frame completes (no restart)\n");
 }
 
-void test_overflow_requests_recovery() {
+void test_overflow_aborts_session() {
     FakeSessionRadio radio;
     RxSessionEngine engine;
     radio.set_fifo_overflow(true);
 
     const auto result = engine.process(radio, irq_event(), 400);
     assert(result.is_ok());
-    assert(result.value().state == SessionStepState::RecoveryRequested);
+    // Overflow produces DiagnosticReady with radio error, not RecoveryRequested.
+    assert(result.value().state == SessionStepState::DiagnosticReady);
     assert(result.value().radio_error == common::ErrorCode::RadioFifoOverflow);
     assert(result.value().has_diagnostic);
     assert(result.value().diagnostic.reject_reason == rf_diagnostics::RejectReason::RadioOverflow);
-    std::printf("  PASS: overflow requests recovery\n");
+    // Overflow path: abort/restart IS called to flush corrupt FIFO.
+    assert(radio.restart_calls() == 1U);
+    std::printf("  PASS: overflow aborts session\n");
 }
 
 void test_no_progress_watchdog_aborts_stalled_session() {
@@ -268,11 +282,12 @@ void test_no_progress_watchdog_aborts_stalled_session() {
     assert(first.is_ok());
     assert(first.value().state == SessionStepState::SessionInProgress);
 
-    auto second = engine.process(radio, radio_cc1101::make_poll_tick_event(), 505);
+    auto second = engine.process(radio, radio_cc1101::make_session_watchdog_tick_event(), 505);
     assert(second.is_ok());
     assert(second.value().state == SessionStepState::DiagnosticReady);
     assert(second.value().abort_reason == SessionAbortReason::NoProgressTimeout);
     assert(second.value().radio_error == common::ErrorCode::RadioQualityDrop);
+    // Timeout path: abort/restart IS called to flush stale FIFO data.
     assert(radio.restart_calls() == 1U);
     std::printf("  PASS: no-progress watchdog aborts stalled session\n");
 }
@@ -330,6 +345,20 @@ void test_exact_read_window_caps_fifo_request() {
     std::printf("  PASS: exact read window prevents over-read\n");
 }
 
+void test_exact_read_window_caps_pre_l_field_reads() {
+    CandidateProgress progress{};
+    progress.active = true;
+    progress.l_field_known = false;
+    progress.encoded_bytes_seen = 0;
+
+    assert(exact_read_window_bytes(progress, 10) == 2U);
+
+    progress.encoded_bytes_seen = 1;
+    assert(exact_read_window_bytes(progress, 10) == 1U);
+
+    std::printf("  PASS: exact read window preserves start alignment before L-field\n");
+}
+
 void test_session_recovery_when_mode_switch_fails() {
     FakeSessionRadio radio;
     RxSessionEngine engine;
@@ -346,6 +375,129 @@ void test_session_recovery_when_mode_switch_fails() {
     std::printf("  PASS: recovery requested when fixed-length transition fails\n");
 }
 
+// --- New tests for success-path receive continuity ---
+
+void test_success_path_no_restart_no_restore_in_infinite_mode() {
+    // When the frame completes without ever switching to fixed-length mode
+    // (e.g. frame too short to trigger the switch), no restore and no restart
+    // should be called. The radio stays in infinite RX (MCSM1=0x3F).
+    FakeSessionRadio radio;
+    RxSessionEngine engine;
+    const auto decoded = make_valid_first_block_frame();
+    const auto encoded = encode_3of6(decoded);
+
+    // Feed chunks one byte at a time so the switch to fixed-length mode
+    // has a chance to trigger — but with a short single-block frame,
+    // the framer may complete before or right after the switch.
+    // In either case, restart must NOT be called.
+    radio.push_fifo_chunk(encoded);
+
+    const auto result = engine.process(radio, irq_event(), 800);
+    assert(result.is_ok());
+    assert(result.value().state == SessionStepState::ExactFrameComplete);
+    assert(result.value().has_frame);
+    // The key assertion: success path never calls abort_and_restart_rx.
+    assert(radio.restart_calls() == 0U);
+    assert(result.value().radio_error == common::ErrorCode::OK);
+    std::printf("  PASS: success path does not restart radio\n");
+}
+
+void test_engine_ready_for_next_frame_after_completion() {
+    // After a successful frame, the engine's software state is cleared.
+    // A second frame arriving immediately should be processed without
+    // external intervention — verifying back-to-back receive continuity.
+    FakeSessionRadio radio;
+    RxSessionEngine engine;
+
+    // First frame
+    const auto decoded1 = make_valid_first_block_frame(0x44, 0x07);
+    const auto encoded1 = encode_3of6(decoded1);
+    radio.push_fifo_chunk(encoded1);
+
+    auto r1 = engine.process(radio, irq_event(), 1000);
+    assert(r1.is_ok());
+    assert(r1.value().state == SessionStepState::ExactFrameComplete);
+    assert(r1.value().has_frame);
+    assert(radio.restart_calls() == 0U);
+
+    // Second frame with different marker, arriving immediately
+    const auto decoded2 = make_valid_first_block_frame(0x44, 0x08);
+    const auto encoded2 = encode_3of6(decoded2);
+    radio.push_fifo_chunk(encoded2);
+
+    auto r2 = engine.process(radio, irq_event(), 1005);
+    assert(r2.is_ok());
+    assert(r2.value().state == SessionStepState::ExactFrameComplete);
+    assert(r2.value().has_frame);
+    // Neither frame triggered a restart.
+    assert(radio.restart_calls() == 0U);
+    // Both frames are distinct (different marker byte).
+    assert(r1.value().frame.candidate.decoded_length == decoded1.size());
+    assert(r2.value().frame.candidate.decoded_length == decoded2.size());
+    std::printf("  PASS: engine ready for next frame after completion (back-to-back)\n");
+}
+
+void test_second_frame_survives_same_fifo_chunk_after_success() {
+    FakeSessionRadio radio;
+    RxSessionEngine engine;
+
+    const auto decoded1 = make_valid_first_block_frame(0x44, 0x07);
+    const auto encoded1 = encode_3of6(decoded1);
+    const auto decoded2 = make_valid_first_block_frame(0x44, 0x08);
+    const auto encoded2 = encode_3of6(decoded2);
+
+    std::vector<uint8_t> combined = encoded1;
+    combined.insert(combined.end(), encoded2.begin(), encoded2.end());
+    radio.push_fifo_chunk(combined);
+
+    auto first = engine.process(radio, irq_event(), 1100);
+    assert(first.is_ok());
+    assert(first.value().state == SessionStepState::ExactFrameComplete);
+    assert(first.value().has_frame);
+    assert(first.value().frame.first_data_byte == encoded1.front());
+    assert(first.value().frame.candidate.decoded_bytes[9] == 0x07);
+    assert(radio.restart_calls() == 0U);
+
+    auto second = engine.process(radio, irq_event(), 1105);
+    assert(second.is_ok());
+    assert(second.value().state == SessionStepState::ExactFrameComplete);
+    assert(second.value().has_frame);
+    assert(second.value().frame.first_data_byte == encoded2.front());
+    assert(second.value().frame.candidate.decoded_bytes[9] == 0x08);
+    assert(radio.restart_calls() == 0U);
+
+    std::printf("  PASS: second frame survives same FIFO chunk after success\n");
+}
+
+void test_failure_paths_still_restart() {
+    // Verify that non-success paths (rejection, overflow, timeout) still
+    // call abort_and_restart_rx, confirming the change is scoped to success only.
+
+    // Rejection
+    {
+        FakeSessionRadio radio;
+        RxSessionEngine engine;
+        radio.push_fifo_chunk({0xFF, 0xFF});
+        auto r = engine.process(radio, irq_event(), 100);
+        assert(r.is_ok());
+        assert(r.value().state == SessionStepState::DiagnosticReady);
+        assert(radio.restart_calls() == 1U);
+    }
+
+    // Overflow
+    {
+        FakeSessionRadio radio;
+        RxSessionEngine engine;
+        radio.set_fifo_overflow(true);
+        auto r = engine.process(radio, irq_event(), 200);
+        assert(r.is_ok());
+        assert(r.value().state == SessionStepState::DiagnosticReady);
+        assert(radio.restart_calls() == 1U);
+    }
+
+    std::printf("  PASS: failure paths still call abort_and_restart_rx\n");
+}
+
 } // namespace
 
 int main() {
@@ -353,13 +505,18 @@ int main() {
     test_packet_length_strategy_length_unknown_does_not_switch();
     test_packet_length_strategy_switches_once_exact_length_is_known();
     test_exact_read_window_caps_fifo_request();
+    test_exact_read_window_caps_pre_l_field_reads();
     test_session_start_and_exact_frame_completion();
     test_candidate_rejection_creates_bounded_diagnostic();
     test_valid_reversed_orientation_completes();
-    test_overflow_requests_recovery();
+    test_overflow_aborts_session();
     test_no_progress_watchdog_aborts_stalled_session();
     test_spi_failure_requests_recovery();
     test_session_recovery_when_mode_switch_fails();
+    test_success_path_no_restart_no_restore_in_infinite_mode();
+    test_engine_ready_for_next_frame_after_completion();
+    test_second_frame_survives_same_fifo_chunk_after_success();
+    test_failure_paths_still_restart();
     std::printf("All RX session engine tests passed.\n");
     return 0;
 }

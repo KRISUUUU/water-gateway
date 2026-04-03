@@ -96,7 +96,7 @@ Key rule:
 
 Responsibilities:
 
-- IRQ-driven receive session handling
+- IRQ-first receive session handling with a bounded active-session watchdog tick
 - FIFO draining during RX sessions
 - incremental T-mode 3-of-6 framing
 - parallel normal and reversed-bit candidate tracking

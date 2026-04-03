@@ -184,9 +184,31 @@ void test_continuation_block_crc() {
     std::printf("  PASS: continuation block CRC validation\n");
 }
 
+void test_link_reject_to_rf_reason_mapping() {
+    // Each LinkRejectReason must map to a distinct, specific RejectReason.
+    // This is the canonical fidelity test for downstream diagnostics.
+    using LR = wmbus_link::LinkRejectReason;
+    using RR = rf_diagnostics::RejectReason;
+
+    assert(wmbus_link::link_reject_to_rf_reason(LR::FrameTooShort)           == RR::FrameTooShort);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::DecodedLengthMismatch)   == RR::ExactLengthMismatch);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::FirstBlockValidationFailed) == RR::FirstBlockValidationFailed);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::BlockValidationFailed)   == RR::BlockValidationFailed);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::IdentityUnavailable)     == RR::IdentityUnavailable);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::None)                    == RR::Unknown);
+
+    // Verify string representations are non-empty and distinct for new reasons.
+    const auto s_short   = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(RR::FrameTooShort);
+    const auto s_id      = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(RR::IdentityUnavailable);
+    assert(s_short == "frame_too_short");
+    assert(s_id   == "identity_unavailable");
+    std::printf("  PASS: link_reject_to_rf_reason mapping (all 5 reasons)\n");
+}
+
 } // namespace
 
 int main() {
+    std::printf("=== test_wmbus_link ===\n");
     test_valid_tmode_frame_end_to_end();
     test_invalid_frame_rejected_cleanly();
     test_correct_identity_extraction();
@@ -194,5 +216,7 @@ int main() {
     test_reverse_orientation_valid_case();
     test_exact_frame_contract_is_unambiguous();
     test_continuation_block_crc();
+    test_link_reject_to_rf_reason_mapping();
+    std::printf("All wmbus_link tests passed.\n");
     return 0;
 }

@@ -22,6 +22,9 @@ enum class RejectReason : uint8_t {
     QualityDrop,
     TransitionalAdapterRejected,
     SessionAborted,
+    // Link-layer specific reasons (from wmbus_link downstream validation).
+    FrameTooShort,
+    IdentityUnavailable,
     Unknown,
 };
 

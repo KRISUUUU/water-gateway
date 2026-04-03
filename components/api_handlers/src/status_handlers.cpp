@@ -216,8 +216,11 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
     cJSON* radio_obj = cJSON_AddObjectToObject(root, "radio");
     cJSON_AddStringToObject(radio_obj, "state", radio_state_name(radio.state()));
     cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(metrics.sessions.completed));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.crc_ok));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.crc_fail));
+    // frames_crc_ok / frames_crc_fail: backward-compatible JSON keys.
+    // Now sourced from link-layer validation outcomes (software CRC/block check),
+    // not radio hardware CRC (which is disabled in T-mode profile).
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.link_rejected));
     cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(metrics.sessions.incomplete));
     cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long", static_cast<double>(metrics.sessions.dropped_too_long));
     cJSON_AddNumberToObject(radio_obj, "fifo_overflows", static_cast<double>(counters.fifo_overflows));
@@ -267,8 +270,8 @@ void add_runtime_links_summary_json(cJSON* root, const metrics_service::RuntimeM
     cJSON* radio_obj = cJSON_AddObjectToObject(root, "radio");
     cJSON_AddStringToObject(radio_obj, "state", radio_state_name(radio.state()));
     cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(metrics.sessions.completed));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.crc_ok));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.crc_fail));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.link_rejected));
     cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(metrics.sessions.incomplete));
     cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long",
                             static_cast<double>(metrics.sessions.dropped_too_long));

@@ -1,4 +1,5 @@
 #include "app_core/app_core.hpp"
+#include "app_core/radio_rx_wake_model.hpp"
 
 #ifndef HOST_TEST_BUILD
 
@@ -47,7 +48,6 @@ static TaskHandle_t health_task_handle = nullptr;
 static constexpr uint32_t kFrameQueueDepth = 16;
 static constexpr uint32_t kMqttOutboxDepth = 32;
 static constexpr uint32_t kCriticalTaskStallMs = 5000;
-static constexpr uint32_t kRadioPollDelayMs = 2;
 static std::atomic<uint32_t> frame_queue_max_depth{0};
 static std::atomic<uint32_t> frame_enqueue_success{0};
 static std::atomic<uint32_t> frame_enqueue_drop{0};
@@ -75,11 +75,6 @@ static uint32_t now_ms() {
     return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
-enum class RadioRxWaitSource : uint8_t {
-    PollDelay = 0,
-    IrqNotification,
-};
-
 static void update_peak(std::atomic<uint32_t>& peak, uint32_t value) {
     uint32_t current = peak.load(std::memory_order_relaxed);
     while (value > current &&
@@ -88,8 +83,8 @@ static void update_peak(std::atomic<uint32_t>& peak, uint32_t value) {
 }
 
 struct RadioRxWaitResult {
-    RadioRxWaitSource source = RadioRxWaitSource::PollDelay;
-    radio_cc1101::RadioOwnerEventSet events = radio_cc1101::make_poll_tick_event();
+    app_core::RadioRxWaitSource source = app_core::RadioRxWaitSource::IdleLivenessTimeout;
+    radio_cc1101::RadioOwnerEventSet events{};
 };
 
 class RadioSessionDevice final : public wmbus_tmode_rx::SessionRadio {
@@ -176,14 +171,16 @@ static void populate_rf_diagnostic_timestamps(rf_diagnostics::RfDiagnosticRecord
     record.sequence = rf_diagnostics::RfDiagnosticsService::instance().snapshot().total_inserted + 1U;
 }
 
-static RadioRxWaitResult wait_for_radio_rx_work(radio_cc1101::RadioCc1101& radio) {
-    const uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kRadioPollDelayMs));
+static RadioRxWaitResult wait_for_radio_rx_work(
+    radio_cc1101::RadioCc1101& radio, bool irq_plumbing_enabled, bool session_active,
+    uint32_t session_watchdog_tick_ms) {
+    const auto policy = app_core::make_radio_rx_wake_policy(irq_plumbing_enabled, session_active,
+                                                            session_watchdog_tick_ms);
+    const uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(policy.wait_timeout_ms));
     if (notified == 0U) {
-        return {RadioRxWaitSource::PollDelay, radio_cc1101::make_poll_tick_event()};
+        return {policy.timeout_source, policy.timeout_events};
     }
-    auto irq_events = radio.take_owner_events();
-    return {RadioRxWaitSource::IrqNotification,
-            radio_cc1101::merge_owner_events(radio_cc1101::make_poll_tick_event(), irq_events)};
+    return {app_core::RadioRxWaitSource::IrqNotification, radio.take_owner_events()};
 }
 
 static void sample_queue_levels() {
@@ -328,8 +325,12 @@ static void radio_rx_task(void* /*param*/) {
     auto& wd = watchdog_service::WatchdogService::instance();
     TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
     RadioSessionDevice session_device(radio, current_task);
-    wmbus_tmode_rx::RxSessionEngine session_engine;
+    const wmbus_tmode_rx::SessionEngineConfig session_config{};
+    wmbus_tmode_rx::RxSessionEngine session_engine(session_config);
     uint32_t rx_count = 0;
+    bool irq_plumbing_enabled = false;
+    const uint32_t session_watchdog_tick_ms =
+        std::min(session_config.idle_poll_timeout_ms, session_config.min_watchdog_timeout_ms);
 
     auto owner_claim = radio.claim_owner(current_task);
     if (owner_claim.is_error()) {
@@ -340,11 +341,12 @@ static void radio_rx_task(void* /*param*/) {
 
     auto irq_enable = radio.enable_gdo_interrupts(current_task, current_task);
     if (irq_enable.is_error()) {
-        // The current active RX path remains polling-based. If IRQ wake plumbing cannot be
-        // enabled on a board build, we continue with polling-only behavior rather than
-        // activating a second RX implementation.
-        ESP_LOGW(TAG, "radio_rx IRQ wake plumbing unavailable, continuing polling-only (%d)",
+        // The active RX path is IRQ-first. If owner-task IRQ plumbing is unavailable on a board
+        // build, keep the same RX path but fall back to bounded polling for liveness.
+        ESP_LOGW(TAG, "radio_rx IRQ wake plumbing unavailable, enabling bounded poll fallback (%d)",
                  static_cast<int>(irq_enable.error()));
+    } else {
+        irq_plumbing_enabled = true;
     }
 
     if (wd.register_task().is_error()) {
@@ -355,7 +357,9 @@ static void radio_rx_task(void* /*param*/) {
     while (true) {
         radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         rsm.tick();
-        const auto wait_result = wait_for_radio_rx_work(radio);
+        const bool session_active = session_engine.snapshot().active;
+        const auto wait_result = wait_for_radio_rx_work(radio, irq_plumbing_enabled, session_active,
+                                                        session_watchdog_tick_ms);
         const auto& owner_events = wait_result.events;
 
         auto step_result = session_engine.process(session_device, owner_events, now_ms());
@@ -364,7 +368,7 @@ static void radio_rx_task(void* /*param*/) {
             if (step.has_frame && frame_queue) {
                 ESP_LOGI(TAG, "Exact-frame compiled: %u bytes, CRC=%s",
                          step.frame.candidate.decoded_length, step.frame.crc_ok ? "OK" : "FAIL");
-                metrics_service::MetricsService::report_session_completed(step.frame.crc_ok);
+                metrics_service::MetricsService::report_session_completed();
                 rsm.on_read_success();
                 rx_count++;
                 auto frame = encode_session_capture(step.frame,
@@ -456,9 +460,7 @@ static void pipeline_task(void* /*param*/) {
                 populate_rf_diagnostic_timestamps(record);
                 record.timestamp_epoch_ms = ntp_synced ? ts : 0;
                 record.reject_reason =
-                    link_result.reject_reason == wmbus_link::LinkRejectReason::BlockValidationFailed
-                        ? rf_diagnostics::RejectReason::BlockValidationFailed
-                        : rf_diagnostics::RejectReason::FirstBlockValidationFailed;
+                    wmbus_link::link_reject_to_rf_reason(link_result.reject_reason);
                 record.orientation =
                     exact_frame.orientation == wmbus_tmode_rx::FrameOrientation::BitReversed
                         ? rf_diagnostics::Orientation::BitReversed
@@ -487,10 +489,12 @@ static void pipeline_task(void* /*param*/) {
                     record.decoded_prefix[i] = exact_frame.decoded_bytes[i];
                 }
                 rf_diagnostics::RfDiagnosticsService::instance().insert(record);
+                metrics_service::MetricsService::report_telegram_link_rejected();
                 continue;
             }
 
             const auto& telegram = link_result.telegram;
+            metrics_service::MetricsService::report_telegram_validated();
             const auto route = router.route(telegram);
             const bool duplicate =
                 route.decision == telegram_router::RouteDecision::SuppressDuplicate;
@@ -692,7 +696,7 @@ static void health_task(void* /*param*/) {
                     m.free_heap_bytes, m.min_free_heap_bytes, wifi.status().rssi_dbm,
                     mqtt.is_connected() ? "connected" : "disconnected",
                     rx_active ? "rx_active" : "idle", m.sessions.completed, tc.frames_published,
-                    tc.frames_duplicate, m.sessions.crc_fail, ms.publish_count,
+                    tc.frames_duplicate, m.sessions.link_rejected, ms.publish_count,
                     ms.publish_failures, "");
                 if (command_result.is_ok()) {
                     enqueue_mqtt(command_result.value());

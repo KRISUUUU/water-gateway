@@ -8,9 +8,10 @@ namespace radio_cc1101 {
 
 enum class RadioOwnerEvent : uint32_t {
     None = 0U,
-    PollTick = 1U << 0U,
-    Gdo0Edge = 1U << 1U,
-    Gdo2Edge = 1U << 2U,
+    SessionWatchdogTick = 1U << 0U,
+    FallbackPoll = 1U << 1U,
+    Gdo0Edge = 1U << 2U,
+    Gdo2Edge = 1U << 3U,
 };
 
 constexpr uint32_t radio_owner_event_bit(RadioOwnerEvent event) {
@@ -29,13 +30,18 @@ struct RadioOwnerEventSet {
         return has(RadioOwnerEvent::Gdo0Edge) || has(RadioOwnerEvent::Gdo2Edge);
     }
 
-    bool should_attempt_rx_work() const {
-        return has(RadioOwnerEvent::PollTick) || has_any_irq();
+    bool should_attempt_rx_work(bool session_active) const {
+        return has_any_irq() || has(RadioOwnerEvent::FallbackPoll) ||
+               (session_active && has(RadioOwnerEvent::SessionWatchdogTick));
     }
 };
 
-constexpr RadioOwnerEventSet make_poll_tick_event() {
-    return {radio_owner_event_bit(RadioOwnerEvent::PollTick), {}};
+constexpr RadioOwnerEventSet make_session_watchdog_tick_event() {
+    return {radio_owner_event_bit(RadioOwnerEvent::SessionWatchdogTick), {}};
+}
+
+constexpr RadioOwnerEventSet make_fallback_poll_event() {
+    return {radio_owner_event_bit(RadioOwnerEvent::FallbackPoll), {}};
 }
 
 inline RadioOwnerEventSet make_owner_events_from_irq(const GdoIrqSnapshot& irq_snapshot) {

@@ -191,4 +191,25 @@ LinkValidationResult WmbusLink::validate_and_build(const EncodedRxFrame& frame) 
     return result;
 }
 
+// Map each LinkRejectReason to the most specific rf_diagnostics::RejectReason.
+// Keep this in sync with the LinkRejectReason enum whenever new reasons are added.
+rf_diagnostics::RejectReason link_reject_to_rf_reason(LinkRejectReason reason) {
+    switch (reason) {
+    case LinkRejectReason::FrameTooShort:
+        return rf_diagnostics::RejectReason::FrameTooShort;
+    case LinkRejectReason::DecodedLengthMismatch:
+        // Exact-frame contract violation: encoded/decoded lengths don't match expectation.
+        return rf_diagnostics::RejectReason::ExactLengthMismatch;
+    case LinkRejectReason::FirstBlockValidationFailed:
+        return rf_diagnostics::RejectReason::FirstBlockValidationFailed;
+    case LinkRejectReason::BlockValidationFailed:
+        return rf_diagnostics::RejectReason::BlockValidationFailed;
+    case LinkRejectReason::IdentityUnavailable:
+        return rf_diagnostics::RejectReason::IdentityUnavailable;
+    case LinkRejectReason::None:
+    default:
+        return rf_diagnostics::RejectReason::Unknown;
+    }
+}
+
 } // namespace wmbus_link

@@ -137,10 +137,12 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
     }
     cJSON_AddNumberToObject(counters, "frames_received",
                             static_cast<double>(snap.metrics.sessions.completed));
+    // frames_crc_ok / frames_crc_fail: backward-compatible JSON keys.
+    // Now sourced from link-layer validation outcomes, not radio hardware CRC.
     cJSON_AddNumberToObject(counters, "frames_crc_ok",
-                            static_cast<double>(snap.metrics.sessions.crc_ok));
+                            static_cast<double>(snap.metrics.sessions.link_validated));
     cJSON_AddNumberToObject(counters, "frames_crc_fail",
-                            static_cast<double>(snap.metrics.sessions.crc_fail));
+                            static_cast<double>(snap.metrics.sessions.link_rejected));
     cJSON_AddNumberToObject(counters, "frames_incomplete",
                             static_cast<double>(snap.metrics.sessions.incomplete));
     cJSON_AddNumberToObject(counters, "frames_dropped_too_long",

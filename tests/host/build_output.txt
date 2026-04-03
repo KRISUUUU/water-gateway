@@ -1,0 +1,37 @@
+[  4%] Built target test_dedup
+[ 16%] Built target test_mqtt_payloads
+[ 16%] Built target test_config_store_status
+[ 17%] Built target test_auth_pbkdf2
+[ 19%] Built target test_health_logic
+[ 24%] Built target test_auth_rate_limit
+[ 30%] Built target test_config_validation
+[ 32%] Built target test_auth_helpers
+[ 37%] Built target test_auth_login_policy
+[ 41%] Built target test_config_migration
+[ 43%] Built target test_radio_cc1101
+[ 47%] Built target test_meter_registry
+[ 52%] Built target test_downstream_exact_flow
+[ 56%] Built target test_metrics_service
+[ 57%] Built target test_ota_manager
+[ 60%] Built target test_event_bus
+[ 65%] Built target test_wifi_manager
+[ 67%] Built target test_security_posture
+[ 70%] Built target test_rf_diagnostics
+[ 73%] Built target test_wmbus_tmode_framer
+[ 82%] Linking CXX executable test_radio_state_machine
+[ 93%] Built target test_wmbus_link
+[ 93%] Built target test_diagnostics_service
+[ 97%] Built target test_rx_session_engine
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::initialize(radio_cc1101::SpiPins const&, radio_cc1101::SpiBusConfig const&)::{lambda()#1}::operator()() const':
+radio_cc1101.cpp:(.text+0x80): undefined reference to `radio_cc1101::hal::deinitialize_spi_device(void*&, int)'
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::initialize(radio_cc1101::SpiPins const&, radio_cc1101::SpiBusConfig const&)':
+radio_cc1101.cpp:(.text+0x101): undefined reference to `radio_cc1101::hal::initialize_spi_device(void*&, radio_cc1101::SpiPins const&, radio_cc1101::SpiBusConfig const&)'
+/usr/bin/ld.bfd: radio_cc1101.cpp:(.text+0x138): undefined reference to `radio_cc1101::irq::configure_gdo_inputs(radio_cc1101::SpiPins const&)'
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::enable_gdo_interrupts(void*, void*)':
+radio_cc1101.cpp:(.text+0x44c): undefined reference to `radio_cc1101::irq::enable_gdo_interrupts(radio_cc1101::SpiPins const&, radio_cc1101::GdoIrqTracker&, void*)'
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::disable_gdo_interrupts()':
+radio_cc1101.cpp:(.text+0x497): undefined reference to `radio_cc1101::irq::disable_gdo_interrupts(radio_cc1101::SpiPins const&)'
+collect2: error: ld returned 1 exit status
+gmake[2]: *** [CMakeFiles/test_radio_state_machine.dir/build.make:149: test_radio_state_machine] Błąd 1
+gmake[1]: *** [CMakeFiles/Makefile2:796: CMakeFiles/test_radio_state_machine.dir/all] Błąd 2
+gmake: *** [Makefile:101: all] Błąd 2

@@ -51,8 +51,8 @@ std::atomic<std::uint32_t> g_mqtt_stack_hwm_words{0};
 std::atomic<std::uint32_t> g_health_stack_hwm_words{0};
 
 std::atomic<std::uint32_t> g_session_completed{0};
-std::atomic<std::uint32_t> g_session_crc_ok{0};
-std::atomic<std::uint32_t> g_session_crc_fail{0};
+std::atomic<std::uint32_t> g_telegram_link_validated{0};
+std::atomic<std::uint32_t> g_telegram_link_rejected{0};
 std::atomic<std::uint32_t> g_session_incomplete{0};
 std::atomic<std::uint32_t> g_session_dropped_too_long{0};
 
@@ -112,8 +112,8 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.tasks.health_stack_hwm_words = g_health_stack_hwm_words.load(std::memory_order_relaxed);
 
     m.sessions.completed = g_session_completed.load(std::memory_order_relaxed);
-    m.sessions.crc_ok = g_session_crc_ok.load(std::memory_order_relaxed);
-    m.sessions.crc_fail = g_session_crc_fail.load(std::memory_order_relaxed);
+    m.sessions.link_validated = g_telegram_link_validated.load(std::memory_order_relaxed);
+    m.sessions.link_rejected = g_telegram_link_rejected.load(std::memory_order_relaxed);
     m.sessions.incomplete = g_session_incomplete.load(std::memory_order_relaxed);
     m.sessions.dropped_too_long = g_session_dropped_too_long.load(std::memory_order_relaxed);
 
@@ -189,23 +189,26 @@ void MetricsService::report_task_stack_metrics(std::uint32_t radio_stack_hwm_wor
     g_health_stack_hwm_words.store(health_stack_hwm_words, std::memory_order_relaxed);
 }
 
-void MetricsService::report_session_completed(bool crc_ok) {
+void MetricsService::report_session_completed() {
     g_session_completed.fetch_add(1, std::memory_order_relaxed);
-    if (crc_ok) {
-        g_session_crc_ok.fetch_add(1, std::memory_order_relaxed);
-    } else {
-        g_session_crc_fail.fetch_add(1, std::memory_order_relaxed);
-    }
 }
 
 void MetricsService::report_session_aborted() {
     g_session_incomplete.fetch_add(1, std::memory_order_relaxed);
 }
 
+void MetricsService::report_telegram_validated() {
+    g_telegram_link_validated.fetch_add(1, std::memory_order_relaxed);
+}
+
+void MetricsService::report_telegram_link_rejected() {
+    g_telegram_link_rejected.fetch_add(1, std::memory_order_relaxed);
+}
+
 void MetricsService::reset_session_metrics() {
     g_session_completed.store(0, std::memory_order_relaxed);
-    g_session_crc_ok.store(0, std::memory_order_relaxed);
-    g_session_crc_fail.store(0, std::memory_order_relaxed);
+    g_telegram_link_validated.store(0, std::memory_order_relaxed);
+    g_telegram_link_rejected.store(0, std::memory_order_relaxed);
     g_session_incomplete.store(0, std::memory_order_relaxed);
     g_session_dropped_too_long.store(0, std::memory_order_relaxed);
 }

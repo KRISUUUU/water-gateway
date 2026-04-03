@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/result.hpp"
+#include "rf_diagnostics/rf_diagnostics.hpp"
 #include "wmbus_tmode_rx/wmbus_tmode_framer.hpp"
 #include <array>
 #include <cstddef>
@@ -120,5 +121,10 @@ class WmbusLink {
 
     static std::string bytes_to_hex(const uint8_t* data, size_t length);
 };
+
+/// Map a LinkRejectReason to the most specific rf_diagnostics::RejectReason.
+/// This is a pure function and the canonical place to keep this mapping,
+/// since both types are owned by their respective components.
+rf_diagnostics::RejectReason link_reject_to_rf_reason(LinkRejectReason reason);
 
 } // namespace wmbus_link

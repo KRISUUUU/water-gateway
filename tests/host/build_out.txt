@@ -1,0 +1,191 @@
+[  1%] Building CXX object CMakeFiles/test_config_migration.dir/test_config_migration.cpp.o
+[  1%] Building CXX object CMakeFiles/test_auth_login_policy.dir/test_auth_login_policy.cpp.o
+[  3%] Building CXX object CMakeFiles/test_config_store_status.dir/test_config_store_status.cpp.o
+[  4%] Building CXX object CMakeFiles/test_mqtt_payloads.dir/test_mqtt_payloads.cpp.o
+[  4%] Building CXX object CMakeFiles/test_config_validation.dir/test_config_validation.cpp.o
+[  5%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/test_auth_pbkdf2.cpp.o
+[  5%] Building CXX object CMakeFiles/test_health_logic.dir/test_health_logic.cpp.o
+[  6%] Building CXX object CMakeFiles/test_radio_cc1101.dir/test_radio_cc1101.cpp.o
+[  6%] Building CXX object CMakeFiles/test_auth_rate_limit.dir/test_auth_rate_limit.cpp.o
+[  6%] Building CXX object CMakeFiles/test_auth_helpers.dir/test_auth_helpers.cpp.o
+[  7%] Building CXX object CMakeFiles/test_meter_registry.dir/test_meter_registry.cpp.o
+[  7%] Building CXX object CMakeFiles/test_dedup.dir/test_dedup.cpp.o
+[  8%] Building CXX object CMakeFiles/test_auth_login_policy.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[  9%] Building CXX object CMakeFiles/test_config_migration.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[  9%] Building CXX object CMakeFiles/test_config_store_status.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 10%] Building CXX object CMakeFiles/test_config_validation.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 11%] Building CXX object CMakeFiles/test_mqtt_payloads.dir/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_publish.cpp.o
+[ 12%] Building CXX object CMakeFiles/test_health_logic.dir/home/krzycho/Projekty/water-gateway/components/health_monitor/src/health_monitor.cpp.o
+[ 12%] Building CXX object CMakeFiles/test_radio_cc1101.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/cc1101_device.cpp.o
+[ 12%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/home/krzycho/Projekty/water-gateway/components/auth_service/src/auth_service.cpp.o
+[ 13%] Building CXX object CMakeFiles/test_auth_helpers.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 14%] Building CXX object CMakeFiles/test_auth_login_policy.dir/home/krzycho/Projekty/water-gateway/components/auth_service/src/auth_service.cpp.o
+[ 15%] Building CXX object CMakeFiles/test_dedup.dir/home/krzycho/Projekty/water-gateway/components/dedup_service/src/dedup_service.cpp.o
+[ 15%] Building CXX object CMakeFiles/test_meter_registry.dir/home/krzycho/Projekty/water-gateway/components/meter_registry/src/meter_registry.cpp.o
+[ 17%] Building CXX object CMakeFiles/test_auth_rate_limit.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 17%] Linking CXX executable test_config_migration
+[ 18%] Linking CXX executable test_config_validation
+[ 19%] Building CXX object CMakeFiles/test_radio_cc1101.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/cc1101_hal.cpp.o
+[ 20%] Building CXX object CMakeFiles/test_mqtt_payloads.dir/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_topics.cpp.o
+[ 20%] Building CXX object CMakeFiles/test_config_store_status.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 21%] Linking CXX executable test_health_logic
+[ 22%] Building CXX object CMakeFiles/test_auth_helpers.dir/home/krzycho/Projekty/water-gateway/components/auth_service/src/auth_service.cpp.o
+[ 23%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/home/krzycho/Projekty/water-gateway/components/persistent_log_buffer/src/persistent_log_buffer.cpp.o
+[ 24%] Building CXX object CMakeFiles/test_auth_login_policy.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 25%] Building CXX object CMakeFiles/test_auth_rate_limit.dir/home/krzycho/Projekty/water-gateway/components/auth_service/src/auth_service.cpp.o
+[ 26%] Linking CXX executable test_dedup
+[ 26%] Building CXX object CMakeFiles/test_mqtt_payloads.dir/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_payloads.cpp.o
+[ 27%] Building CXX object CMakeFiles/test_radio_cc1101.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/cc1101_irq.cpp.o
+[ 28%] Building CXX object CMakeFiles/test_meter_registry.dir/home/krzycho/Projekty/water-gateway/components/storage_service/src/storage_service.cpp.o
+[ 29%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 30%] Building CXX object CMakeFiles/test_config_store_status.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 30%] Building CXX object CMakeFiles/test_auth_helpers.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 30%] Building CXX object CMakeFiles/test_auth_login_policy.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 31%] Building C object CMakeFiles/test_mqtt_payloads.dir/_deps/cjson_ext-src/cJSON.c.o
+[ 32%] Building CXX object CMakeFiles/test_radio_cc1101.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o
+[ 34%] Building CXX object CMakeFiles/test_auth_rate_limit.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 34%] Building CXX object CMakeFiles/test_meter_registry.dir/home/krzycho/Projekty/water-gateway/components/wmbus_link/src/wmbus_link.cpp.o
+[ 34%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 35%] Building CXX object CMakeFiles/test_config_store_status.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 35%] Linking CXX executable test_radio_cc1101
+[ 36%] Building CXX object CMakeFiles/test_auth_helpers.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 36%] Building CXX object CMakeFiles/test_auth_rate_limit.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 37%] Building CXX object CMakeFiles/test_meter_registry.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_block_validation.cpp.o
+[ 37%] Linking CXX executable test_config_store_status
+[ 38%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 39%] Linking CXX executable test_mqtt_payloads
+[ 40%] Building CXX object CMakeFiles/test_auth_login_policy.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 41%] Building CXX object CMakeFiles/test_auth_rate_limit.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 42%] Building CXX object CMakeFiles/test_auth_helpers.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 43%] Building CXX object CMakeFiles/test_auth_pbkdf2.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 43%] Linking CXX executable test_meter_registry
+[ 44%] Linking CXX executable test_auth_login_policy
+[ 45%] Linking CXX executable test_auth_rate_limit
+[ 46%] Linking CXX executable test_auth_helpers
+[ 47%] Linking CXX executable test_auth_pbkdf2
+[ 47%] Built target test_config_migration
+[ 47%] Built target test_config_validation
+[ 47%] Built target test_health_logic
+[ 47%] Built target test_dedup
+[ 48%] Building CXX object CMakeFiles/test_ota_manager.dir/test_ota_manager.cpp.o
+[ 48%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/test_downstream_exact_flow.cpp.o
+[ 48%] Building CXX object CMakeFiles/test_ota_manager.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 49%] Building CXX object CMakeFiles/test_event_bus.dir/test_event_bus.cpp.o
+[ 49%] Built target test_radio_cc1101
+[ 50%] Building CXX object CMakeFiles/test_metrics_service.dir/test_metrics_service.cpp.o
+[ 51%] Building CXX object CMakeFiles/test_ota_manager.dir/home/krzycho/Projekty/water-gateway/components/ota_manager/src/ota_manager.cpp.o
+[ 51%] Built target test_config_store_status
+[ 51%] Built target test_mqtt_payloads
+[ 52%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_publish.cpp.o
+[ 53%] Linking CXX executable test_ota_manager
+[ 54%] Building CXX object CMakeFiles/test_event_bus.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 55%] Building CXX object CMakeFiles/test_metrics_service.dir/home/krzycho/Projekty/water-gateway/components/metrics_service/src/metrics_service.cpp.o
+[ 56%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/home/krzycho/Projekty/water-gateway/components/dedup_service/src/dedup_service.cpp.o
+[ 57%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/home/krzycho/Projekty/water-gateway/components/telegram_router/src/telegram_router.cpp.o
+[ 58%] Building CXX object CMakeFiles/test_security_posture.dir/test_security_posture.cpp.o
+[ 58%] Linking CXX executable test_metrics_service
+[ 59%] Linking CXX executable test_event_bus
+[ 59%] Building CXX object CMakeFiles/test_wifi_manager.dir/test_wifi_manager.cpp.o
+[ 59%] Built target test_auth_pbkdf2
+[ 59%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/home/krzycho/Projekty/water-gateway/components/wmbus_link/src/wmbus_link.cpp.o
+[ 59%] Built target test_auth_rate_limit
+[ 59%] Built target test_auth_helpers
+[ 60%] Linking CXX executable test_security_posture
+[ 60%] Built target test_auth_login_policy
+[ 61%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_block_validation.cpp.o
+[ 62%] Building CXX object CMakeFiles/test_wifi_manager.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 63%] Building CXX object CMakeFiles/test_downstream_exact_flow.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp.o
+[ 64%] Building CXX object CMakeFiles/test_wifi_manager.dir/home/krzycho/Projekty/water-gateway/components/wifi_manager/src/wifi_manager.cpp.o
+[ 64%] Built target test_meter_registry
+[ 65%] Building CXX object CMakeFiles/test_diagnostics_service.dir/test_diagnostics_service.cpp.o
+[ 66%] Building CXX object CMakeFiles/test_wifi_manager.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 66%] Linking CXX executable test_downstream_exact_flow
+[ 66%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/rf_diagnostics/src/rf_diagnostics.cpp.o
+[ 67%] Building CXX object CMakeFiles/test_radio_state_machine.dir/test_radio_state_machine.cpp.o
+[ 68%] Building CXX object CMakeFiles/test_rf_diagnostics.dir/test_rf_diagnostics.cpp.o
+[ 68%] Building CXX object CMakeFiles/test_wifi_manager.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 69%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/diagnostics_service/src/diagnostics_service.cpp.o
+[ 70%] Building CXX object CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 71%] Building CXX object CMakeFiles/test_rx_session_engine.dir/test_rx_session_engine.cpp.o
+[ 71%] Building CXX object CMakeFiles/test_wmbus_tmode_framer.dir/test_wmbus_tmode_framer.cpp.o
+[ 72%] Building CXX object CMakeFiles/test_wmbus_link.dir/test_wmbus_link.cpp.o
+[ 72%] Building CXX object CMakeFiles/test_rf_diagnostics.dir/home/krzycho/Projekty/water-gateway/components/rf_diagnostics/src/rf_diagnostics.cpp.o
+[ 73%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/metrics_service/src/metrics_service.cpp.o
+[ 73%] Building CXX object CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o
+[ 74%] Building CXX object CMakeFiles/test_wifi_manager.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 75%] Building CXX object CMakeFiles/test_wmbus_tmode_framer.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_block_validation.cpp.o
+[ 77%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/health_monitor/src/health_monitor.cpp.o
+[ 77%] Building C object CMakeFiles/test_rf_diagnostics.dir/_deps/cjson_ext-src/cJSON.c.o
+[ 77%] Building CXX object CMakeFiles/test_wmbus_link.dir/home/krzycho/Projekty/water-gateway/components/wmbus_link/src/wmbus_link.cpp.o
+[ 78%] Building CXX object CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_state_machine/src/radio_state_machine.cpp.o
+[ 78%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_publish.cpp.o
+[ 80%] Building CXX object CMakeFiles/test_wmbus_link.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_block_validation.cpp.o
+[ 80%] Linking CXX executable test_rf_diagnostics
+[ 81%] Linking CXX executable test_wifi_manager
+[ 82%] Building CXX object CMakeFiles/test_wmbus_tmode_framer.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp.o
+[ 83%] Linking CXX executable test_radio_state_machine
+[ 84%] Building CXX object CMakeFiles/test_wmbus_link.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp.o
+[ 85%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp.o
+[ 85%] Built target test_ota_manager
+[ 86%] Linking CXX executable test_wmbus_tmode_framer
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp: In member function ‘common::Result<void> mqtt_service::MqttService::connect(const char*, uint16_t, const char*, const char*, const char*, bool)’:
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp:53:88: warning: unused parameter ‘username’ [-Wunused-parameter]
+   53 | common::Result<void> MqttService::connect(const char* host, uint16_t port, const char* username,
+      |                                                                            ~~~~~~~~~~~~^~~~~~~~
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp:54:55: warning: unused parameter ‘password’ [-Wunused-parameter]
+   54 |                                           const char* password, const char* client_id,
+      |                                           ~~~~~~~~~~~~^~~~~~~~
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp:54:77: warning: unused parameter ‘client_id’ [-Wunused-parameter]
+   54 |                                           const char* password, const char* client_id,
+      |                                                                 ~~~~~~~~~~~~^~~~~~~~~
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp: In member function ‘common::Result<void> mqtt_service::MqttService::publish(const char*, const char*, int, bool)’:
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp:137:87: warning: unused parameter ‘qos’ [-Wunused-parameter]
+  137 | common::Result<void> MqttService::publish(const char* topic, const char* payload, int qos,
+      |                                                                                   ~~~~^~~
+/home/krzycho/Projekty/water-gateway/components/mqtt_service/src/mqtt_service.cpp:138:48: warning: unused parameter ‘retain’ [-Wunused-parameter]
+  138 |                                           bool retain) {
+      |                                           ~~~~~^~~~~~
+[ 87%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/wifi_manager/src/wifi_manager.cpp.o
+[ 88%] Linking CXX executable test_wmbus_link
+[ 88%] Built target test_metrics_service
+[ 88%] Built target test_event_bus
+[ 88%] Building CXX object CMakeFiles/test_rx_session_engine.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/packet_length_strategy.cpp.o
+[ 88%] Built target test_security_posture
+[ 89%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_store.cpp.o
+[ 89%] Building CXX object CMakeFiles/test_rx_session_engine.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/rx_session_engine.cpp.o
+[ 90%] Building CXX object CMakeFiles/test_rx_session_engine.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_block_validation.cpp.o
+[ 91%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_validation.cpp.o
+[ 92%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/config_store/src/config_migration.cpp.o
+[ 93%] Building CXX object CMakeFiles/test_rx_session_engine.dir/home/krzycho/Projekty/water-gateway/components/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp.o
+[ 94%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/cc1101_device.cpp.o
+[ 94%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/cc1101_hal.cpp.o
+[ 94%] Built target test_downstream_exact_flow
+[ 95%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/cc1101_irq.cpp.o
+[ 96%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o
+[ 97%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/event_bus/src/event_bus.cpp.o
+[ 97%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/radio_state_machine/src/radio_state_machine.cpp.o
+[ 98%] Building CXX object CMakeFiles/test_diagnostics_service.dir/home/krzycho/Projekty/water-gateway/components/ntp_service/src/ntp_service.cpp.o
+[ 99%] Building C object CMakeFiles/test_diagnostics_service.dir/_deps/cjson_ext-src/cJSON.c.o
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::initialize(radio_cc1101::SpiPins const&, radio_cc1101::SpiBusConfig const&)::{lambda()#1}::operator()() const':
+radio_cc1101.cpp:(.text+0x80): undefined reference to `radio_cc1101::hal::deinitialize_spi_device(void*&, int)'
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::initialize(radio_cc1101::SpiPins const&, radio_cc1101::SpiBusConfig const&)':
+radio_cc1101.cpp:(.text+0x101): undefined reference to `radio_cc1101::hal::initialize_spi_device(void*&, radio_cc1101::SpiPins const&, radio_cc1101::SpiBusConfig const&)'
+/usr/bin/ld.bfd: radio_cc1101.cpp:(.text+0x138): undefined reference to `radio_cc1101::irq::configure_gdo_inputs(radio_cc1101::SpiPins const&)'
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::enable_gdo_interrupts(void*, void*)':
+radio_cc1101.cpp:(.text+0x44c): undefined reference to `radio_cc1101::irq::enable_gdo_interrupts(radio_cc1101::SpiPins const&, radio_cc1101::GdoIrqTracker&, void*)'
+/usr/bin/ld.bfd: CMakeFiles/test_radio_state_machine.dir/home/krzycho/Projekty/water-gateway/components/radio_cc1101/src/radio_cc1101.cpp.o: in function `radio_cc1101::RadioCc1101::disable_gdo_interrupts()':
+radio_cc1101.cpp:(.text+0x497): undefined reference to `radio_cc1101::irq::disable_gdo_interrupts(radio_cc1101::SpiPins const&)'
+[100%] Linking CXX executable test_diagnostics_service
+collect2: error: ld returned 1 exit status
+gmake[2]: *** [CMakeFiles/test_radio_state_machine.dir/build.make:149: test_radio_state_machine] Błąd 1
+gmake[1]: *** [CMakeFiles/Makefile2:796: CMakeFiles/test_radio_state_machine.dir/all] Błąd 2
+gmake[1]: *** Oczekiwanie na niezakończone zadania....
+[100%] Built target test_rf_diagnostics
+[100%] Built target test_wifi_manager
+[100%] Built target test_wmbus_tmode_framer
+[100%] Built target test_wmbus_link
+[100%] Built target test_diagnostics_service
+[100%] Linking CXX executable test_rx_session_engine
+[100%] Built target test_rx_session_engine
+gmake: *** [Makefile:101: all] Błąd 2
+BUILD_EXIT=2

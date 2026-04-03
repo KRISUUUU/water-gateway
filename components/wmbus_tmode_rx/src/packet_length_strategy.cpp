@@ -43,7 +43,13 @@ PacketLengthTransitionDecision evaluate_packet_length_transition(
 
 uint16_t exact_read_window_bytes(const CandidateProgress& progress, uint16_t fifo_bytes_available) {
     if (!progress.l_field_known || progress.exact_encoded_bytes_required == 0U) {
-        return fifo_bytes_available;
+        constexpr uint16_t kBytesNeededForLField = 2U;
+        if (progress.encoded_bytes_seen >= kBytesNeededForLField) {
+            return 0U;
+        }
+        const uint16_t remaining_for_l_field =
+            static_cast<uint16_t>(kBytesNeededForLField - progress.encoded_bytes_seen);
+        return std::min<uint16_t>(fifo_bytes_available, remaining_for_l_field);
     }
     if (progress.encoded_bytes_seen >= progress.exact_encoded_bytes_required) {
         return 0U;

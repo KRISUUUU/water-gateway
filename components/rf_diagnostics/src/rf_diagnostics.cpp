@@ -204,6 +204,10 @@ std::string RfDiagnosticsService::reject_reason_to_string(RejectReason reason) {
         return "transitional_adapter_rejected";
     case RejectReason::SessionAborted:
         return "session_aborted";
+    case RejectReason::FrameTooShort:
+        return "frame_too_short";
+    case RejectReason::IdentityUnavailable:
+        return "identity_unavailable";
     case RejectReason::Unknown:
         return "unknown";
     }

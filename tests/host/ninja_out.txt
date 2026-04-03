@@ -1,0 +1,38 @@
+Checking "python3" ...
+Python 3.14.3
+"python3" has been detected
+Activating ESP-IDF 5.5
+Setting IDF_PATH to '/home/krzycho/.espressif/v5.5.4/esp-idf'.
+* Checking python version ... 3.14.3
+* Checking python dependencies ... OK
+* Deactivating the current ESP-IDF environment (if any) ... OK
+* Establishing a new ESP-IDF environment ... OK
+* Identifying shell ... bash
+* Detecting outdated tools in system ... Found tools that are not used by active ESP-IDF version.
+For removing old versions of esp-clang, cmake, riscv32-esp-elf, xtensa-esp-elf, esp-clang-libs, python, components use command 'python /home/krzycho/.espressif/v5.5.4/esp-idf/tools/idf_tools.py uninstall'
+To free up even more space, remove installation packages of those tools.
+Use option python /home/krzycho/.espressif/v5.5.4/esp-idf/tools/idf_tools.py uninstall --remove-archives.
+* Shell completion ... Autocompletion code generated
+
+Done! You can now compile ESP-IDF projects.
+Go to the project directory and run:
+
+  idf.py build
+ninja: Entering directory `build'
+[1/8] Performing build step for 'bootloader'
+[1/1] cd /home/krzycho/Projekty/water-gateway/build/bootloader/esp-idf/esptool_py && /home/krzycho/.espressif/python_env/idf5.5_py3.14_env/bin/python /home/krzycho/.espressif/v5.5.4/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x1000 /home/krzycho/Projekty/water-gateway/build/bootloader/bootloader.bin
+Bootloader binary size 0x5e40 bytes. 0x11c0 bytes (16%) free.
+[2/8] No install step for 'bootloader'
+[3/8] Completed 'bootloader'
+[4/8] cd /home/krzycho/Projekty/water-gateway/build && /home/krzycho/.espressif/python_env/idf5.5_py3.14_env/bin/python /home/krzycho/.espressif/v5.5.4/esp-idf/components/spiffs/spiffsgen.py 0xe0000 /home/krzycho/Projekty/water-gateway/web /home/krzycho/Projekty/water-gateway/build/storage.bin --page-size=256 --obj-name-len=32 --meta-len=4 --use-magic --use-magic-len
+[5/8] Generating esp-idf/esp_system/ld/sections.ld
+[6/8] Linking CXX executable water_gateway.elf
+[7/8] Generating binary image from built executable
+esptool.py v4.12.dev1
+Creating esp32 image...
+Merged 2 ELF sections
+Successfully created esp32 image.
+Generated /home/krzycho/Projekty/water-gateway/build/water_gateway.bin
+[8/8] cd /home/krzycho/Projekty/water-gateway/build/esp-idf/esptool_py && /home/krzycho/.espressif/python_env/idf5.5_py3.14_env/bin/python /home/krzycho/.espressif/v5.5.4/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/krzycho/Projekty/water-gateway/build/partition_table/partition-table.bin /home/krzycho/Projekty/water-gateway/build/water_gateway.bin
+water_gateway.bin binary size 0x157900 bytes. Smallest app partition is 0x180000 bytes. 0x28700 bytes (11%) free.
+NINJA_EXIT=0

@@ -1,0 +1,98 @@
+Test project /home/krzycho/Projekty/water-gateway/tests/host/build
+      Start  1: test_config_validation
+ 1/24 Test  #1: test_config_validation ...........   Passed    0.00 sec
+      Start  2: test_config_migration
+ 2/24 Test  #2: test_config_migration ............   Passed    0.00 sec
+      Start  3: test_config_store_status
+ 3/24 Test  #3: test_config_store_status .........   Passed    0.01 sec
+      Start  4: test_dedup
+ 4/24 Test  #4: test_dedup .......................   Passed    0.00 sec
+      Start  5: test_mqtt_payloads
+ 5/24 Test  #5: test_mqtt_payloads ...............   Passed    0.01 sec
+      Start  6: test_auth_helpers
+ 6/24 Test  #6: test_auth_helpers ................   Passed    0.02 sec
+      Start  7: test_auth_pbkdf2
+ 7/24 Test  #7: test_auth_pbkdf2 .................   Passed    0.02 sec
+      Start  8: test_auth_login_policy
+ 8/24 Test  #8: test_auth_login_policy ...........   Passed    0.03 sec
+      Start  9: test_auth_rate_limit
+ 9/24 Test  #9: test_auth_rate_limit .............   Passed    0.06 sec
+      Start 10: test_health_logic
+10/24 Test #10: test_health_logic ................   Passed    0.00 sec
+      Start 11: test_radio_cc1101
+11/24 Test #11: test_radio_cc1101 ................Subprocess aborted***Exception:   0.11 sec
+test_radio_cc1101: /home/krzycho/Projekty/water-gateway/tests/host/test_radio_cc1101.cpp:87: void test_owner_only_rx_helpers_require_claim_and_return_status(): Assertion `status.is_ok()' failed.
+
+      Start 12: test_meter_registry
+12/24 Test #12: test_meter_registry ..............   Passed    0.02 sec
+      Start 13: test_downstream_exact_flow
+13/24 Test #13: test_downstream_exact_flow .......   Passed    0.00 sec
+      Start 14: test_ota_manager
+14/24 Test #14: test_ota_manager .................   Passed    0.00 sec
+      Start 15: test_event_bus
+15/24 Test #15: test_event_bus ...................   Passed    0.00 sec
+      Start 16: test_metrics_service
+16/24 Test #16: test_metrics_service .............   Passed    0.00 sec
+      Start 17: test_wifi_manager
+17/24 Test #17: test_wifi_manager ................   Passed    0.00 sec
+      Start 18: test_security_posture
+18/24 Test #18: test_security_posture ............   Passed    0.00 sec
+      Start 19: test_diagnostics_service
+19/24 Test #19: test_diagnostics_service .........   Passed    0.01 sec
+      Start 20: test_rf_diagnostics
+20/24 Test #20: test_rf_diagnostics ..............   Passed    0.00 sec
+      Start 21: test_radio_state_machine
+Could not find executable /home/krzycho/Projekty/water-gateway/tests/host/build/test_radio_state_machine
+Looked in the following places:
+/home/krzycho/Projekty/water-gateway/tests/host/build/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Release/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Release/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Debug/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Debug/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/MinSizeRel/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/MinSizeRel/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/RelWithDebInfo/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/RelWithDebInfo/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Deployment/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Deployment/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Development/test_radio_state_machine
+/home/krzycho/Projekty/water-gateway/tests/host/build/Development/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Release/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Release/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Debug/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Debug/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/MinSizeRel/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/MinSizeRel/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/RelWithDebInfo/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/RelWithDebInfo/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Deployment/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Deployment/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Development/test_radio_state_machine
+home/krzycho/Projekty/water-gateway/tests/host/build/Development/test_radio_state_machine
+Unable to find executable: /home/krzycho/Projekty/water-gateway/tests/host/build/test_radio_state_machine
+21/24 Test #21: test_radio_state_machine .........***Not Run   0.00 sec
+      Start 22: test_wmbus_tmode_framer
+22/24 Test #22: test_wmbus_tmode_framer ..........   Passed    0.00 sec
+      Start 23: test_rx_session_engine
+23/24 Test #23: test_rx_session_engine ...........Subprocess aborted***Exception:   0.11 sec
+test_rx_session_engine: /home/krzycho/Projekty/water-gateway/tests/host/test_rx_session_engine.cpp:247: void {anonymous}::test_overflow_requests_recovery(): Assertion `result.value().state == SessionStepState::RecoveryRequested' failed.
+
+      Start 24: test_wmbus_link
+24/24 Test #24: test_wmbus_link ..................Subprocess aborted***Exception:   0.10 sec
+test_wmbus_link: /home/krzycho/Projekty/water-gateway/tests/host/test_wmbus_link.cpp:68: wmbus_link::EncodedRxFrame {anonymous}::exact_frame_from_encoded(const std::vector<unsigned char>&, int64_t, uint32_t): Assertion `result.has_complete_frame' failed.
+
+
+83% tests passed, 4 tests failed out of 24
+
+Total Test time (real) =   0.55 sec
+
+The following tests FAILED:
+	 11 - test_radio_cc1101 (Subprocess aborted)
+	 21 - test_radio_state_machine (Not Run)
+	 23 - test_rx_session_engine (Subprocess aborted)
+	 24 - test_wmbus_link (Subprocess aborted)
+Errors while running CTest
+8

@@ -47,17 +47,22 @@ static void test_owner_event_mapping_and_merge() {
     tracker.record_isr_edge(GdoPin::Gdo2);
 
     const auto irq_events = make_owner_events_from_irq(tracker.take_and_clear());
-    assert(!irq_events.has(RadioOwnerEvent::PollTick));
+    assert(!irq_events.has(RadioOwnerEvent::SessionWatchdogTick));
+    assert(!irq_events.has(RadioOwnerEvent::FallbackPoll));
     assert(irq_events.has(RadioOwnerEvent::Gdo0Edge));
     assert(irq_events.has(RadioOwnerEvent::Gdo2Edge));
     assert(irq_events.irq_snapshot.gdo0_edges == 1);
     assert(irq_events.irq_snapshot.gdo2_edges == 1);
 
-    const auto merged = merge_owner_events(make_poll_tick_event(), irq_events);
-    assert(merged.has(RadioOwnerEvent::PollTick));
+    const auto merged = merge_owner_events(make_session_watchdog_tick_event(), irq_events);
+    assert(merged.has(RadioOwnerEvent::SessionWatchdogTick));
     assert(merged.has(RadioOwnerEvent::Gdo0Edge));
     assert(merged.has(RadioOwnerEvent::Gdo2Edge));
-    assert(merged.should_attempt_rx_work());
+    assert(merged.should_attempt_rx_work(true));
+    assert(irq_events.should_attempt_rx_work(false));
+    assert(!make_session_watchdog_tick_event().should_attempt_rx_work(false));
+    assert(make_session_watchdog_tick_event().should_attempt_rx_work(true));
+    assert(make_fallback_poll_event().should_attempt_rx_work(false));
     printf("  PASS: owner event mapping and merge\n");
 }
 
@@ -81,7 +86,10 @@ static void test_owner_claim_state_is_singular() {
 static void test_owner_only_rx_helpers_require_claim_and_return_status() {
     auto& radio = RadioCc1101::instance();
     void* owner = reinterpret_cast<void*>(0xCAFE);
+    const SpiPins pins{23, 19, 18, 5, -1, -1};
 
+    const auto init = radio.initialize(pins);
+    assert(init.is_ok() || init.error() == common::ErrorCode::AlreadyInitialized);
     assert(radio.claim_owner(owner).is_ok());
     const auto status = radio.owner_read_rx_status(owner);
     assert(status.is_ok());

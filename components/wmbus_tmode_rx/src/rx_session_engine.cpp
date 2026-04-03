@@ -93,8 +93,11 @@ RxSessionEngine::process(SessionRadio& radio, const radio_cc1101::RadioOwnerEven
 common::Result<SessionStepResult>
 RxSessionEngine::process_impl(SessionRadio& radio, const radio_cc1101::RadioOwnerEventSet& events,
                               uint32_t now_ms) {
-    if (!events.should_attempt_rx_work() && !session_active_) {
-        return common::Result<SessionStepResult>::ok(make_idle_result());
+    if (!events.should_attempt_rx_work(session_active_)) {
+        return common::Result<SessionStepResult>::ok(session_active_
+                                                         ? make_progress_result(
+                                                               SessionStepState::SessionInProgress)
+                                                         : make_idle_result());
     }
 
     auto status_result = radio.read_status();
@@ -199,16 +202,18 @@ RxSessionEngine::process_impl(SessionRadio& radio, const radio_cc1101::RadioOwne
                 }
                 auto result =
                     make_complete_frame_result(last_feed_result_, quality_result.value(), now_ms);
+                // Success path: restore infinite packet mode if we switched to fixed-length
+                // tail mode during this session. No full abort/restart is needed because:
+                //   1. MCSM1=0x3F keeps the CC1101 in RX after packet completion
+                //   2. The FIFO has been fully consumed by the exact-frame capture
+                //   3. The radio is already listening for the next sync word
+                // A SIDLE/SFRX/SRX cycle would create dead time and risk losing
+                // back-to-back telegrams from different meters.
                 if (packet_mode_ == HybridPacketMode::FixedLengthTail) {
                     auto restore_result = radio.restore_infinite_packet_mode();
                     if (restore_result.is_error()) {
                         result.radio_error = restore_result.error();
                     }
-                }
-                
-                auto restart = radio.abort_and_restart_rx();
-                if (restart.is_error() && result.radio_error == common::ErrorCode::OK) {
-                    result.radio_error = restart.error();
                 }
 
                 clear_session();
