@@ -8,17 +8,19 @@
 #include "health_monitor/health_monitor.hpp"
 #include "meter_registry/meter_registry.hpp"
 #include "metrics_service/metrics_service.hpp"
-#include "mqtt_service/mqtt_payloads.hpp"
+#include "mqtt_service/mqtt_publish.hpp"
 #include "mqtt_service/mqtt_service.hpp"
-#include "mqtt_service/mqtt_topics.hpp"
 #include "ntp_service/ntp_service.hpp"
 #include "ota_manager/ota_manager.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
+#include "radio_cc1101/cc1101_owner_events.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
+#include "rf_diagnostics/rf_diagnostics.hpp"
 #include "telegram_router/telegram_router.hpp"
 #include "watchdog_service/watchdog_service.hpp"
 #include "wifi_manager/wifi_manager.hpp"
-#include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
+#include "wmbus_link/wmbus_link.hpp"
+#include "wmbus_tmode_rx/rx_session_engine.hpp"
 
 #include "esp_log.h"
 #include "esp_system.h"
@@ -46,10 +48,6 @@ static constexpr uint32_t kFrameQueueDepth = 16;
 static constexpr uint32_t kMqttOutboxDepth = 32;
 static constexpr uint32_t kCriticalTaskStallMs = 5000;
 static constexpr uint32_t kRadioPollDelayMs = 2;
-static constexpr size_t kMqttOutboxTopicCapacity = 128;
-static constexpr size_t kMqttOutboxPayloadCapacity = 896;
-static constexpr size_t kCompactRawPrefixBytes = 8;
-
 static std::atomic<uint32_t> frame_queue_max_depth{0};
 static std::atomic<uint32_t> frame_enqueue_success{0};
 static std::atomic<uint32_t> frame_enqueue_drop{0};
@@ -86,13 +84,9 @@ static uint32_t now_ms() {
     return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
-struct MqttOutboxItem {
-    char topic[kMqttOutboxTopicCapacity];
-    char payload[kMqttOutboxPayloadCapacity];
-};
-
 enum class RadioRxWaitSource : uint8_t {
     PollDelay = 0,
+    IrqNotification,
 };
 
 static void update_peak(std::atomic<uint32_t>& peak, uint32_t value) {
@@ -102,12 +96,103 @@ static void update_peak(std::atomic<uint32_t>& peak, uint32_t value) {
     }
 }
 
-static RadioRxWaitSource wait_for_radio_rx_work() {
-    // The RX task is intentionally polling-only today. If future ESP32 + CC1101 validation
-    // justifies a GDO/task-notification wake path, it should attach here while leaving the rest
-    // of the RX loop contract unchanged.
-    vTaskDelay(pdMS_TO_TICKS(kRadioPollDelayMs));
-    return RadioRxWaitSource::PollDelay;
+struct RadioRxWaitResult {
+    RadioRxWaitSource source = RadioRxWaitSource::PollDelay;
+    radio_cc1101::RadioOwnerEventSet events = radio_cc1101::make_poll_tick_event();
+};
+
+class RadioSessionDevice final : public wmbus_tmode_rx::SessionRadio {
+  public:
+    RadioSessionDevice(radio_cc1101::RadioCc1101& radio, void* owner_token)
+        : radio_(radio), owner_token_(owner_token) {}
+
+    common::Result<wmbus_tmode_rx::SessionRadioStatus> read_status() override {
+        auto status_result = radio_.owner_read_rx_status(owner_token_);
+        if (status_result.is_error()) {
+            return common::Result<wmbus_tmode_rx::SessionRadioStatus>::error(
+                status_result.error());
+        }
+        const auto& status = status_result.value();
+        return common::Result<wmbus_tmode_rx::SessionRadioStatus>::ok(
+            {status.fifo_bytes, status.fifo_overflow, status.receiving});
+    }
+
+    common::Result<uint16_t> read_fifo(uint8_t* buffer, uint16_t capacity) override {
+        return radio_.owner_read_fifo_bytes(owner_token_, buffer, capacity);
+    }
+
+    common::Result<wmbus_tmode_rx::SessionSignalQuality> read_signal_quality() override {
+        auto quality_result = radio_.owner_read_signal_quality(owner_token_);
+        if (quality_result.is_error()) {
+            return common::Result<wmbus_tmode_rx::SessionSignalQuality>::error(
+                quality_result.error());
+        }
+        const auto& quality = quality_result.value();
+        return common::Result<wmbus_tmode_rx::SessionSignalQuality>::ok(
+            {quality.rssi_dbm, quality.lqi, quality.crc_ok, quality.radio_crc_available});
+    }
+
+    common::Result<void> switch_to_fixed_length(uint8_t remaining_encoded_bytes) override {
+        return radio_.owner_switch_to_fixed_length_capture(owner_token_, remaining_encoded_bytes);
+    }
+
+    common::Result<void> restore_infinite_packet_mode() override {
+        return radio_.owner_restore_infinite_packet_mode(owner_token_);
+    }
+
+    common::Result<void> abort_and_restart_rx() override {
+        return radio_.owner_abort_and_restart_rx(owner_token_);
+    }
+
+  private:
+    radio_cc1101::RadioCc1101& radio_;
+    void* owner_token_ = nullptr;
+};
+
+static wmbus_link::EncodedRxFrame encode_session_capture(
+    const wmbus_tmode_rx::SessionFrameCapture& capture, int64_t timestamp_ms, uint32_t rx_count) {
+    wmbus_link::EncodedRxFrame frame{};
+    frame.encoded_length = capture.candidate.encoded_length;
+    frame.decoded_length = capture.candidate.decoded_length;
+    frame.exact_encoded_bytes_required = capture.candidate.exact_encoded_bytes_required;
+    frame.l_field = capture.candidate.l_field;
+    frame.orientation = capture.candidate.orientation;
+    frame.first_block_validation = capture.candidate.first_block_validation;
+    std::memcpy(frame.encoded_bytes.data(), capture.candidate.encoded_bytes.data(),
+                capture.candidate.encoded_length);
+    std::memcpy(frame.decoded_bytes.data(), capture.candidate.decoded_bytes.data(),
+                capture.candidate.decoded_length);
+    frame.metadata.rssi_dbm = capture.rssi_dbm;
+    frame.metadata.lqi = capture.lqi;
+    frame.metadata.crc_ok = capture.crc_ok;
+    frame.metadata.radio_crc_available = capture.radio_crc_available;
+    frame.metadata.exact_frame_contract_valid = true;
+    frame.metadata.transitional_raw_adapter_used = false;
+    frame.metadata.timestamp_ms = timestamp_ms;
+    frame.metadata.rx_count = rx_count;
+    frame.metadata.capture_elapsed_ms = capture.capture_elapsed_ms;
+    frame.metadata.captured_frame_length = capture.candidate.encoded_length;
+    frame.metadata.first_data_byte = capture.first_data_byte;
+    frame.metadata.burst_end_reason = 0U;
+    return frame;
+}
+
+static void populate_rf_diagnostic_timestamps(rf_diagnostics::RfDiagnosticRecord& record) {
+    auto& ntp = ntp_service::NtpService::instance();
+    const auto ts = ntp.now_epoch_ms();
+    record.timestamp_epoch_ms = ts > 0 ? ts : 0;
+    record.monotonic_ms = ntp.monotonic_now_ms();
+    record.sequence = rf_diagnostics::RfDiagnosticsService::instance().snapshot().total_inserted + 1U;
+}
+
+static RadioRxWaitResult wait_for_radio_rx_work(radio_cc1101::RadioCc1101& radio) {
+    const uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kRadioPollDelayMs));
+    if (notified == 0U) {
+        return {RadioRxWaitSource::PollDelay, radio_cc1101::make_poll_tick_event()};
+    }
+    auto irq_events = radio.take_owner_events();
+    return {RadioRxWaitSource::IrqNotification,
+            radio_cc1101::merge_owner_events(radio_cc1101::make_poll_tick_event(), irq_events)};
 }
 
 static void sample_queue_levels() {
@@ -179,6 +264,12 @@ static void sample_task_stack_watermarks() {
 }
 
 static void cleanup_runtime_resources() {
+    auto& radio = radio_cc1101::RadioCc1101::instance();
+    if (radio_task_handle) {
+        radio.release_owner(radio_task_handle);
+    } else {
+        radio.disable_gdo_interrupts();
+    }
     if (health_task_handle) {
         vTaskDelete(health_task_handle);
         health_task_handle = nullptr;
@@ -205,36 +296,14 @@ static void cleanup_runtime_resources() {
     }
 }
 
-static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
+static bool enqueue_mqtt(const mqtt_service::MqttPublishCommand& command) {
     auto& mqtt = mqtt_service::MqttService::instance();
-    if (esp_get_free_heap_size() < 6144U) {
-        ESP_LOGW(TAG, "enqueue_mqtt: heap too low (%lu), dropping",
-                 static_cast<unsigned long>(esp_get_free_heap_size()));
-        mqtt.report_outbox_enqueue_failure(false);
-        return false;
-    }
-    if (topic.size() >= kMqttOutboxTopicCapacity || payload.size() >= kMqttOutboxPayloadCapacity) {
-        mqtt.report_outbox_enqueue_failure(true);
-        const uint32_t dropped = mqtt_outbox_enqueue_drop.fetch_add(1, std::memory_order_relaxed) + 1;
-        mqtt_outbox_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
-        if ((dropped % 32U) == 1U) {
-            ESP_LOGW(TAG,
-                     "MQTT outbox oversize reject (drops=%lu topic_len=%lu payload_len=%lu)",
-                     static_cast<unsigned long>(dropped), static_cast<unsigned long>(topic.size()),
-                     static_cast<unsigned long>(payload.size()));
-        }
-        sample_queue_levels();
-        return false;
-    }
     if (!mqtt_outbox) {
         mqtt.report_outbox_enqueue_failure(false);
         mqtt_outbox_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
-    MqttOutboxItem item{};
-    std::strncpy(item.topic, topic.c_str(), sizeof(item.topic) - 1);
-    std::strncpy(item.payload, payload.c_str(), sizeof(item.payload) - 1);
-    if (xQueueSend(mqtt_outbox, &item, pdMS_TO_TICKS(10)) == pdTRUE) {
+    if (xQueueSend(mqtt_outbox, &command, pdMS_TO_TICKS(10)) == pdTRUE) {
         mqtt_outbox_enqueue_success.fetch_add(1, std::memory_order_relaxed);
         sample_queue_levels();
         return true;
@@ -244,30 +313,57 @@ static bool enqueue_mqtt(const std::string& topic, const std::string& payload) {
     mqtt_outbox_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
     mqtt.report_outbox_enqueue_failure(false);
     if ((dropped % 32U) == 1U) {
-        ESP_LOGW(TAG,
-                 "MQTT outbox enqueue failed (drops=%lu depth=%lu/%lu topic=%s)",
+        ESP_LOGW(TAG, "MQTT command enqueue failed (drops=%lu depth=%lu/%lu type=%d)",
                  static_cast<unsigned long>(dropped),
                  static_cast<unsigned long>(uxQueueMessagesWaiting(mqtt_outbox)),
-                 static_cast<unsigned long>(kMqttOutboxDepth), item.topic);
+                 static_cast<unsigned long>(kMqttOutboxDepth), static_cast<int>(command.type));
     }
     sample_queue_levels();
     return false;
 }
 
-static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame) {
-    return frame.identity_key();
+static std::string derive_meter_key(const wmbus_link::ValidatedTelegram& telegram) {
+    return telegram.identity_key();
 }
 
-static std::string raw_prefix_hex(const uint8_t* data, uint16_t length) {
-    const size_t prefix_len =
-        std::min(static_cast<size_t>(length), static_cast<size_t>(kCompactRawPrefixBytes));
-    return wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(data, prefix_len);
+static void format_timestamp(int64_t ts, bool ntp_synced,
+                             char (&out)[mqtt_service::kPublishTimestampCapacity]) {
+    std::strncpy(out, "timestamp_unavailable", sizeof(out) - 1U);
+    out[sizeof(out) - 1U] = '\0';
+    if (ntp_synced && ts > 0) {
+        const time_t sec = static_cast<time_t>(ts / 1000);
+        struct tm t;
+        gmtime_r(&sec, &t);
+        strftime(out, sizeof(out), "%Y-%m-%dT%H:%M:%SZ", &t);
+    } else if (ts > 0) {
+        std::snprintf(out, sizeof(out), "monotonic_ms:%lld", static_cast<long long>(ts));
+    }
 }
 
 static void radio_rx_task(void* /*param*/) {
     auto& radio = radio_cc1101::RadioCc1101::instance();
     auto& rsm = radio_state_machine::RadioStateMachine::instance();
     auto& wd = watchdog_service::WatchdogService::instance();
+    TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+    RadioSessionDevice session_device(radio, current_task);
+    wmbus_tmode_rx::RxSessionEngine session_engine;
+    uint32_t rx_count = 0;
+
+    auto owner_claim = radio.claim_owner(current_task);
+    if (owner_claim.is_error()) {
+        ESP_LOGE(TAG, "radio_rx failed to claim sole radio ownership");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    auto irq_enable = radio.enable_gdo_interrupts(current_task, current_task);
+    if (irq_enable.is_error()) {
+        // The current active RX path remains polling-based. If IRQ wake plumbing cannot be
+        // enabled on a board build, we continue with polling-only behavior rather than
+        // activating a second RX implementation.
+        ESP_LOGW(TAG, "radio_rx IRQ wake plumbing unavailable, continuing polling-only (%d)",
+                 static_cast<int>(irq_enable.error()));
+    }
 
     if (wd.register_task().is_error()) {
         watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
@@ -275,68 +371,69 @@ static void radio_rx_task(void* /*param*/) {
     }
 
     while (true) {
-        // RX contract for the default polling path:
-        // - Success: read_frame() returns a complete frame and we enqueue it for the pipeline.
-        // - Expected idle poll: NotFound means no complete frame was ready this iteration.
-        // - Quality drop: RadioQualityDrop means RX stayed alive but the captured burst could not
-        //   be delimited into a usable frame; it is not treated like a recovery-worthy fault.
-        // - Soft failure: Timeout / RadioSpiError keep the task alive but are reported to the
-        //   state machine so repeated occurrences can escalate.
-        // - Recovery/escalation: FIFO overflow and repeated soft failures transition the radio
-        //   state machine into recovery; recovery thresholds are still hardware-validated only.
-        //
-        // Real ESP32 + CC1101 testing is still required for sustained RF load, burst traffic,
-        // FIFO edge cases, timeout behavior, and any future poll-vs-interrupt trade-off.
         radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         radio_poll_iterations.fetch_add(1, std::memory_order_relaxed);
         rsm.tick();
+        const auto wait_result = wait_for_radio_rx_work(radio);
+        const auto& owner_events = wait_result.events;
 
-        auto result = radio.read_frame();
-        if (result.is_ok() && frame_queue) {
-            rsm.on_read_success();
-            radio_read_success_count.fetch_add(1, std::memory_order_relaxed);
-            radio_not_found_streak.store(0, std::memory_order_relaxed);
-            radio_timeout_streak.store(0, std::memory_order_relaxed);
-            auto frame = result.value();
-            if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
-                frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
-                sample_queue_levels();
-            } else {
-                const uint32_t dropped =
-                    frame_enqueue_drop.fetch_add(1, std::memory_order_relaxed) + 1;
-                frame_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
-                frame_queue_send_failures.fetch_add(1, std::memory_order_relaxed);
-                if ((dropped % 32U) == 1U) {
-                    ESP_LOGW(TAG, "Frame queue full/drop (drops=%lu depth=%lu/%lu)",
-                             static_cast<unsigned long>(dropped),
-                             static_cast<unsigned long>(uxQueueMessagesWaiting(frame_queue)),
-                             static_cast<unsigned long>(kFrameQueueDepth));
+        auto step_result = session_engine.process(session_device, owner_events, now_ms());
+        if (step_result.is_ok()) {
+            const auto& step = step_result.value();
+            if (step.has_frame && frame_queue) {
+                rsm.on_read_success();
+                radio_read_success_count.fetch_add(1, std::memory_order_relaxed);
+                radio_not_found_streak.store(0, std::memory_order_relaxed);
+                radio_timeout_streak.store(0, std::memory_order_relaxed);
+                rx_count++;
+                auto frame = encode_session_capture(step.frame,
+                                                    ntp_service::NtpService::instance().now_epoch_ms(),
+                                                    rx_count);
+                if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
+                    frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
+                    sample_queue_levels();
+                } else {
+                    const uint32_t dropped =
+                        frame_enqueue_drop.fetch_add(1, std::memory_order_relaxed) + 1U;
+                    frame_enqueue_errors.fetch_add(1, std::memory_order_relaxed);
+                    frame_queue_send_failures.fetch_add(1, std::memory_order_relaxed);
+                    if ((dropped % 32U) == 1U) {
+                        ESP_LOGW(TAG, "Frame queue full/drop (drops=%lu depth=%lu/%lu)",
+                                 static_cast<unsigned long>(dropped),
+                                 static_cast<unsigned long>(uxQueueMessagesWaiting(frame_queue)),
+                                 static_cast<unsigned long>(kFrameQueueDepth));
+                    }
+                    sample_queue_levels();
                 }
-                sample_queue_levels();
-            }
-        } else if (result.is_error()) {
-            const auto err = result.error();
-            if (err == common::ErrorCode::NotFound) {
+            } else if (step.has_diagnostic) {
+                auto record = step.diagnostic;
+                populate_rf_diagnostic_timestamps(record);
+                rf_diagnostics::RfDiagnosticsService::instance().insert(record);
+            } else {
                 radio_read_not_found_count.fetch_add(1, std::memory_order_relaxed);
                 const uint32_t streak =
                     radio_not_found_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
                 update_peak(radio_not_found_streak_peak, streak);
-                radio_timeout_streak.store(0, std::memory_order_relaxed);
-            } else {
+            }
+
+            if (step.radio_error != common::ErrorCode::OK) {
                 radio_not_found_streak.store(0, std::memory_order_relaxed);
-                if (err == common::ErrorCode::Timeout) {
-                    radio_read_timeout_count.fetch_add(1, std::memory_order_relaxed);
-                    const uint32_t timeout_streak =
-                        radio_timeout_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
-                    update_peak(radio_timeout_streak_peak, timeout_streak);
-                } else if (err == common::ErrorCode::RadioQualityDrop) {
+                if (step.radio_error == common::ErrorCode::RadioQualityDrop) {
                     radio_timeout_streak.store(0, std::memory_order_relaxed);
+                } else if (step.radio_error == common::ErrorCode::RadioFifoOverflow) {
+                    radio_timeout_streak.store(0, std::memory_order_relaxed);
+                    radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
                 } else {
                     radio_timeout_streak.store(0, std::memory_order_relaxed);
                     radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
                 }
+                rsm.on_read_failure(step.radio_error);
             }
-            rsm.on_read_failure(result.error());
+        } else {
+            radio_not_found_streak.store(0, std::memory_order_relaxed);
+            radio_timeout_streak.store(0, std::memory_order_relaxed);
+            radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
+            rsm.on_read_failure(step_result.error());
         }
 
         if (wd.feed().is_error()) {
@@ -347,16 +444,12 @@ static void radio_rx_task(void* /*param*/) {
                          static_cast<unsigned long>(errors));
             }
         }
-
-        const auto wait_source = wait_for_radio_rx_work();
-        (void)wait_source;
     }
 }
 
 static void pipeline_task(void* /*param*/) {
     auto& router = telegram_router::TelegramRouter::instance();
     auto& wd = watchdog_service::WatchdogService::instance();
-    uint32_t rx_count = 0;
     config_store::AppConfig cached_cfg = config_store::ConfigStore::instance().config();
     auto cfg_sub = event_bus::EventBus::instance().subscribe(
         event_bus::EventType::ConfigChanged,
@@ -370,15 +463,14 @@ static void pipeline_task(void* /*param*/) {
         ESP_LOGW(TAG, "watchdog register failed for pipeline");
     }
 
-    radio_cc1101::RawRadioFrame raw{};
+    wmbus_link::EncodedRxFrame exact_frame{};
     while (true) {
         pipeline_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         if (pipeline_config_dirty.exchange(false, std::memory_order_relaxed)) {
             cached_cfg = config_store::ConfigStore::instance().config();
         }
-        if (frame_queue && xQueueReceive(frame_queue, &raw, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (frame_queue && xQueueReceive(frame_queue, &exact_frame, pdMS_TO_TICKS(100)) == pdTRUE) {
             sample_queue_levels();
-            rx_count++;
             pipeline_frames_processed.fetch_add(1, std::memory_order_relaxed);
 
             auto& ntp = ntp_service::NtpService::instance();
@@ -388,106 +480,84 @@ static void pipeline_task(void* /*param*/) {
                 ts = ntp.monotonic_now_ms();
             }
 
-            auto frame_result =
-                wmbus_minimal_pipeline::WmbusPipeline::from_radio_frame(raw, ts, rx_count);
-            if (frame_result.is_error()) {
-                char ts_str[40] = "timestamp_unavailable";
-                if (ntp_synced && ts > 0) {
-                    const time_t sec = static_cast<time_t>(ts / 1000);
-                    struct tm t;
-                    gmtime_r(&sec, &t);
-                    strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
-                } else if (ts > 0) {
-                    std::snprintf(ts_str, sizeof(ts_str), "monotonic_ms:%lld",
-                                  static_cast<long long>(ts));
+            if (exact_frame.metadata.timestamp_ms == 0) {
+                exact_frame.metadata.timestamp_ms = ts;
+            }
+            const auto link_result = wmbus_link::WmbusLink::validate_and_build(exact_frame);
+            if (!link_result.accepted) {
+                rf_diagnostics::RfDiagnosticRecord record{};
+                populate_rf_diagnostic_timestamps(record);
+                record.timestamp_epoch_ms = ntp_synced ? ts : 0;
+                record.reject_reason =
+                    link_result.reject_reason == wmbus_link::LinkRejectReason::BlockValidationFailed
+                        ? rf_diagnostics::RejectReason::BlockValidationFailed
+                        : rf_diagnostics::RejectReason::FirstBlockValidationFailed;
+                record.orientation =
+                    exact_frame.orientation == wmbus_tmode_rx::FrameOrientation::BitReversed
+                        ? rf_diagnostics::Orientation::BitReversed
+                        : (exact_frame.orientation == wmbus_tmode_rx::FrameOrientation::Normal
+                               ? rf_diagnostics::Orientation::Normal
+                               : rf_diagnostics::Orientation::Unknown);
+                record.expected_encoded_length = exact_frame.exact_encoded_bytes_required;
+                record.actual_encoded_length = exact_frame.encoded_length;
+                record.expected_decoded_length = exact_frame.decoded_length;
+                record.actual_decoded_length = exact_frame.decoded_length;
+                record.capture_elapsed_ms = exact_frame.metadata.capture_elapsed_ms;
+                record.first_data_byte = exact_frame.metadata.first_data_byte;
+                record.signal_quality_valid = true;
+                record.rssi_dbm = exact_frame.metadata.rssi_dbm;
+                record.lqi = exact_frame.metadata.lqi;
+                record.radio_crc_available = exact_frame.metadata.radio_crc_available;
+                record.radio_crc_ok = exact_frame.metadata.crc_ok;
+                record.captured_prefix_length =
+                    std::min<size_t>(exact_frame.encoded_length, record.captured_prefix.size());
+                for (size_t i = 0; i < record.captured_prefix_length; ++i) {
+                    record.captured_prefix[i] = exact_frame.encoded_bytes[i];
                 }
-
-                if (esp_get_free_heap_size() >= 8192U) {
-                    std::string payload;
-                    if (raw.length >= radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
-                        const std::string prefix_hex = raw_prefix_hex(raw.data, raw.length);
-                        payload = mqtt_service::payload_raw_frame_compact(
-                            "invalid_raw_oversize", raw.length,
-                            static_cast<uint8_t>(raw.burst_end_reason), raw.first_data_byte,
-                            prefix_hex.c_str(), raw.capture_elapsed_ms, raw.rssi_dbm, raw.lqi,
-                            "sig:INVALID_RAW", ts_str, rx_count);
-                    } else {
-                        const std::string captured_hex =
-                            wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
-                        const std::string canonical_hex =
-                            wmbus_minimal_pipeline::WmbusPipeline::bytes_to_hex(raw.data, raw.length);
-                        payload = mqtt_service::payload_raw_frame(
-                            captured_hex.c_str(), raw.length, canonical_hex.c_str(),
-                            raw.payload_length, false, false,
-                            static_cast<uint8_t>(raw.burst_end_reason),
-                            raw.first_data_byte, raw.payload_offset, raw.payload_length,
-                            raw.rssi_dbm, raw.lqi, raw.crc_ok, raw.radio_crc_available, 0, 0,
-                            "sig:INVALID_RAW", ts_str, rx_count);
-                    }
-                    enqueue_mqtt(mqtt_service::topic_raw_frame(cached_cfg.mqtt.prefix,
-                                                               cached_cfg.device.hostname),
-                                 payload);
+                record.decoded_prefix_length =
+                    std::min<size_t>(exact_frame.decoded_length, record.decoded_prefix.size());
+                for (size_t i = 0; i < record.decoded_prefix_length; ++i) {
+                    record.decoded_prefix[i] = exact_frame.decoded_bytes[i];
                 }
+                rf_diagnostics::RfDiagnosticsService::instance().insert(record);
                 continue;
             }
 
-            const auto& frame = frame_result.value();
-            const auto route = router.route(frame);
+            const auto& telegram = link_result.telegram;
+            const auto route = router.route(telegram);
             const bool duplicate =
                 route.decision == telegram_router::RouteDecision::SuppressDuplicate;
-            meter_registry::MeterRegistry::instance().observe_frame(frame, duplicate);
+            meter_registry::MeterRegistry::instance().observe_telegram(telegram, duplicate);
 
             if (route.publish_raw) {
                 const auto& cfg = cached_cfg;
-                char ts_str[40] = "timestamp_unavailable";
-                if (ntp_synced && ts > 0) {
-                    const time_t sec = static_cast<time_t>(ts / 1000);
-                    struct tm t;
-                    gmtime_r(&sec, &t);
-                    strftime(ts_str, sizeof(ts_str), "%Y-%m-%dT%H:%M:%SZ", &t);
-                } else if (ts > 0) {
-                    std::snprintf(ts_str, sizeof(ts_str), "monotonic_ms:%lld",
-                                  static_cast<long long>(ts));
-                }
-
-                if (esp_get_free_heap_size() < 8192U) {
-                    ESP_LOGW(TAG, "Low heap (%lu bytes), skipping MQTT enqueue",
-                             static_cast<unsigned long>(esp_get_free_heap_size()));
+                char ts_str[mqtt_service::kPublishTimestampCapacity]{};
+                format_timestamp(ts, ntp_synced, ts_str);
+                auto command_result = mqtt_service::make_raw_frame_command(
+                    cfg.mqtt.prefix, cfg.device.hostname, telegram.link.canonical_bytes.data(),
+                    telegram.link.metadata.canonical_length, telegram.link.metadata.rssi_dbm,
+                    telegram.link.metadata.lqi, telegram.link.metadata.crc_ok,
+                    telegram.link.metadata.radio_crc_available, telegram.manufacturer_id(),
+                    telegram.device_id(), derive_meter_key(telegram).c_str(), ts_str,
+                    telegram.link.metadata.rx_count, true,
+                    telegram.exact_frame.metadata.exact_frame_contract_valid);
+                if (command_result.is_ok()) {
+                    enqueue_mqtt(command_result.value());
                 } else {
-                    std::string payload;
-                    if (frame.metadata.captured_frame_length >=
-                        radio_cc1101::RawRadioFrame::MAX_DATA_SIZE) {
-                        const std::string prefix_hex =
-                            raw_prefix_hex(frame.original_raw_bytes.data(),
-                                           frame.metadata.captured_frame_length);
-                        payload = mqtt_service::payload_raw_frame_compact(
-                            "oversized_capture_compact", frame.metadata.captured_frame_length,
-                            static_cast<uint8_t>(frame.metadata.burst_end_reason),
-                            frame.metadata.first_data_byte, prefix_hex.c_str(),
-                            frame.metadata.capture_elapsed_ms, frame.metadata.rssi_dbm,
-                            frame.metadata.lqi, derive_meter_key(frame).c_str(), ts_str, rx_count);
-                    } else {
-                        payload = mqtt_service::payload_raw_frame(
-                            frame.captured_hex().c_str(), frame.metadata.captured_frame_length,
-                            frame.canonical_hex().c_str(), frame.metadata.canonical_frame_length,
-                            frame.decoded_ok, frame.metadata.raw_frame_contract_valid,
-                            static_cast<uint8_t>(frame.metadata.burst_end_reason),
-                            frame.metadata.first_data_byte, frame.metadata.payload_offset,
-                            frame.metadata.payload_length, frame.metadata.rssi_dbm,
-                            frame.metadata.lqi, frame.metadata.crc_ok,
-                            frame.metadata.radio_crc_available, frame.manufacturer_id(),
-                            frame.device_id(), derive_meter_key(frame).c_str(), ts_str, rx_count);
-                    }
-                    enqueue_mqtt(mqtt_service::topic_raw_frame(cfg.mqtt.prefix, cfg.device.hostname),
-                                 payload);
+                    mqtt_service::MqttService::instance().report_outbox_enqueue_failure(true);
                 }
             }
 
             if (route.publish_event && route.event_message) {
                 const auto& cfg = cached_cfg;
-                enqueue_mqtt(
-                    mqtt_service::topic_events(cfg.mqtt.prefix, cfg.device.hostname),
-                    mqtt_service::payload_event("radio_event", "warning", route.event_message, ""));
+                auto command_result = mqtt_service::make_event_command(
+                    cfg.mqtt.prefix, cfg.device.hostname, "radio_event", "warning",
+                    route.event_message, "");
+                if (command_result.is_ok()) {
+                    enqueue_mqtt(command_result.value());
+                } else {
+                    mqtt_service::MqttService::instance().report_outbox_enqueue_failure(true);
+                }
             }
         }
         if (wd.feed().is_error()) {
@@ -504,8 +574,8 @@ static void pipeline_task(void* /*param*/) {
 static void mqtt_task(void* /*param*/) {
     auto& mqtt = mqtt_service::MqttService::instance();
     auto& wd = watchdog_service::WatchdogService::instance();
-    MqttOutboxItem item{};
-    MqttOutboxItem carry{};
+    mqtt_service::MqttPublishCommand item{};
+    mqtt_service::MqttPublishCommand carry{};
     bool carry_pending = false;
     uint32_t publish_retry_failures = 0;
 
@@ -518,7 +588,7 @@ static void mqtt_task(void* /*param*/) {
         mqtt_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         if (carry_pending) {
             if (mqtt.is_connected()) {
-                auto publish_result = mqtt.publish(carry.topic, carry.payload, 0, false);
+                auto publish_result = mqtt.publish(carry, 0, false);
                 if (publish_result.is_ok()) {
                     carry_pending = false;
                     publish_retry_failures = 0;
@@ -527,9 +597,9 @@ static void mqtt_task(void* /*param*/) {
                     publish_retry_failures++;
                     mqtt.report_outbox_carry_retry_attempt();
                     if ((publish_retry_failures % 32U) == 1U) {
-                        ESP_LOGW(TAG, "MQTT publish retry failed (failures=%lu topic=%s err=%d)",
-                                 static_cast<unsigned long>(publish_retry_failures), carry.topic,
-                                 static_cast<int>(publish_result.error()));
+                        ESP_LOGW(TAG, "MQTT publish retry failed (failures=%lu type=%d err=%d)",
+                                 static_cast<unsigned long>(publish_retry_failures),
+                                 static_cast<int>(carry.type), static_cast<int>(publish_result.error()));
                     }
                 }
             } else {
@@ -538,15 +608,15 @@ static void mqtt_task(void* /*param*/) {
         } else if (mqtt_outbox && xQueueReceive(mqtt_outbox, &item, pdMS_TO_TICKS(500)) == pdTRUE) {
             sample_queue_levels();
             if (mqtt.is_connected()) {
-                auto publish_result = mqtt.publish(item.topic, item.payload, 0, false);
+                auto publish_result = mqtt.publish(item, 0, false);
                 if (publish_result.is_error()) {
                     std::memcpy(&carry, &item, sizeof(carry));
                     carry_pending = true;
                     publish_retry_failures = 1;
                     mqtt.report_outbox_carry_pending(true);
                     mqtt.report_outbox_carry_retry_attempt();
-                    ESP_LOGW(TAG, "MQTT publish failed, staging carry topic=%s err=%d", item.topic,
-                             static_cast<int>(publish_result.error()));
+                    ESP_LOGW(TAG, "MQTT publish failed, staging carry type=%d err=%d",
+                             static_cast<int>(item.type), static_cast<int>(publish_result.error()));
                 }
             } else {
                 std::memcpy(&carry, &item, sizeof(carry));
@@ -651,14 +721,18 @@ static void health_task(void* /*param*/) {
                 const bool rx_active = radio_state_machine::RadioStateMachine::instance().state() ==
                                        radio_state_machine::RsmState::Receiving;
 
-                enqueue_mqtt(mqtt_service::topic_telemetry(cfg.mqtt.prefix, cfg.device.hostname),
-                             mqtt_service::payload_telemetry(
-                                 static_cast<uint32_t>(m.uptime_s), m.free_heap_bytes,
-                                 m.min_free_heap_bytes, wifi.status().rssi_dbm,
-                                 mqtt.is_connected() ? "connected" : "disconnected",
-                                 rx_active ? "rx_active" : "idle", rc.frames_received,
-                                 tc.frames_published, tc.frames_duplicate, rc.frames_crc_fail,
-                                 ms.publish_count, ms.publish_failures, ""));
+                auto command_result = mqtt_service::make_telemetry_command(
+                    cfg.mqtt.prefix, cfg.device.hostname, static_cast<uint32_t>(m.uptime_s),
+                    m.free_heap_bytes, m.min_free_heap_bytes, wifi.status().rssi_dbm,
+                    mqtt.is_connected() ? "connected" : "disconnected",
+                    rx_active ? "rx_active" : "idle", rc.frames_received, tc.frames_published,
+                    tc.frames_duplicate, rc.frames_crc_fail, ms.publish_count,
+                    ms.publish_failures, "");
+                if (command_result.is_ok()) {
+                    enqueue_mqtt(command_result.value());
+                } else {
+                    mqtt.report_outbox_enqueue_failure(true);
+                }
             }
         }
         ESP_LOGI(TAG, "Heap: free=%lu min=%lu",
@@ -716,8 +790,8 @@ common::Result<void> AppCore::create_runtime_tasks() {
     metrics_service::MetricsService::reset_queue_metrics();
     metrics_service::MetricsService::reset_task_metrics();
 
-    frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(radio_cc1101::RawRadioFrame));
-    mqtt_outbox = xQueueCreate(kMqttOutboxDepth, sizeof(MqttOutboxItem));
+    frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(wmbus_link::EncodedRxFrame));
+    mqtt_outbox = xQueueCreate(kMqttOutboxDepth, sizeof(mqtt_service::MqttPublishCommand));
     if (!frame_queue || !mqtt_outbox) {
         ESP_LOGE(TAG, "Runtime queue allocation failed (frame_queue=%p mqtt_outbox=%p)",
                  frame_queue, mqtt_outbox);

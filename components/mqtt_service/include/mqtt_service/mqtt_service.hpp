@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/error.hpp"
+#include "mqtt_service/mqtt_publish.hpp"
 #include "common/result.hpp"
 #include <cstdint>
 
@@ -50,6 +51,8 @@ class MqttService {
     // Publish a message. Returns error if not connected.
     // QoS is applied from the service-level config.
     common::Result<void> publish(const char* topic, const char* payload, int qos = 0,
+                                 bool retain = false);
+    common::Result<void> publish(const MqttPublishCommand& command, int qos = 0,
                                  bool retain = false);
 
     MqttStatus status() const;

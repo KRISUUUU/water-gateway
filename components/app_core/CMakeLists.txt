@@ -15,7 +15,8 @@ idf_component_register(
         provisioning_manager
         radio_cc1101
         radio_state_machine
-        wmbus_minimal_pipeline
+        wmbus_tmode_rx
+        wmbus_link
         dedup_service
         telegram_router
         meter_registry

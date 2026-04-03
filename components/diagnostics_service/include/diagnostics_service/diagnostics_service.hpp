@@ -6,7 +6,9 @@
 #include "mqtt_service/mqtt_service.hpp"
 #include "ntp_service/ntp_service.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
+#include "rf_diagnostics/rf_diagnostics.hpp"
 #include "wifi_manager/wifi_manager.hpp"
+#include <mutex>
 #include <string>
 
 namespace diagnostics_service {
@@ -29,6 +31,7 @@ struct DiagnosticsSnapshot {
     int64_t now_epoch_ms{0};
     int64_t monotonic_ms{0};
     bool timestamp_uses_monotonic_fallback{false};
+    rf_diagnostics::RfDiagnosticsSnapshot rf_diagnostics{};
     metrics_service::RuntimeMetrics metrics{};
     health_monitor::HealthSnapshot health{};
 };
@@ -43,6 +46,12 @@ class DiagnosticsService {
 
   private:
     DiagnosticsService() = default;
+
+    void ingest_radio_drop_if_new(const DiagnosticsSnapshot& snap) const;
+
+    mutable std::mutex rf_ingest_mutex_{};
+    mutable radio_cc1101::RadioDropInfo last_ingested_radio_drop_{};
+    mutable bool last_ingested_radio_drop_valid_{false};
 };
 
 } // namespace diagnostics_service

@@ -9,14 +9,14 @@ TelegramRouter& TelegramRouter::instance() {
     return router;
 }
 
-RouteResult TelegramRouter::route(const wmbus_minimal_pipeline::WmbusFrame& frame) {
+RouteResult TelegramRouter::route(const wmbus_link::ValidatedTelegram& telegram) {
 
     counters_.frames_routed++;
 
     auto& dedup = dedup_service::DedupService::instance();
-    int64_t now = frame.metadata.timestamp_ms;
+    int64_t now = telegram.link.metadata.timestamp_ms;
 
-    const std::string dedup_key = frame.dedup_key();
+    const std::string dedup_key = telegram.dedup_key();
 
     // Dedup check based on canonical raw bytes.
     if (dedup.seen_recently(dedup_key, now)) {
@@ -28,7 +28,7 @@ RouteResult TelegramRouter::route(const wmbus_minimal_pipeline::WmbusFrame& fram
 
     // CRC-failed frames are still published (external decoder may handle them)
     // but we also publish an event for diagnostics
-    if (!frame.metadata.crc_ok) {
+    if (!telegram.link.metadata.crc_ok) {
         counters_.frames_crc_fail_published++;
         counters_.frames_published++;
         return RouteResult::event("Received frame with CRC failure");

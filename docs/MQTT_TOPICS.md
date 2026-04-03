@@ -118,6 +118,9 @@ for external decoders (wmbusmeters, Home Assistant, custom consumers).
 - **QoS:** 0
 - **Retain:** false
 - **Publish frequency:** On each unique (non-duplicate) frame reception
+- **Bounded hot-path contract:** The runtime now enqueues a bounded publish command and serializes
+  the compact payload in `mqtt_service`. Malformed or anomalous sessions are not published here;
+  they are retained in RF diagnostics and exposed via HTTP/API instead.
 
 #### Payload
 
@@ -150,6 +153,11 @@ for external decoders (wmbusmeters, Home Assistant, custom consumers).
 | `meter_key` | string | Stable gateway identity key (`mfg:....-id:....` or `sig:...`) |
 | `timestamp` | string | ISO 8601 UTC timestamp of reception |
 | `rx_count` | integer | Monotonic frame reception counter (useful for detecting gaps) |
+
+Compatibility note:
+- The normal runtime path no longer publishes large forensic fields such as duplicated raw/canonical
+  hex dumps for malformed sessions. Consumers should rely on `raw_hex` plus the compact metadata
+  above, and use the RF diagnostics API for malformed-session investigation.
 
 ## Contract Stability
 

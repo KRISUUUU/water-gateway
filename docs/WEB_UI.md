@@ -122,7 +122,7 @@ Main sections:
 | GET | `/api/watchlist` | Yes | Watchlist entries |
 | POST | `/api/watchlist` | Yes | Upsert watchlist entry (`key`, `alias`, `note`, `enabled`) |
 | POST | `/api/watchlist/delete` | Yes | Remove watchlist entry (`key`) |
-| GET | `/api/diagnostics/radio` | Yes | RSM + detailed diagnostics snapshot |
+| GET | `/api/diagnostics/radio` | Yes | RSM + detailed diagnostics snapshot, including bounded `diagnostics.rf_diagnostics.recent_sessions` records for recent malformed/anomalous RF sessions |
 | GET | `/api/diagnostics/mqtt` | Yes | MQTT diagnostics |
 | GET | `/api/config` | Yes | Redacted config; secrets represented as `***` |
 | POST | `/api/config` | Yes | Save config; response includes `reboot_required` |

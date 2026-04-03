@@ -1,7 +1,8 @@
 #include "host_test_stubs.hpp"
-#include "radio_cc1101/radio_cc1101.hpp"
+#include "mqtt_service/mqtt_publish.hpp"
 #include "mqtt_service/mqtt_topics.hpp"
 #include "mqtt_service/mqtt_payloads.hpp"
+#include <array>
 #include <cassert>
 #include <cstdio>
 #include <string>
@@ -54,78 +55,87 @@ static void test_payload_status_offline() {
     printf("  PASS: payload_status_offline\n");
 }
 
-static void test_payload_raw_frame() {
-    auto p = payload_raw_frame("0F6356", 3, "2C4493", 3, true, true,
-                               static_cast<uint8_t>(radio_cc1101::RadioBurstEndReason::EmptyPolls),
-                               0x0F, 0, 3,
-                               -65, 45, false, false, 0x1593, 0x12345678,
-                               "mfg:1593-id:12345678", "2025-01-15T12:00:00Z", 42);
-    assert(p.find("\"radio_hex\":\"0F6356\"") != std::string::npos);
-    assert(p.find("\"radio_frame_length\":3") != std::string::npos);
-    assert(p.find("\"captured_hex\":\"0F6356\"") != std::string::npos);
-    assert(p.find("\"captured_frame_length\":3") != std::string::npos);
-    assert(p.find("\"canonical_hex\":\"2C4493\"") != std::string::npos);
-    assert(p.find("\"canonical_frame_length\":3") != std::string::npos);
-    assert(p.find("\"decoded\":true") != std::string::npos);
-    assert(p.find("\"decoded_ok\":true") != std::string::npos);
-    assert(p.find("\"raw_frame_contract_valid\":true") != std::string::npos);
-    assert(p.find("\"burst_end_reason\":\"empty_polls\"") != std::string::npos);
-    assert(p.find("\"first_data_byte\":15") != std::string::npos);
-    assert(p.find("\"payload_offset\":0") != std::string::npos);
-    assert(p.find("\"payload_length\":3") != std::string::npos);
-    assert(p.find("\"rssi_dbm\":-65") != std::string::npos);
-    assert(p.find("\"lqi\":45") != std::string::npos);
-    assert(p.find("\"crc_ok\":false") != std::string::npos);
-    assert(p.find("\"radio_crc_available\":false") != std::string::npos);
-    assert(p.find("\"manufacturer_id\":5523") != std::string::npos);
-    assert(p.find("\"device_id\":305419896") != std::string::npos);
-    assert(p.find("\"meter_key\":\"mfg:1593-id:12345678\"") != std::string::npos);
-    assert(p.find("\"rx_count\":42") != std::string::npos);
-    printf("  PASS: payload_raw_frame\n");
+static void test_telemetry_command_mapping() {
+    auto command_res =
+        make_telemetry_command("wmbus-gw", "a1b2c3", 86400, 120000, 95000, -55, "connected",
+                               "rx_active", 4523, 4400, 120, 3, 4420, 2,
+                               "2025-01-15T12:00:00Z");
+    assert(command_res.is_ok());
+    auto serialized = serialize_publish_command(command_res.value());
+    assert(serialized.is_ok());
+    const auto& message = serialized.value();
+    assert(std::string(message.topic) == "wmbus-gw/a1b2c3/telemetry");
+    const std::string payload = message.payload;
+    assert(payload.find("\"uptime_s\":86400") != std::string::npos);
+    assert(payload.find("\"free_heap_bytes\":120000") != std::string::npos);
+    assert(payload.find("\"frames_received\":4523") != std::string::npos);
+    assert(payload.find("\"mqtt_state\":\"connected\"") != std::string::npos);
+    assert(payload.size() < kPublishPayloadCapacity);
+    printf("  PASS: telemetry command mapping\n");
 }
 
-static void test_payload_raw_frame_keeps_distinct_lengths() {
-    auto p = payload_raw_frame("11223344", 4, "0B44840D9048460601070000", 12, true, true,
-                               static_cast<uint8_t>(radio_cc1101::RadioBurstEndReason::MaxDuration),
-                               0x11, 0,
-                               4, -70, 33, false, false,
-                               0x0D84, 0x06464890, "mfg:0D84-id:06464890", "ts", 7);
-    assert(p.find("\"radio_frame_length\":4") != std::string::npos);
-    assert(p.find("\"canonical_frame_length\":12") != std::string::npos);
-    printf("  PASS: payload_raw_frame distinct lengths\n");
+static void test_event_command_mapping() {
+    auto command_res = make_event_command("wmbus-gw", "a1b2c3", "radio_error", "warning",
+                                          "FIFO overflow", "2025-01-15T12:00:00Z");
+    assert(command_res.is_ok());
+    auto serialized = serialize_publish_command(command_res.value());
+    assert(serialized.is_ok());
+    const auto& message = serialized.value();
+    assert(std::string(message.topic) == "wmbus-gw/a1b2c3/events");
+    const std::string payload = message.payload;
+    assert(payload.find("\"event\":\"radio_error\"") != std::string::npos);
+    assert(payload.find("\"severity\":\"warning\"") != std::string::npos);
+    assert(payload.find("\"message\":\"FIFO overflow\"") != std::string::npos);
+    assert(payload.size() < kPublishPayloadCapacity);
+    printf("  PASS: event command mapping\n");
 }
 
-static void test_payload_event() {
-    auto p = payload_event("radio_error", "warning", "FIFO overflow", "2025-01-15T12:00:00Z");
-    assert(p.find("\"event\":\"radio_error\"") != std::string::npos);
-    assert(p.find("\"severity\":\"warning\"") != std::string::npos);
-    assert(p.find("\"message\":\"FIFO overflow\"") != std::string::npos);
-    printf("  PASS: payload_event\n");
+static void test_raw_frame_command_mapping() {
+    const uint8_t raw_bytes[] = {0x2C, 0x44, 0x93, 0x15};
+    auto command_res = make_raw_frame_command("wmbus-gw", "a1b2c3", raw_bytes, 4, -65, 45, true,
+                                              true, 0x1593, 0x12345678,
+                                              "mfg:1593-id:12345678",
+                                              "2025-01-15T12:00:00Z", 42, true, true);
+    assert(command_res.is_ok());
+    auto serialized = serialize_publish_command(command_res.value());
+    assert(serialized.is_ok());
+    const auto& message = serialized.value();
+    assert(std::string(message.topic) == "wmbus-gw/a1b2c3/rf/raw");
+    const std::string payload = message.payload;
+    assert(payload.find("\"raw_hex\":\"2C449315\"") != std::string::npos);
+    assert(payload.find("\"frame_length\":4") != std::string::npos);
+    assert(payload.find("\"rssi_dbm\":-65") != std::string::npos);
+    assert(payload.find("\"lqi\":45") != std::string::npos);
+    assert(payload.find("\"crc_ok\":true") != std::string::npos);
+    assert(payload.find("\"decoded_ok\":true") != std::string::npos);
+    assert(payload.find("\"raw_frame_contract_valid\":true") != std::string::npos);
+    assert(payload.find("\"meter_key\":\"mfg:1593-id:12345678\"") != std::string::npos);
+    assert(payload.find("\"rx_count\":42") != std::string::npos);
+    assert(payload.find("\"captured_hex\"") == std::string::npos);
+    assert(payload.find("\"canonical_hex\"") == std::string::npos);
+    assert(payload.size() < kPublishPayloadCapacity);
+    printf("  PASS: raw frame command mapping\n");
 }
 
-static void test_payload_raw_frame_compact() {
-    auto p = payload_raw_frame_compact("oversized_capture_compact", 290,
-                                       static_cast<uint8_t>(radio_cc1101::RadioBurstEndReason::MaxDuration),
-                                       0x54, "A1B2C3D4", 20, -71, 12,
-                                       "sig:ABC", "2026-04-02T12:00:00Z", 99);
-    assert(p.find("\"compact\":true") != std::string::npos);
-    assert(p.find("\"reason\":\"oversized_capture_compact\"") != std::string::npos);
-    assert(p.find("\"captured_frame_length\":290") != std::string::npos);
-    assert(p.find("\"prefix_hex\":\"A1B2C3D4\"") != std::string::npos);
-    assert(p.find("\"elapsed_ms\":20") != std::string::npos);
-    assert(p.find("\"radio_hex\"") == std::string::npos);
-    assert(p.find("\"canonical_hex\"") == std::string::npos);
-    printf("  PASS: payload_raw_frame_compact\n");
+static void test_raw_frame_command_rejects_oversize() {
+    std::array<uint8_t, kPublishMaxRawBytes + 1U> raw_bytes{};
+    auto command_res =
+        make_raw_frame_command("wmbus-gw", "a1b2c3", raw_bytes.data(),
+                               static_cast<uint16_t>(raw_bytes.size()), -70, 12, false, false, 0,
+                               0, "sig:INVALID", "2026-04-02T12:00:00Z", 99, false, false);
+    assert(command_res.is_error());
+    printf("  PASS: raw frame oversize rejected\n");
 }
 
-static void test_payload_telemetry() {
-    auto p = payload_telemetry(86400, 120000, 95000, -55, "connected", "rx_active",
-                                4523, 4400, 120, 3, 4420, 2, "2025-01-15T12:00:00Z");
-    assert(p.find("\"uptime_s\":86400") != std::string::npos);
-    assert(p.find("\"free_heap_bytes\":120000") != std::string::npos);
-    assert(p.find("\"frames_received\":4523") != std::string::npos);
-    assert(p.find("\"mqtt_state\":\"connected\"") != std::string::npos);
-    printf("  PASS: payload_telemetry\n");
+static void test_serializer_escapes_event_message() {
+    auto command_res = make_event_command("wmbus-gw", "a1b2c3", "radio_error", "warning",
+                                          "bad \"quote\"\nline", "");
+    assert(command_res.is_ok());
+    auto serialized = serialize_publish_command(command_res.value());
+    assert(serialized.is_ok());
+    const std::string payload = serialized.value().payload;
+    assert(payload.find("bad \\\"quote\\\"\\nline") != std::string::npos);
+    printf("  PASS: serializer escapes event message\n");
 }
 
 int main() {
@@ -137,11 +147,11 @@ int main() {
     test_custom_prefix();
     test_payload_status_online();
     test_payload_status_offline();
-    test_payload_raw_frame();
-    test_payload_raw_frame_keeps_distinct_lengths();
-    test_payload_event();
-    test_payload_raw_frame_compact();
-    test_payload_telemetry();
+    test_telemetry_command_mapping();
+    test_event_command_mapping();
+    test_raw_frame_command_mapping();
+    test_raw_frame_command_rejects_oversize();
+    test_serializer_escapes_event_message();
     printf("All MQTT payload tests passed.\n");
     return 0;
 }

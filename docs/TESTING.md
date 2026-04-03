@@ -67,8 +67,9 @@ ctest --output-on-failure
 | `test_auth_helpers.cpp` | `auth_service` (static helpers only) | `hash_password` produces correct `salt:hash` format; `verify_password` accepts correct password and rejects wrong password; null/empty input handling |
 | `test_auth_login_policy.cpp` | `auth_service` + `config_store` | Provisioning-mode passwordless bootstrap policy, normal-mode rejection, hash login behavior, and rate-limit handling |
 | `test_health_logic.cpp` | `health_monitor` | State transitions: starting->healthy, healthy->warning, warning->error; counter increments on warnings/errors; recovery back to healthy |
-| `test_wmbus_pipeline.cpp` | `wmbus_minimal_pipeline` | `from_radio_frame` preserves canonical raw bytes; helper accessors (`l_field`, `c_field`, `manufacturer_id`, `device_id`) and identity/signature helpers are correct; hex conversion remains stable for API/export |
-| `test_meter_registry.cpp` | `meter_registry` | Detected meter observation, byte-based identity derivation, watchlist upsert/remove, and telegram filtering (`watched`, `duplicates`, `crc_fail`) |
+| `test_wmbus_link.cpp` | `wmbus_link` | Exact-frame validation, canonical telegram building, identity extraction, captured/canonical contract helpers, and reverse-orientation handling |
+| `test_meter_registry.cpp` | `meter_registry` | Detected meter observation from validated telegrams, watchlist upsert/remove, exact-frame-backed recent telegram storage, and telegram filtering (`watched`, `duplicates`, `crc_fail`) |
+| `test_downstream_exact_flow.cpp` | `wmbus_link` + `telegram_router` + `mqtt_service` | Exact frame -> validated telegram -> route decision -> bounded MQTT publish-command serialization |
 | `test_ota_manager.cpp` | `ota_manager` | Upload lifecycle in host mode (`begin_upload` -> `write_chunk` -> `finalize_upload`) and final OTA state/progress |
 | `test_metrics_service.cpp` | `metrics_service` | Queue/task counters, task stack watermark reporting, and reset behavior of instrumentation snapshots |
 | `test_diagnostics_service.cpp` | `diagnostics_service` | Snapshot/JSON shape checks for time-source fallback and queue/task observability fields |
@@ -77,8 +78,8 @@ ctest --output-on-failure
 ### Fixture Data
 
 The `tests/fixtures/sample_frames.json` file contains captured or synthetic
-WMBus frame data for reference and future fixture-based testing. The current
-`test_wmbus_pipeline.cpp` uses inline byte arrays rather than loading from this file.
+WMBus frame data for reference and future fixture-based testing. Current RF
+host tests primarily use inline exact-frame fixtures.
 
 ### Integration-Like Tests (not yet implemented)
 
@@ -144,7 +145,6 @@ jobs:
 | No multi-device testing | Requires multiple devices | Future: test MQTT topic isolation |
 | No TLS certificate testing | Requires broker setup | Manual test with TLS-enabled broker |
 | No power-loss testing | Requires hardware setup | Future: test NVS integrity after unexpected power loss |
-
 
 
 

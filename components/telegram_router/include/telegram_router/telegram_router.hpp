@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wmbus_minimal_pipeline/wmbus_frame.hpp"
+#include "wmbus_link/wmbus_link.hpp"
 #include <cstdint>
 
 namespace telegram_router {
@@ -42,7 +42,7 @@ class TelegramRouter {
     static TelegramRouter& instance();
 
     // Route a frame: check dedup, check CRC, decide what to do.
-    RouteResult route(const wmbus_minimal_pipeline::WmbusFrame& frame);
+    RouteResult route(const wmbus_link::ValidatedTelegram& telegram);
 
     const RouterCounters& counters() const {
         return counters_;

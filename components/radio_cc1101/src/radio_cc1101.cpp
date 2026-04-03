@@ -1,54 +1,37 @@
 #include "radio_cc1101/radio_cc1101.hpp"
+
+#include "cc1101_device.hpp"
+#include "cc1101_hal.hpp"
+#include "cc1101_irq_hw.hpp"
+#include "radio_cc1101/cc1101_profile_tmode.hpp"
 #include "radio_cc1101/cc1101_registers.hpp"
 
 #ifndef HOST_TEST_BUILD
-#include "driver/gpio.h"
-#include "driver/spi_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <cstring>
 
-static const char* TAG = "radio_cc1101";
+namespace {
+constexpr const char* TAG = "radio_cc1101";
+}
 #endif
 
 namespace radio_cc1101 {
 
 namespace {
+
 #ifdef HOST_TEST_BUILD
-constexpr uint32_t kRawBurstMaxDurationTicks = 20;
-constexpr uint32_t kBurstEndEmptyPolls = 2;
+constexpr uint32_t kRawBurstMaxDurationTicks = 20U;
 #else
 constexpr TickType_t kRawBurstMaxDurationTicks = pdMS_TO_TICKS(20);
-constexpr uint32_t kBurstEndEmptyPolls = 2;
+#endif
+constexpr uint32_t kBurstEndEmptyPolls = 2U;
 
-const char* drop_reason_str(RadioDropReason reason) {
-    switch (reason) {
-    case RadioDropReason::None:
-        return "none";
-    case RadioDropReason::OversizedBurst:
-        return "oversized_burst";
-    case RadioDropReason::BurstTimeout:
-        return "burst_timeout";
-    }
-    return "unknown";
-}
-
-const char* burst_end_reason_str(RadioBurstEndReason reason) {
-    switch (reason) {
-    case RadioBurstEndReason::None:
-        return "none";
-    case RadioBurstEndReason::EmptyPolls:
-        return "empty_polls";
-    case RadioBurstEndReason::MaxDuration:
-        return "max_duration";
-    }
-    return "unknown";
-}
-
+#ifndef HOST_TEST_BUILD
 void prefix_to_hex(const uint8_t* data, uint8_t length, char* out, size_t out_size) {
     static constexpr char kHex[] = "0123456789ABCDEF";
-    if (!out || out_size == 0) {
+    if (!out || out_size == 0U) {
         return;
     }
     size_t pos = 0;
@@ -58,7 +41,42 @@ void prefix_to_hex(const uint8_t* data, uint8_t length, char* out, size_t out_si
     }
     out[pos] = '\0';
 }
+
+bool safe_strobe(void* spi_handle, RadioCounters& counters, uint8_t strobe_addr,
+                 uint8_t* chip_status = nullptr) {
+    if (!hal::spi_strobe(spi_handle, strobe_addr, chip_status)) {
+        counters.spi_errors++;
+        return false;
+    }
+    return true;
+}
+
+bool safe_read_register(void* spi_handle, RadioCounters& counters, uint8_t addr, uint8_t& value) {
+    if (!hal::spi_read_register(spi_handle, addr, value)) {
+        counters.spi_errors++;
+        return false;
+    }
+    return true;
+}
+
+bool safe_write_register(void* spi_handle, RadioCounters& counters, uint8_t addr, uint8_t value) {
+    if (!hal::spi_write_register(spi_handle, addr, value)) {
+        counters.spi_errors++;
+        return false;
+    }
+    return true;
+}
+
+bool safe_read_burst(void* spi_handle, RadioCounters& counters, uint8_t addr, uint8_t* buffer,
+                     size_t length) {
+    if (!hal::spi_read_burst(spi_handle, addr, buffer, length)) {
+        counters.spi_errors++;
+        return false;
+    }
+    return true;
+}
 #endif
+
 } // namespace
 
 RawBurstTimeoutAction raw_burst_timeout_action(uint32_t elapsed_ticks, uint16_t received,
@@ -89,78 +107,50 @@ common::Result<void> RadioCc1101::initialize(const SpiPins& pins, const SpiBusCo
     pins_ = pins;
     bus_config_ = bus_config;
 
-#ifndef HOST_TEST_BUILD
-    // Configure SPI bus
-    spi_bus_config_t bus_cfg{};
-    bus_cfg.mosi_io_num = pins.mosi;
-    bus_cfg.miso_io_num = pins.miso;
-    bus_cfg.sclk_io_num = pins.sck;
-    bus_cfg.quadwp_io_num = -1;
-    bus_cfg.quadhd_io_num = -1;
-    bus_cfg.max_transfer_sz = bus_config.max_transfer_size;
+    auto spi_init = hal::initialize_spi_device(spi_handle_, pins, bus_config);
+    if (spi_init.is_error()) {
+        return spi_init;
+    }
 
-    const spi_host_device_t spi_host = static_cast<spi_host_device_t>(bus_config.host_id);
-    bool spi_bus_initialized = false;
-    bool spi_device_added = false;
     const auto cleanup_spi = [&]() {
-        if (spi_device_added && spi_handle_) {
-            spi_bus_remove_device(static_cast<spi_device_handle_t>(spi_handle_));
-            spi_handle_ = nullptr;
-            spi_device_added = false;
-        }
-        if (spi_bus_initialized) {
-            spi_bus_free(spi_host);
-            spi_bus_initialized = false;
-        }
+        disable_gdo_interrupts();
+        hal::deinitialize_spi_device(spi_handle_, bus_config.host_id);
     };
 
-    esp_err_t err = spi_bus_initialize(spi_host, &bus_cfg, SPI_DMA_CH_AUTO);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SPI bus init failed: %d", err);
-        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
-    }
-    spi_bus_initialized = true;
-
-    spi_device_interface_config_t dev_cfg{};
-    dev_cfg.clock_speed_hz = static_cast<int>(bus_config.clock_hz);
-    dev_cfg.mode = 0;
-    dev_cfg.spics_io_num = pins.cs;
-    dev_cfg.queue_size = 1;
-
-    err = spi_bus_add_device(spi_host, &dev_cfg,
-                             reinterpret_cast<spi_device_handle_t*>(&spi_handle_));
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SPI device add failed: %d", err);
+    auto gdo_inputs = irq::configure_gdo_inputs(pins);
+    if (gdo_inputs.is_error()) {
         cleanup_spi();
-        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
-    }
-    spi_device_added = true;
-
-    // Configure GDO pins as inputs if used
-    if (pins.gdo0 >= 0) {
-        gpio_set_direction(static_cast<gpio_num_t>(pins.gdo0), GPIO_MODE_INPUT);
-    }
-    if (pins.gdo2 >= 0) {
-        gpio_set_direction(static_cast<gpio_num_t>(pins.gdo2), GPIO_MODE_INPUT);
+        return gdo_inputs;
     }
 
-    // Reset and configure
-    auto result = reset();
-    if (result.is_error()) {
+    auto reset_result = reset();
+    if (reset_result.is_error()) {
         cleanup_spi();
-        return result;
+        return reset_result;
     }
 
     if (!verify_chip_id()) {
+#ifndef HOST_TEST_BUILD
         ESP_LOGE(TAG, "CC1101 chip ID verification failed");
+#endif
         cleanup_spi();
         return common::Result<void>::error(common::ErrorCode::RadioInitFailed);
     }
 
-    auto config_result = apply_tmode_config();
-    if (config_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+    auto profile_result =
+        device::apply_register_profile(spi_handle_, counters_, kTmodeConfig, kTmodeConfigSize);
+    if (profile_result.is_error()) {
         cleanup_spi();
-        return config_result;
+        return profile_result;
+    }
+
+    uint8_t sync1 = 0;
+    uint8_t sync0 = 0;
+    if (!safe_read_register(spi_handle_, counters_, registers::SYNC1, sync1) ||
+        !safe_read_register(spi_handle_, counters_, registers::SYNC0, sync0)) {
+        cleanup_spi();
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
 
     ESP_LOGI(TAG,
@@ -168,6 +158,8 @@ common::Result<void> RadioCc1101::initialize(const SpiPins& pins, const SpiBusCo
              static_cast<unsigned long>(kRawBurstMaxDurationTicks),
              static_cast<unsigned long>(pdTICKS_TO_MS(kRawBurstMaxDurationTicks)),
              static_cast<unsigned int>(RawRadioFrame::MAX_DATA_SIZE));
+    ESP_LOGI(TAG, "T-mode register config applied (%zu registers)", kTmodeConfigSize);
+    ESP_LOGI(TAG, "CC1101 sync word: 0x%02X%02X", sync1, sync0);
     ESP_LOGI(TAG, "CC1101 initialized for T-mode 868.95 MHz");
 #endif
 
@@ -176,9 +168,27 @@ common::Result<void> RadioCc1101::initialize(const SpiPins& pins, const SpiBusCo
     return common::Result<void>::ok();
 }
 
+common::Result<void> RadioCc1101::claim_owner(void* owner_token) {
+    if (!owner_claim_.claim(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::AlreadyExists);
+    }
+    return common::Result<void>::ok();
+}
+
+void RadioCc1101::release_owner(void* owner_token) {
+    if (owner_claim_.owned_by(owner_token)) {
+        disable_gdo_interrupts();
+        owner_claim_.release(owner_token);
+    }
+}
+
+bool RadioCc1101::is_owned_by(void* owner_token) const {
+    return owner_claim_.owned_by(owner_token);
+}
+
 common::Result<void> RadioCc1101::reset() {
 #ifndef HOST_TEST_BUILD
-    if (!spi_strobe(registers::SRES)) {
+    if (!safe_strobe(spi_handle_, counters_, registers::SRES)) {
         state_ = RadioState::Error;
         return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
@@ -196,28 +206,26 @@ common::Result<void> RadioCc1101::start_rx() {
     }
 
 #ifndef HOST_TEST_BUILD
-    if (!spi_strobe(registers::SRX)) {
+    if (!safe_strobe(spi_handle_, counters_, registers::SRX)) {
         state_ = RadioState::Error;
         return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
 
-    // Wait for CC1101 to finish calibration and enter RX.
     for (int i = 0; i < 50; ++i) {
         vTaskDelay(pdMS_TO_TICKS(2));
-        auto marc_check = read_marcstate();
+        auto marc_check = device::read_marcstate(spi_handle_, counters_);
         if (marc_check.is_ok() && marc_check.value() == registers::MARCSTATE_RX) {
             break;
         }
     }
 
-    auto marc_result = read_marcstate();
+    auto marc_result = device::read_marcstate(spi_handle_, counters_);
     if (marc_result.is_error()) {
         state_ = RadioState::Error;
         return common::Result<void>::error(marc_result.error());
     }
-    uint8_t marc = marc_result.value();
-    if (marc != registers::MARCSTATE_RX) {
-        ESP_LOGW(TAG, "Expected MARCSTATE_RX, got 0x%02X", marc);
+    if (marc_result.value() != registers::MARCSTATE_RX) {
+        ESP_LOGW(TAG, "Expected MARCSTATE_RX, got 0x%02X", marc_result.value());
     }
 #endif
 
@@ -227,7 +235,7 @@ common::Result<void> RadioCc1101::start_rx() {
 
 common::Result<void> RadioCc1101::go_idle() {
 #ifndef HOST_TEST_BUILD
-    if (!spi_strobe(registers::SIDLE)) {
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
         state_ = RadioState::Error;
         return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
@@ -244,25 +252,19 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     counters_.rx_read_calls++;
 
 #ifndef HOST_TEST_BUILD
-    // This function is called from the polling RX task. NotFound is the steady-state "no complete
-    // frame yet" result, RadioQualityDrop indicates a burst/framing issue, and FIFO overflow /
-    // SPI errors are treated as real radio faults.
-
-    // Check MARCSTATE for FIFO overflow
-    auto marc_result = read_marcstate();
+    auto marc_result = device::read_marcstate(spi_handle_, counters_);
     if (marc_result.is_error()) {
         state_ = RadioState::Error;
         return common::Result<RawRadioFrame>::error(marc_result.error());
     }
-    uint8_t marc = marc_result.value();
-    if (marc == registers::MARCSTATE_RXFIFO_OVERFLOW) {
+    if (marc_result.value() == registers::MARCSTATE_RXFIFO_OVERFLOW) {
         counters_.fifo_overflows++;
         ESP_LOGW(TAG, "RX FIFO overflow detected");
         auto flush_result = flush_rx_fifo();
         if (flush_result.is_error()) {
             return common::Result<RawRadioFrame>::error(flush_result.error());
         }
-        if (!spi_strobe(registers::SRX)) {
+        if (!safe_strobe(spi_handle_, counters_, registers::SRX)) {
             state_ = RadioState::Error;
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
         }
@@ -270,14 +272,14 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
     }
 
-    // Read number of bytes in RX FIFO
     uint8_t rx_bytes = 0;
-    if (!spi_read_register(registers::RXBYTES | registers::READ_BURST, rx_bytes)) {
+    if (!safe_read_register(spi_handle_, counters_, registers::RXBYTES | registers::READ_BURST,
+                            rx_bytes)) {
         state_ = RadioState::Error;
         return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
     }
-    uint8_t num_bytes = rx_bytes & 0x7F; // Mask off overflow bit
-    bool overflow = (rx_bytes & 0x80) != 0;
+    const uint8_t num_bytes = rx_bytes & 0x7FU;
+    const bool overflow = (rx_bytes & 0x80U) != 0U;
 
     if (overflow) {
         counters_.fifo_overflows++;
@@ -285,7 +287,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         if (flush_result.is_error()) {
             return common::Result<RawRadioFrame>::error(flush_result.error());
         }
-        if (!spi_strobe(registers::SRX)) {
+        if (!safe_strobe(spi_handle_, counters_, registers::SRX)) {
             state_ = RadioState::Error;
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
         }
@@ -293,7 +295,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
     }
 
-    if (num_bytes == 0) {
+    if (num_bytes == 0U) {
         counters_.rx_not_found++;
         return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
     }
@@ -302,11 +304,6 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     frame.payload_offset = 0;
     frame.radio_crc_available = false;
 
-    // Infinite-length/raw capture: drain one RX burst after sync. End-of-burst is determined only
-    // by the polling path here: either the FIFO stays empty across a couple of consecutive polls,
-    // or we hit a bounded max capture window and force-close the burst. We do not use GDO2 here,
-    // because the current IOCFG2 setting in kTmodeConfig is configured as a sync indication, not a
-    // validated packet-active/end-of-packet signal for this mode.
     uint16_t received = 0;
     const TickType_t start_tick = xTaskGetTickCount();
     uint32_t consecutive_empty_polls = 0;
@@ -325,40 +322,39 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
             frame.capture_elapsed_ms =
                 static_cast<uint16_t>(elapsed_ms <= 0xFFFFU ? elapsed_ms : 0xFFFFU);
             frame.burst_end_reason = RadioBurstEndReason::MaxDuration;
-#ifndef HOST_TEST_BUILD
             char prefix_hex[17];
             prefix_to_hex(frame.data, static_cast<uint8_t>(received < 8U ? received : 8U),
                           prefix_hex, sizeof(prefix_hex));
             ESP_LOGI(TAG,
                      "RF_HOTFIX_V2 timeout_close len=%u elapsed_ms=%lu first=0x%02X prefix=%s",
-                     static_cast<unsigned int>(received),
-                     static_cast<unsigned long>(elapsed_ms),
-                     static_cast<unsigned int>(received > 0 ? frame.data[0] : 0U), prefix_hex);
-#endif
+                     static_cast<unsigned int>(received), static_cast<unsigned long>(elapsed_ms),
+                     static_cast<unsigned int>(received > 0U ? frame.data[0] : 0U), prefix_hex);
             break;
         }
 
         uint8_t rxb = 0;
-        if (!spi_read_register(registers::RXBYTES | registers::READ_BURST, rxb)) {
+        if (!safe_read_register(spi_handle_, counters_, registers::RXBYTES | registers::READ_BURST,
+                                rxb)) {
             state_ = RadioState::Error;
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
         }
-        uint8_t avail = rxb & 0x7F;
-        if ((rxb & 0x80) != 0) {
+        const uint8_t avail = rxb & 0x7FU;
+        if ((rxb & 0x80U) != 0U) {
             counters_.fifo_overflows++;
             auto flush_result = flush_rx_fifo();
             if (flush_result.is_error()) {
                 return common::Result<RawRadioFrame>::error(flush_result.error());
             }
-            if (!spi_strobe(registers::SRX)) {
+            if (!safe_strobe(spi_handle_, counters_, registers::SRX)) {
                 state_ = RadioState::Error;
                 return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
             }
             state_ = RadioState::Error;
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioFifoOverflow);
         }
-        if (avail == 0) {
-            if (received > 0) {
+
+        if (avail == 0U) {
+            if (received > 0U) {
                 consecutive_empty_polls++;
                 if (consecutive_empty_polls >= kBurstEndEmptyPolls) {
                     frame.burst_end_reason = RadioBurstEndReason::EmptyPolls;
@@ -368,37 +364,37 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;
         }
+
         consecutive_empty_polls = 0;
         uint16_t take = avail;
-        if (take > 64) {
-            take = 64;
+        if (take > registers::FIFO_SIZE) {
+            take = registers::FIFO_SIZE;
         }
         const uint16_t remaining_capacity =
             static_cast<uint16_t>(RawRadioFrame::MAX_DATA_SIZE - received);
-        if (remaining_capacity == 0) {
+        if (remaining_capacity == 0U) {
             counters_.frames_dropped_too_long++;
             const uint16_t elapsed_ms_u16 =
                 static_cast<uint16_t>(elapsed_ms <= 0xFFFFU ? elapsed_ms : 0xFFFFU);
             frame.capture_elapsed_ms = elapsed_ms_u16;
-            record_drop(RadioDropReason::OversizedBurst, frame.data, received, true);
-#ifndef HOST_TEST_BUILD
+            device::record_drop(last_drop_, last_drop_mutex_, RadioDropReason::OversizedBurst,
+                                frame.data, received, true);
             {
                 std::lock_guard<std::mutex> lock(last_drop_mutex_);
                 last_drop_.elapsed_ms = elapsed_ms_u16;
             }
             char prefix_hex[17];
             prefix_to_hex(frame.data, last_drop().prefix_length, prefix_hex, sizeof(prefix_hex));
-            ESP_LOGW(TAG,
-                     "RF_HOTFIX_V2 oversized_drop len=%u elapsed_ms=%lu first=0x%02X prefix=%s classification=quality_issue",
-                     static_cast<unsigned int>(received),
-                     static_cast<unsigned long>(elapsed_ms),
-                     static_cast<unsigned int>(received > 0 ? frame.data[0] : 0U), prefix_hex);
-#endif
+            ESP_LOGW(
+                TAG,
+                "RF_HOTFIX_V2 oversized_drop len=%u elapsed_ms=%lu first=0x%02X prefix=%s classification=quality_issue",
+                static_cast<unsigned int>(received), static_cast<unsigned long>(elapsed_ms),
+                static_cast<unsigned int>(received > 0U ? frame.data[0] : 0U), prefix_hex);
             auto flush_result = flush_rx_fifo();
             if (flush_result.is_error()) {
                 return common::Result<RawRadioFrame>::error(flush_result.error());
             }
-            if (!spi_strobe(registers::SRX)) {
+            if (!safe_strobe(spi_handle_, counters_, registers::SRX)) {
                 state_ = RadioState::Error;
                 return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
             }
@@ -407,8 +403,9 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         if (take > remaining_capacity) {
             take = remaining_capacity;
         }
-        uint8_t chunk[64];
-        if (!spi_read_burst(registers::FIFO_RX | registers::READ_BURST, chunk, take)) {
+        uint8_t chunk[registers::FIFO_SIZE]{};
+        if (!safe_read_burst(spi_handle_, counters_, registers::FIFO_RX | registers::READ_BURST,
+                             chunk, take)) {
             state_ = RadioState::Error;
             return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
         }
@@ -418,7 +415,7 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
         received = static_cast<uint16_t>(received + take);
     }
 
-    if (received == 0) {
+    if (received == 0U) {
         counters_.rx_not_found++;
         return common::Result<RawRadioFrame>::error(common::ErrorCode::NotFound);
     }
@@ -426,8 +423,8 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
     frame.length = received;
     frame.payload_length = received;
     if (frame.capture_elapsed_ms == 0U) {
-        const uint32_t elapsed_ms =
-            static_cast<uint32_t>(pdTICKS_TO_MS(static_cast<TickType_t>(xTaskGetTickCount() - start_tick)));
+        const uint32_t elapsed_ms = static_cast<uint32_t>(
+            pdTICKS_TO_MS(static_cast<TickType_t>(xTaskGetTickCount() - start_tick)));
         frame.capture_elapsed_ms = static_cast<uint16_t>(elapsed_ms <= 0xFFFFU ? elapsed_ms : 0xFFFFU);
     }
     frame.first_data_byte = frame.data[0];
@@ -437,21 +434,21 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
     uint8_t raw_rssi = 0;
     uint8_t raw_lqi = 0;
-    if (!spi_read_register(registers::RSSI_REG | registers::READ_BURST, raw_rssi) ||
-        !spi_read_register(registers::LQI_REG | registers::READ_BURST, raw_lqi)) {
+    if (!safe_read_register(spi_handle_, counters_, registers::RSSI_REG | registers::READ_BURST,
+                            raw_rssi) ||
+        !safe_read_register(spi_handle_, counters_, registers::LQI_REG | registers::READ_BURST,
+                            raw_lqi)) {
         state_ = RadioState::Error;
         return common::Result<RawRadioFrame>::error(common::ErrorCode::RadioSpiError);
     }
 
-    frame.rssi_dbm = convert_rssi(raw_rssi);
-    frame.lqi = raw_lqi & 0x7F;
+    frame.rssi_dbm = device::convert_rssi(raw_rssi);
+    frame.lqi = raw_lqi & 0x7FU;
     frame.crc_ok = false;
 
     counters_.frames_received++;
-
     return common::Result<RawRadioFrame>::ok(frame);
 #else
-    // Host test stub: return a synthetic frame
     RawRadioFrame frame{};
     frame.data[0] = 0x44;
     frame.data[1] = 0x93;
@@ -471,7 +468,8 @@ common::Result<RawRadioFrame> RadioCc1101::read_frame() {
 
 common::Result<void> RadioCc1101::flush_rx_fifo() {
 #ifndef HOST_TEST_BUILD
-    if (!spi_strobe(registers::SIDLE) || !spi_strobe(registers::SFRX)) {
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE) ||
+        !safe_strobe(spi_handle_, counters_, registers::SFRX)) {
         state_ = RadioState::Error;
         return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
@@ -501,10 +499,11 @@ common::Result<void> RadioCc1101::recover() {
     }
 
 #ifndef HOST_TEST_BUILD
-    auto config_result = apply_tmode_config();
-    if (config_result.is_error()) {
+    auto profile_result =
+        device::apply_register_profile(spi_handle_, counters_, kTmodeConfig, kTmodeConfigSize);
+    if (profile_result.is_error()) {
         state_ = RadioState::Error;
-        return config_result;
+        return profile_result;
     }
 #endif
 
@@ -523,148 +522,225 @@ bool RadioCc1101::verify_chip_id() {
 #ifndef HOST_TEST_BUILD
     uint8_t partnum = 0;
     uint8_t version = 0;
-    if (!spi_read_register(registers::PARTNUM | registers::READ_BURST, partnum) ||
-        !spi_read_register(registers::VERSION | registers::READ_BURST, version)) {
+    if (!device::verify_chip_id(spi_handle_, counters_, partnum, version)) {
         return false;
     }
-
     ESP_LOGI(TAG, "CC1101 PARTNUM=0x%02X VERSION=0x%02X", partnum, version);
-
-    return (partnum == registers::CC1101_PARTNUM && version == registers::CC1101_VERSION_EXPECTED);
+    return partnum == registers::CC1101_PARTNUM && version == registers::CC1101_VERSION_EXPECTED;
 #else
     return true;
 #endif
 }
 
+common::Result<void> RadioCc1101::enable_gdo_interrupts(void* owner_token, void* owner_task_handle) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token) || !owner_task_handle) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+    auto result = irq::enable_gdo_interrupts(pins_, irq_tracker_, owner_task_handle);
+    if (result.is_ok()) {
+        irq_plumbing_enabled_ = true;
+    }
+    return result;
+}
+
+void RadioCc1101::disable_gdo_interrupts() {
+    if (!irq_plumbing_enabled_) {
+        return;
+    }
+    irq::disable_gdo_interrupts(pins_);
+    irq_plumbing_enabled_ = false;
+    irq_tracker_.clear();
+}
+
+GdoIrqSnapshot RadioCc1101::take_gdo_irq_snapshot() {
+    return irq_tracker_.take_and_clear();
+}
+
+RadioOwnerEventSet RadioCc1101::take_owner_events() {
+    return make_owner_events_from_irq(take_gdo_irq_snapshot());
+}
+
+common::Result<RxFifoStatus> RadioCc1101::owner_read_rx_status(void* owner_token) {
+    if (!initialized_) {
+        return common::Result<RxFifoStatus>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<RxFifoStatus>::error(common::ErrorCode::InvalidArgument);
+    }
+
 #ifndef HOST_TEST_BUILD
+    auto marc_result = device::read_marcstate(spi_handle_, counters_);
+    if (marc_result.is_error()) {
+        state_ = RadioState::Error;
+        return common::Result<RxFifoStatus>::error(marc_result.error());
+    }
 
-void RadioCc1101::record_drop(RadioDropReason reason, const uint8_t* data, uint16_t length,
-                              bool quality_issue) {
-    std::lock_guard<std::mutex> lock(last_drop_mutex_);
-    last_drop_.reason = reason;
-    last_drop_.captured_length = length;
-    last_drop_.elapsed_ms = 0;
-    last_drop_.first_data_byte = (data && length > 0) ? data[0] : 0U;
-    last_drop_.quality_issue = quality_issue;
-    last_drop_.prefix_length = static_cast<uint8_t>(length < sizeof(last_drop_.prefix)
-                                                        ? length
-                                                        : sizeof(last_drop_.prefix));
-    for (uint8_t i = 0; i < last_drop_.prefix_length; ++i) {
-        last_drop_.prefix[i] = data[i];
+    uint8_t rx_bytes = 0;
+    if (!safe_read_register(spi_handle_, counters_, registers::RXBYTES | registers::READ_BURST,
+                            rx_bytes)) {
+        state_ = RadioState::Error;
+        return common::Result<RxFifoStatus>::error(common::ErrorCode::RadioSpiError);
     }
-    for (uint8_t i = last_drop_.prefix_length; i < sizeof(last_drop_.prefix); ++i) {
-        last_drop_.prefix[i] = 0;
+
+    const bool overflow = (rx_bytes & 0x80U) != 0U ||
+                          marc_result.value() == registers::MARCSTATE_RXFIFO_OVERFLOW;
+    if (overflow) {
+        counters_.fifo_overflows++;
+        state_ = RadioState::Error;
     }
+
+    RxFifoStatus status{};
+    status.fifo_bytes = static_cast<uint8_t>(rx_bytes & 0x7FU);
+    status.fifo_overflow = overflow;
+    status.marcstate = marc_result.value();
+    status.receiving = marc_result.value() == registers::MARCSTATE_RX;
+    return common::Result<RxFifoStatus>::ok(status);
+#else
+    (void)owner_token;
+    return common::Result<RxFifoStatus>::ok(
+        RxFifoStatus{2U, false, registers::MARCSTATE_RX, true});
+#endif
 }
 
-bool RadioCc1101::spi_strobe(uint8_t strobe_addr, uint8_t* chip_status) {
-    spi_transaction_t txn{};
-    txn.length = 8;
-    txn.tx_data[0] = strobe_addr;
-    txn.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+common::Result<uint16_t> RadioCc1101::owner_read_fifo_bytes(void* owner_token, uint8_t* buffer,
+                                                            uint16_t capacity) {
+    if (!initialized_) {
+        return common::Result<uint16_t>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token) || !buffer || capacity == 0U) {
+        return common::Result<uint16_t>::error(common::ErrorCode::InvalidArgument);
+    }
 
-    esp_err_t err = spi_device_transmit(static_cast<spi_device_handle_t>(spi_handle_), &txn);
-    if (err != ESP_OK) {
-        counters_.spi_errors++;
-        return false;
+#ifndef HOST_TEST_BUILD
+    uint16_t take = capacity;
+    if (take > registers::FIFO_SIZE) {
+        take = registers::FIFO_SIZE;
     }
-    if (chip_status) {
-        *chip_status = txn.rx_data[0];
+    if (!safe_read_burst(spi_handle_, counters_, registers::FIFO_RX | registers::READ_BURST,
+                         buffer, take)) {
+        state_ = RadioState::Error;
+        return common::Result<uint16_t>::error(common::ErrorCode::RadioSpiError);
     }
-    return true;
+    return common::Result<uint16_t>::ok(take);
+#else
+    buffer[0] = 0x44;
+    if (capacity >= 2U) {
+        buffer[1] = 0x93;
+        return common::Result<uint16_t>::ok(2U);
+    }
+    return common::Result<uint16_t>::ok(1U);
+#endif
 }
 
-bool RadioCc1101::spi_read_register(uint8_t addr, uint8_t& value) {
-    spi_transaction_t txn{};
-    txn.length = 16;
-    txn.tx_data[0] = addr | registers::READ_SINGLE;
-    txn.tx_data[1] = 0x00;
-    txn.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
-
-    esp_err_t err = spi_device_transmit(static_cast<spi_device_handle_t>(spi_handle_), &txn);
-    if (err != ESP_OK) {
-        counters_.spi_errors++;
-        return false;
+common::Result<RxSignalQuality> RadioCc1101::owner_read_signal_quality(void* owner_token) {
+    if (!initialized_) {
+        return common::Result<RxSignalQuality>::error(common::ErrorCode::NotInitialized);
     }
-    value = txn.rx_data[1];
-    return true;
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<RxSignalQuality>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    uint8_t raw_rssi = 0;
+    uint8_t raw_lqi = 0;
+    if (!safe_read_register(spi_handle_, counters_, registers::RSSI_REG | registers::READ_BURST,
+                            raw_rssi) ||
+        !safe_read_register(spi_handle_, counters_, registers::LQI_REG | registers::READ_BURST,
+                            raw_lqi)) {
+        state_ = RadioState::Error;
+        return common::Result<RxSignalQuality>::error(common::ErrorCode::RadioSpiError);
+    }
+
+    RxSignalQuality quality{};
+    quality.rssi_dbm = device::convert_rssi(raw_rssi);
+    quality.lqi = static_cast<uint8_t>(raw_lqi & 0x7FU);
+    quality.crc_ok = false;
+    quality.radio_crc_available = false;
+    return common::Result<RxSignalQuality>::ok(quality);
+#else
+    (void)owner_token;
+    return common::Result<RxSignalQuality>::ok(RxSignalQuality{-65, 45, false, false});
+#endif
 }
 
-bool RadioCc1101::spi_write_register(uint8_t addr, uint8_t value) {
-    spi_transaction_t txn{};
-    txn.length = 16;
-    txn.tx_data[0] = addr;
-    txn.tx_data[1] = value;
-    txn.flags = SPI_TRANS_USE_TXDATA;
-
-    esp_err_t err = spi_device_transmit(static_cast<spi_device_handle_t>(spi_handle_), &txn);
-    if (err != ESP_OK) {
-        counters_.spi_errors++;
-        return false;
+common::Result<void> RadioCc1101::owner_switch_to_fixed_length_capture(
+    void* owner_token, uint8_t remaining_encoded_bytes) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
-    return true;
-}
-
-bool RadioCc1101::spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length) {
-    if (!buffer || length == 0)
-        return false;
-
-    uint8_t tx_buf[65]{};
-    uint8_t rx_buf[65]{};
-    tx_buf[0] = addr;
-
-    spi_transaction_t txn{};
-    txn.length = (length + 1) * 8;
-    txn.tx_buffer = tx_buf;
-    txn.rx_buffer = rx_buf;
-
-    esp_err_t err = spi_device_transmit(static_cast<spi_device_handle_t>(spi_handle_), &txn);
-    if (err != ESP_OK) {
-        counters_.spi_errors++;
-        return false;
-    }
-    std::memcpy(buffer, &rx_buf[1], length);
-    return true;
-}
-
-common::Result<void> RadioCc1101::apply_tmode_config() {
-    for (size_t i = 0; i < kTmodeConfigSize; ++i) {
-        if (!spi_write_register(kTmodeConfig[i].addr, kTmodeConfig[i].value)) {
-            return common::Result<void>::error(common::ErrorCode::RadioSpiError);
-        }
+    if (!owner_claim_.owned_by(owner_token) || remaining_encoded_bytes == 0U) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
     }
 
-    uint8_t sync1 = 0;
-    uint8_t sync0 = 0;
-    if (!spi_read_register(registers::SYNC1, sync1) || !spi_read_register(registers::SYNC0, sync0)) {
+#ifndef HOST_TEST_BUILD
+    // CC1101-specific assumption: after sync and early framing progress, switching from infinite
+    // packet mode to fixed-length mode with the remaining encoded tail will bound the remainder of
+    // the FIFO capture. Software exact-frame validation remains authoritative, and this behavior
+    // still requires hardware validation on real W-MBus traffic.
+    if (!safe_write_register(spi_handle_, counters_, registers::PKTLEN, remaining_encoded_bytes) ||
+        !safe_write_register(spi_handle_, counters_, registers::PKTCTRL0, 0x00U)) {
+        state_ = RadioState::Error;
         return common::Result<void>::error(common::ErrorCode::RadioSpiError);
     }
-
-    ESP_LOGI(TAG, "T-mode register config applied (%zu registers)", kTmodeConfigSize);
-    ESP_LOGI(TAG, "CC1101 sync word: 0x%02X%02X", sync1, sync0);
+#else
+    (void)owner_token;
+    (void)remaining_encoded_bytes;
+#endif
     return common::Result<void>::ok();
 }
 
-int8_t RadioCc1101::convert_rssi(uint8_t raw_rssi) {
-    // CC1101 RSSI conversion per datasheet
-    int16_t rssi;
-    if (raw_rssi >= 128) {
-        rssi = static_cast<int16_t>(raw_rssi) - 256;
-    } else {
-        rssi = static_cast<int16_t>(raw_rssi);
+common::Result<void> RadioCc1101::owner_restore_infinite_packet_mode(void* owner_token) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
-    rssi = rssi / 2 - 74; // CC1101 offset
-    return static_cast<int8_t>(rssi);
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    const auto* pktlen = find_tmode_register_config(registers::PKTLEN);
+    const auto* pktctrl0 = find_tmode_register_config(registers::PKTCTRL0);
+    if (pktlen == nullptr || pktctrl0 == nullptr ||
+        !safe_write_register(spi_handle_, counters_, pktlen->addr, pktlen->value) ||
+        !safe_write_register(spi_handle_, counters_, pktctrl0->addr, pktctrl0->value)) {
+        state_ = RadioState::Error;
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+#else
+    (void)owner_token;
+#endif
+    return common::Result<void>::ok();
 }
 
-common::Result<uint8_t> RadioCc1101::read_marcstate() {
-    uint8_t marcstate = 0;
-    if (!spi_read_register(registers::MARCSTATE | registers::READ_BURST, marcstate)) {
-        return common::Result<uint8_t>::error(common::ErrorCode::RadioSpiError);
+common::Result<void> RadioCc1101::owner_abort_and_restart_rx(void* owner_token) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
     }
-    return common::Result<uint8_t>::ok(static_cast<uint8_t>(marcstate & 0x1F));
-}
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
 
-#endif // HOST_TEST_BUILD
+    auto restore_result = owner_restore_infinite_packet_mode(owner_token);
+    if (restore_result.is_error()) {
+        state_ = RadioState::Error;
+        return restore_result;
+    }
+
+    auto flush_result = flush_rx_fifo();
+    if (flush_result.is_error()) {
+        state_ = RadioState::Error;
+        return flush_result;
+    }
+    auto rx_result = start_rx();
+    if (rx_result.is_error()) {
+        state_ = RadioState::Error;
+        return rx_result;
+    }
+    state_ = RadioState::Receiving;
+    return common::Result<void>::ok();
+}
 
 } // namespace radio_cc1101

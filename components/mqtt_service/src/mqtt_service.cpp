@@ -166,6 +166,16 @@ common::Result<void> MqttService::publish(const char* topic, const char* payload
     return common::Result<void>::ok();
 }
 
+common::Result<void> MqttService::publish(const MqttPublishCommand& command, int qos, bool retain) {
+    auto serialized = serialize_publish_command(command);
+    if (serialized.is_error()) {
+        publish_failures_++;
+        return common::Result<void>::error(serialized.error());
+    }
+    const auto& message = serialized.value();
+    return publish(message.topic, message.payload, qos, retain);
+}
+
 MqttStatus MqttService::status() const {
     MqttStatus s{};
     s.state = state_;

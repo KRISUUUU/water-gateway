@@ -7,6 +7,8 @@
 
 namespace wmbus_minimal_pipeline {
 
+// Legacy presentation model retained only for compile-time compatibility with
+// code that has not yet been switched to wmbus_link::ValidatedTelegram.
 struct WmbusFrameMetadata {
     int8_t rssi_dbm = 0;
     uint8_t lqi = 0;

@@ -1,7 +1,8 @@
 #pragma once
 
 #include "common/result.hpp"
-#include "wmbus_minimal_pipeline/wmbus_frame.hpp"
+#include "radio_cc1101/radio_cc1101.hpp"
+#include "wmbus_link/wmbus_link.hpp"
 
 #include <cstdint>
 #include <string>
@@ -76,7 +77,7 @@ class MeterRegistry {
     // Observes one processed frame and updates:
     // - detected meters model
     // - recent telegram list
-    void observe_frame(const wmbus_minimal_pipeline::WmbusFrame& frame, bool duplicate);
+    void observe_telegram(const wmbus_link::ValidatedTelegram& telegram, bool duplicate);
 
     std::vector<DetectedMeter> detected_meters() const;
     std::vector<WatchlistEntry> watchlist() const;
@@ -88,7 +89,7 @@ class MeterRegistry {
   private:
     MeterRegistry() = default;
 
-    static std::string derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame);
+    static std::string derive_meter_key(const wmbus_link::ValidatedTelegram& telegram);
     static bool parse_watchlist_line(const std::string& line, WatchlistEntry& out);
     static std::string serialize_watchlist_line(const WatchlistEntry& entry);
     static std::string escape_field(const std::string& s);

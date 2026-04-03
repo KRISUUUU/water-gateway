@@ -85,22 +85,24 @@ to external systems.
 
 | Module | Responsibility |
 |--------|---------------|
-| `radio_cc1101` | CC1101 SPI driver: register config, reset, RX mode, FIFO read, recovery |
+| `radio_cc1101` | CC1101 HAL/device/profile/IRQ plumbing, owner-only FIFO/status access, recovery |
 | `radio_state_machine` | Radio lifecycle: init → RX → error → recovery, with state tracking |
 
 ### Pipeline Layer
 
 | Module | Responsibility |
 |--------|---------------|
-| `wmbus_minimal_pipeline` | Raw frame → WmbusFrame with metadata (RSSI, LQI, CRC, timestamp, hex) |
+| `wmbus_tmode_rx` | Owner-task RX session engine, incremental 3-of-6 framing, exact encoded frame capture |
+| `wmbus_link` | Exact-frame validation, block CRC validation, canonical telegram representation |
+| `wmbus_minimal_pipeline` | Legacy compatibility shim retained only outside the active runtime path |
 | `dedup_service` | Sliding-window duplicate detection by frame content hash |
-| `telegram_router` | Route decisions: publish raw, suppress duplicate, flag bad CRC |
+| `telegram_router` | Route decisions over validated telegrams: publish raw, suppress duplicate, flag bad CRC |
 
 ### Communication Layer
 
 | Module | Responsibility |
 |--------|---------------|
-| `mqtt_service` | MQTT client lifecycle, connection, reconnect, publish, Last Will |
+| `mqtt_service` | MQTT client lifecycle, connection, reconnect, bounded publish-command serialization, Last Will |
 | `mqtt_topics` | Topic string generation from config prefix + device ID |
 | `mqtt_payloads` | JSON payload serialization for each topic category |
 
@@ -125,6 +127,7 @@ to external systems.
 | Module | Responsibility |
 |--------|---------------|
 | `diagnostics_service` | Aggregates cross-system diagnostic snapshot |
+| `rf_diagnostics` | Bounded ring buffer of malformed/anomalous RF session records for HTTP/API retrieval |
 | `metrics_service` | Runtime metrics: uptime, heap, task watermarks |
 | `health_monitor` | System health state machine: starting → healthy → warning → error |
 | `watchdog_service` | Hardware watchdog integration and task-level feeding |
@@ -158,7 +161,7 @@ Layer 2 (Config):          config_store
 Layer 3 (Platform):        wifi_manager, ntp_service, mdns_service, provisioning_manager
                             ↑
 Layer 4a (Radio):          radio_cc1101, radio_state_machine
-Layer 4b (Pipeline):       wmbus_minimal_pipeline, dedup_service, telegram_router
+Layer 4b (Pipeline):       wmbus_tmode_rx, wmbus_link, dedup_service, telegram_router
 Layer 4c (Comms):          mqtt_service (mqtt_topics, mqtt_payloads)
 Layer 4d (Auth):           auth_service
                             ↑
@@ -186,9 +189,10 @@ Layer 7 (Entry):           main/app_main.cpp
 | `provisioning_manager` | `common`, `event_bus`, `config_store`, `wifi_manager` |
 | `radio_cc1101` | `common` |
 | `radio_state_machine` | `common`, `radio_cc1101`, `event_bus` |
-| `wmbus_minimal_pipeline` | `common`, `radio_cc1101` |
+| `wmbus_tmode_rx` | `common`, `radio_cc1101`, `rf_diagnostics` |
+| `wmbus_link` | `common`, `wmbus_tmode_rx` |
 | `dedup_service` | `common` |
-| `telegram_router` | `common`, `dedup_service`, `wmbus_minimal_pipeline` |
+| `telegram_router` | `common`, `dedup_service`, `wmbus_link` |
 | `mqtt_service` | `common`, `event_bus`, `config_store`, `json` |
 | `auth_service` | `common`, `config_store` |
 | `http_server` | `common`, `auth_service` |
@@ -209,16 +213,16 @@ Layer 7 (Entry):           main/app_main.cpp
 | Task | Core | Priority | Stack | Purpose |
 |------|------|----------|-------|---------|
 | `main` (app_main) | 0 | 1 (default) | 3584B (default) | Init sequence, then deletes itself |
-| `radio_rx_task` | 1 | 10 (high) | 4096B | CC1101 SPI poll, FIFO read, enqueue raw frames |
-| `pipeline_task` | 0 | 7 (medium-high) | 4096B | Frame processing, dedup, routing, enqueue MQTT messages |
+| `radio_rx_task` | 1 | 10 (high) | 4096B | Sole CC1101 owner task, IRQ-driven session capture, enqueue exact encoded frames |
+| `pipeline_task` | 0 | 7 (medium-high) | 4096B | Exact-frame validation, telegram routing, enqueue MQTT messages |
 | `mqtt_task` | 0 | 5 (medium) | 6144B | MQTT connection management and publishing |
 | `health_task` | 0 | 3 (low) | 4096B | Periodic health checks, telemetry publish, stack/queue metric sampling |
 | `httpd` (internal) | 0 | 5 | 4096B | ESP-IDF HTTP server (created by httpd_start) |
 
 ### Design Decisions
 
-- **Radio on Core 1:** Isolates time-sensitive SPI polling from WiFi/MQTT/HTTP activity on Core 0. Prevents WiFi stack latency from causing FIFO overflow.
-- **No ISR for CC1101 GDO:** While CC1101 supports GDO interrupt pins, the initial design uses polling for simplicity and debuggability. GDO-interrupt mode is a documented future optimization path.
+- **Radio on Core 1:** Isolates the sole CC1101 owner task from WiFi/MQTT/HTTP activity on Core 0. This keeps IRQ-driven FIFO service and recovery responsive.
+- **Minimal GDO ISR:** CC1101 GDO interrupts only capture edge state and wake the owner task. All SPI/FIFO work stays in task context.
 - **app_main deletes itself:** After init, the main task creates worker tasks and exits. No wasted stack sitting idle.
 - **mqtt_task has larger stack:** JSON serialization and TLS (if enabled) require more stack.
 
@@ -232,11 +236,11 @@ Radio RX is highest because FIFO overflow means lost frames. Pipeline is next be
 
 | Queue | Item Type | Depth | Producer | Consumer |
 |-------|-----------|-------|----------|----------|
-| `frame_queue` | `RawRadioFrame` | 16 | `radio_rx_task` | `pipeline_task` |
-| `mqtt_outbox` | `MqttOutboxItem` | 32 | `pipeline_task`, `health_task` | `mqtt_task` |
+| `frame_queue` | `EncodedRxFrame` | 16 | `radio_rx_task` | `pipeline_task` |
+| `mqtt_outbox` | `MqttPublishCommand` | 32 | `pipeline_task`, `health_task` | `mqtt_task` |
 
-`RawRadioFrame`: ~280 bytes max (raw bytes array + length + RSSI + LQI + CRC status).
-`MqttOutboxItem`: Fixed-size struct with `char topic[128]` + `char payload[896]` (passed by value through the queue, no heap allocation).
+`EncodedRxFrame`: fixed-size exact encoded capture plus decoded bytes, orientation, and bounded RF metadata.
+`MqttPublishCommand`: fixed-size bounded publish contract; payload serialization happens in `mqtt_service`, not in the hot path producer.
 
 Queue/backpressure behavior in current runtime implementation:
 - `frame_queue`: producer waits up to 10 ms; if full, new frame enqueue is dropped and counted (`frame_enqueue_drop`/`frame_enqueue_errors`).
@@ -274,39 +278,41 @@ because the interface is similar (publish/subscribe with type + optional data).
 
 ## 7. Data Flow
 
-### Primary Path: Radio Frame → MQTT
+### Primary Path: Exact Encoded Frame → MQTT
 
 ```
-CC1101 FIFO
-    │ SPI read (radio_rx_task, Core 1)
+CC1101 FIFO + GDO IRQs
+    │ owner-task session engine (radio_rx_task, Core 1)
     ▼
-RawRadioFrame { bytes[290], len, rssi, lqi, crc_ok }
+EncodedRxFrame { exact encoded bytes, orientation, exact length, RF metadata }
     │ xQueueSend(frame_queue)
     ▼
 pipeline_task (Core 0)
     │
-    ├─ WmbusPipeline::from_radio_frame()
-    │   → WmbusFrame { raw_bytes (canonical), metadata { rssi, lqi, crc_ok, timestamp, frame_len } }
-    │   → raw_hex is derived only for API/MQTT/UI payloads
+    ├─ WmbusLink::validate_and_build()
+    │   → ValidatedTelegram { exact_frame, link { canonical_bytes, metadata } }
     │
     ├─ TelegramRouter::route()
-    │   ├─ DedupService::seen_recently(dedup_key(raw_bytes), timestamp)?
+    │   ├─ DedupService::seen_recently(dedup_key(canonical_bytes), timestamp)?
     │   │   → yes: RouteDecision::SUPPRESS_DUPLICATE
-    │   │   → no:  DedupService::remember(dedup_key(raw_bytes), timestamp)
+    │   │   → no:  DedupService::remember(dedup_key(canonical_bytes), timestamp)
     │   │          RouteDecision::PUBLISH_RAW
-    │   └─ !crc_ok? → additionally flag for event publish
+    │   └─ !crc_ok? → additionally flag for event publish / diagnostics
     │
     ├─ if PUBLISH_RAW:
-    │   → build MqttOutboxItem { topic=RAW_FRAME, payload=json }
+    │   → build bounded MqttPublishCommand from validated telegram
     │   → xQueueSend(mqtt_outbox)
     │
-    └─ update diagnostics counters
-        (frames_received++, frames_published++ or frames_duplicate++)
+    └─ malformed or anomalous sessions
+        → rf_diagnostics ring buffer
+        → HTTP/API retrieval on demand
 
 mqtt_task (Core 0)
     │ xQueueReceive(mqtt_outbox)
     ▼
-    esp_mqtt_client_publish(topic, payload, qos=0)
+    mqtt_service::serialize_publish_command(...)
+    │
+    └─ esp_mqtt_client_publish(topic, payload, qos=0)
     │
     └─ update counters (mqtt_publishes++ or mqtt_failures++)
 ```
@@ -474,7 +480,7 @@ Defined in detail in `docs/MQTT_TOPICS.md`.
 | Dashboard | `/api/status` | Health, uptime, key counters |
 | Support | `/api/status/full`, `/api/ota/status`, `/api/watchlist` | Full diagnostic summary and support context |
 | Live Telegrams | `/api/telegrams` | Recent raw frames with metadata |
-| RF Diagnostics | `/api/diagnostics/radio` | RSSI histogram, error counts, radio state |
+| RF Diagnostics | `/api/diagnostics/radio` | Radio state, counters, and bounded recent RF diagnostic records |
 | MQTT Status | `/api/diagnostics/mqtt` | Connection state, publish counts, errors |
 | Configuration | `/api/config` | View/edit all settings (secrets redacted) |
 | OTA | `/api/ota/*` | Upload firmware, trigger URL OTA, see status |
@@ -689,7 +695,7 @@ water-gateway/
 │   ├── provisioning_manager/       # First-boot setup
 │   ├── radio_cc1101/               # CC1101 SPI driver
 │   ├── radio_state_machine/        # Radio lifecycle FSM
-│   ├── wmbus_minimal_pipeline/     # Frame → metadata pipeline
+│   ├── wmbus_minimal_pipeline/     # Legacy compile-only shim, not in active runtime flow
 │   ├── dedup_service/              # Duplicate detection
 │   ├── telegram_router/            # Route decisions
 │   ├── mqtt_service/               # MQTT client + topics + payloads

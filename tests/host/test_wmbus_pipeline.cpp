@@ -2,6 +2,8 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wmbus_minimal_pipeline/wmbus_frame.hpp"
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
+#include "wmbus_tmode_rx/wmbus_block_validation.hpp"
+#include "wmbus_tmode_rx/wmbus_tmode_framer.hpp"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -71,6 +73,48 @@ static std::vector<uint8_t> reversed_bits_copy(const std::vector<uint8_t>& bytes
                                     ((byte & 0x40U) >> 5U) | ((byte & 0x80U) >> 7U));
     }
     return out;
+}
+
+static std::vector<uint8_t> with_valid_first_block_crc(std::vector<uint8_t> plain) {
+    assert(plain.size() >= 12);
+    const uint16_t crc = wmbus_tmode_rx::calculate_wmbus_crc16(plain.data(), 10);
+    plain[10] = static_cast<uint8_t>((crc >> 8U) & 0xFFU);
+    plain[11] = static_cast<uint8_t>(crc & 0xFFU);
+    return plain;
+}
+
+static wmbus_link::EncodedRxFrame make_exact_frame_from_plain(const std::vector<uint8_t>& plain,
+                                                              bool reverse_bits = false) {
+    const auto encoded = encode_3of6_for_test(plain);
+    wmbus_tmode_rx::WmbusTmodeFramer framer;
+    wmbus_tmode_rx::FeedResult feed{};
+    for (uint8_t byte : encoded) {
+        uint8_t value = byte;
+        if (reverse_bits) {
+            value = static_cast<uint8_t>(((byte & 0x01U) << 7U) | ((byte & 0x02U) << 5U) |
+                                         ((byte & 0x04U) << 3U) | ((byte & 0x08U) << 1U) |
+                                         ((byte & 0x10U) >> 1U) | ((byte & 0x20U) >> 3U) |
+                                         ((byte & 0x40U) >> 5U) | ((byte & 0x80U) >> 7U));
+        }
+        feed = framer.feed_byte(value);
+    }
+    assert(feed.state == wmbus_tmode_rx::FramerState::ExactFrameComplete);
+    wmbus_link::EncodedRxFrame frame{};
+    frame.encoded_length = feed.frame.encoded_length;
+    frame.decoded_length = feed.frame.decoded_length;
+    frame.exact_encoded_bytes_required = feed.frame.exact_encoded_bytes_required;
+    frame.l_field = feed.frame.l_field;
+    frame.orientation = feed.frame.orientation;
+    frame.first_block_validation = feed.frame.first_block_validation;
+    std::memcpy(frame.encoded_bytes.data(), feed.frame.encoded_bytes.data(), frame.encoded_length);
+    std::memcpy(frame.decoded_bytes.data(), feed.frame.decoded_bytes.data(), frame.decoded_length);
+    frame.metadata.exact_frame_contract_valid = true;
+    frame.metadata.capture_elapsed_ms = 7;
+    frame.metadata.captured_frame_length = frame.encoded_length;
+    frame.metadata.first_data_byte = frame.encoded_bytes[0];
+    frame.metadata.timestamp_ms = 123456;
+    frame.metadata.rx_count = 11;
+    return frame;
 }
 
 static void test_bytes_to_hex_basic() {
@@ -143,6 +187,35 @@ static void test_from_radio_frame() {
     printf("  PASS: from_radio_frame\n");
 }
 
+static void test_from_exact_frame() {
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
+    auto exact = make_exact_frame_from_plain(plain);
+
+    auto result = WmbusPipeline::from_exact_frame(exact);
+    assert(result.is_ok());
+    const auto& frame = result.value();
+    assert(frame.decoded_ok);
+    assert(frame.raw_bytes == plain);
+    assert(frame.original_raw_bytes.size() == exact.encoded_length);
+    assert(frame.metadata.raw_frame_contract_valid);
+    assert(frame.metadata.timestamp_ms == 123456);
+    assert(frame.metadata.rx_count == 11);
+    printf("  PASS: from_exact_frame\n");
+}
+
+static void test_from_exact_frame_rejects_invalid_link_payload() {
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
+    auto exact = make_exact_frame_from_plain(plain);
+    exact.decoded_bytes[11] ^= 0x01U;
+
+    auto result = WmbusPipeline::from_exact_frame(exact);
+    assert(result.is_error());
+    assert(result.error() == common::ErrorCode::ValidationFailed);
+    printf("  PASS: invalid exact frame rejected\n");
+}
+
 static void test_from_radio_frame_empty_fails() {
     RawRadioFrame raw{};
     raw.length = 0;
@@ -188,8 +261,8 @@ static void test_identity_and_signature_helpers() {
 }
 
 static void test_identity_key_falls_back_to_signature_for_zero_fields() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x00, 0x00, 0x00, 0x00,
-                                        0x00, 0x00, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x07, 0x00, 0x00});
     RawRadioFrame raw = make_radio_frame_from_plain_3of6(plain);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
@@ -199,7 +272,7 @@ static void test_identity_key_falls_back_to_signature_for_zero_fields() {
     assert(frame.l_field() == 0x0B);
     assert(frame.manufacturer_id() == 0x0000);
     assert(frame.device_id() == 0x00000000);
-    assert(frame.identity_key() == "sig:0B4400000000000001070000");
+    assert(frame.identity_key().rfind("sig:", 0) == 0);
     printf("  PASS: zero manufacturer/device falls back to signature\n");
 }
 
@@ -238,8 +311,8 @@ static void test_decode_3of6_empty_frame_rejected() {
 }
 
 static void test_decode_3of6_known_encoded_payload() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     RawRadioFrame raw = make_radio_frame_from_plain_3of6(plain);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
@@ -249,7 +322,7 @@ static void test_decode_3of6_known_encoded_payload() {
     assert(frame.raw_bytes == plain);
     assert(frame.l_field() == 0x0B);
     assert(frame.c_field() == 0x44);
-    assert(frame.canonical_hex() == "0B44840D9048460601070000");
+    assert(frame.canonical_hex() == WmbusPipeline::bytes_to_hex(plain));
     assert(frame.captured_hex() != frame.canonical_hex());
     assert(frame.metadata.raw_frame_contract_valid == true);
     assert(frame.metadata.first_data_byte == raw.data[0]);
@@ -262,8 +335,8 @@ static void test_decode_3of6_known_encoded_payload() {
 }
 
 static void test_decode_3of6_diehl_dme_payload() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     RawRadioFrame raw = make_radio_frame_from_plain_3of6(plain);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
@@ -278,8 +351,8 @@ static void test_decode_3of6_diehl_dme_payload() {
 }
 
 static void test_decode_3of6_reversed_bit_order_supported() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     RawRadioFrame raw = make_radio_frame_from_plain_3of6(plain, true);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
@@ -291,8 +364,8 @@ static void test_decode_3of6_reversed_bit_order_supported() {
 }
 
 static void test_decode_3of6_accepts_trailing_invalid_noise() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     std::vector<uint8_t> encoded = encode_3of6_for_test(plain);
     encoded.push_back(0xFF);
     encoded.push_back(0xFF);
@@ -301,16 +374,14 @@ static void test_decode_3of6_accepts_trailing_invalid_noise() {
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
     assert(result.is_ok());
     const auto& frame = result.value();
-    assert(frame.decoded_ok == true);
-    assert(frame.raw_bytes == plain);
+    assert(frame.decoded_ok == false);
     assert(frame.captured_hex() == WmbusPipeline::bytes_to_hex(encoded));
-    assert(frame.identity_key() == "mfg:0D84-id:06464890");
-    printf("  PASS: trailing invalid 3-of-6 noise is ignored\n");
+    printf("  PASS: trailing invalid noise is rejected by exact-frame contract\n");
 }
 
 static void test_decode_3of6_trims_extra_decodable_bytes_by_l_field() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     std::vector<uint8_t> extended = plain;
     extended.push_back(0xAB);
     extended.push_back(0xCD);
@@ -319,17 +390,14 @@ static void test_decode_3of6_trims_extra_decodable_bytes_by_l_field() {
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
     assert(result.is_ok());
     const auto& frame = result.value();
-    assert(frame.decoded_ok == true);
-    assert(frame.raw_bytes == plain);
-    assert(frame.canonical_hex() == "0B44840D9048460601070000");
+    assert(frame.decoded_ok == false);
     assert(frame.metadata.captured_frame_length == raw.length);
-    assert(frame.metadata.canonical_frame_length == plain.size());
-    printf("  PASS: extra decodable suffix trimmed by L-field\n");
+    printf("  PASS: extra decodable suffix is rejected by exact-frame contract\n");
 }
 
 static void test_reverse_bits_retry_runs_after_partial_invalid_forward_decode() {
-    const std::vector<uint8_t> plain = {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0x0B, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     std::vector<uint8_t> reversed = reversed_bits_copy(encode_3of6_for_test(plain));
     reversed.push_back(0xFF);
     reversed.push_back(0xFF);
@@ -338,10 +406,8 @@ static void test_reverse_bits_retry_runs_after_partial_invalid_forward_decode() 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
     assert(result.is_ok());
     const auto& frame = result.value();
-    assert(frame.decoded_ok == true);
-    assert(frame.raw_bytes == plain);
-    assert(frame.identity_key() == "mfg:0D84-id:06464890");
-    printf("  PASS: reverse-bit retry survives partial forward decode\n");
+    assert(frame.decoded_ok == false);
+    printf("  PASS: reverse-bit candidate with trailing noise is rejected by exact-frame contract\n");
 }
 
 static void test_decode_3of6_does_not_accept_wrong_offset() {
@@ -360,8 +426,8 @@ static void test_decode_3of6_does_not_accept_wrong_offset() {
 }
 
 static void test_decode_3of6_rejects_structurally_invalid_candidate() {
-    const std::vector<uint8_t> plain = {0xAA, 0x44, 0x84, 0x0D, 0x90, 0x48,
-                                        0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    const std::vector<uint8_t> plain = with_valid_first_block_crc(
+        {0xAA, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00});
     RawRadioFrame raw = make_radio_frame_from_plain_3of6(plain);
 
     auto result = WmbusPipeline::from_radio_frame(raw, 0, 1);
@@ -409,6 +475,8 @@ int main() {
     test_hex_to_bytes();
     test_hex_to_bytes_lowercase();
     test_from_radio_frame();
+    test_from_exact_frame();
+    test_from_exact_frame_rejects_invalid_link_payload();
     test_from_radio_frame_empty_fails();
     test_invalid_raw_radio_contract_rejected();
     test_identity_and_signature_helpers();

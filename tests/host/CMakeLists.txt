@@ -20,7 +20,9 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/storage_service/include"
     "${COMP_DIR}/radio_cc1101/include"
     "${COMP_DIR}/radio_state_machine/include"
-    "${COMP_DIR}/wmbus_minimal_pipeline/include"
+    "${COMP_DIR}/rf_diagnostics/include"
+    "${COMP_DIR}/wmbus_tmode_rx/include"
+    "${COMP_DIR}/wmbus_link/include"
     "${COMP_DIR}/dedup_service/include"
     "${COMP_DIR}/telegram_router/include"
     "${COMP_DIR}/meter_registry/include"
@@ -107,6 +109,7 @@ add_host_test(test_dedup
 # ---- test_mqtt_payloads ----
 add_host_test(test_mqtt_payloads
     test_mqtt_payloads.cpp
+    "${COMP_DIR}/mqtt_service/src/mqtt_publish.cpp"
     "${COMP_DIR}/mqtt_service/src/mqtt_topics.cpp"
     "${COMP_DIR}/mqtt_service/src/mqtt_payloads.cpp"
     ${CJSON_SRC}
@@ -159,15 +162,12 @@ add_host_test(test_health_logic
     "${COMP_DIR}/health_monitor/src/health_monitor.cpp"
 )
 
-# ---- test_wmbus_pipeline ----
-add_host_test(test_wmbus_pipeline
-    test_wmbus_pipeline.cpp
-    "${COMP_DIR}/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp"
-)
-
 # ---- test_radio_cc1101 ----
 add_host_test(test_radio_cc1101
     test_radio_cc1101.cpp
+    "${COMP_DIR}/radio_cc1101/src/cc1101_device.cpp"
+    "${COMP_DIR}/radio_cc1101/src/cc1101_hal.cpp"
+    "${COMP_DIR}/radio_cc1101/src/cc1101_irq.cpp"
     "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
 )
 
@@ -176,7 +176,19 @@ add_host_test(test_meter_registry
     test_meter_registry.cpp
     "${COMP_DIR}/meter_registry/src/meter_registry.cpp"
     "${COMP_DIR}/storage_service/src/storage_service.cpp"
-    "${COMP_DIR}/wmbus_minimal_pipeline/src/wmbus_pipeline.cpp"
+    "${COMP_DIR}/wmbus_link/src/wmbus_link.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
+)
+
+# ---- test_downstream_exact_flow ----
+add_host_test(test_downstream_exact_flow
+    test_downstream_exact_flow.cpp
+    "${COMP_DIR}/mqtt_service/src/mqtt_publish.cpp"
+    "${COMP_DIR}/telegram_router/src/telegram_router.cpp"
+    "${COMP_DIR}/dedup_service/src/dedup_service.cpp"
+    "${COMP_DIR}/wmbus_link/src/wmbus_link.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
 )
 
 # ---- test_ota_manager ----
@@ -216,18 +228,30 @@ add_host_test(test_security_posture
 # ---- test_diagnostics_service ----
 add_host_test(test_diagnostics_service
     test_diagnostics_service.cpp
+    "${COMP_DIR}/rf_diagnostics/src/rf_diagnostics.cpp"
     "${COMP_DIR}/diagnostics_service/src/diagnostics_service.cpp"
     "${COMP_DIR}/metrics_service/src/metrics_service.cpp"
     "${COMP_DIR}/health_monitor/src/health_monitor.cpp"
+    "${COMP_DIR}/mqtt_service/src/mqtt_publish.cpp"
     "${COMP_DIR}/mqtt_service/src/mqtt_service.cpp"
     "${COMP_DIR}/wifi_manager/src/wifi_manager.cpp"
     "${COMP_DIR}/config_store/src/config_store.cpp"
     "${COMP_DIR}/config_store/src/config_validation.cpp"
     "${COMP_DIR}/config_store/src/config_migration.cpp"
+    "${COMP_DIR}/radio_cc1101/src/cc1101_device.cpp"
+    "${COMP_DIR}/radio_cc1101/src/cc1101_hal.cpp"
+    "${COMP_DIR}/radio_cc1101/src/cc1101_irq.cpp"
     "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
     "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/radio_state_machine/src/radio_state_machine.cpp"
     "${COMP_DIR}/ntp_service/src/ntp_service.cpp"
+    ${CJSON_SRC}
+)
+
+# ---- test_rf_diagnostics ----
+add_host_test(test_rf_diagnostics
+    test_rf_diagnostics.cpp
+    "${COMP_DIR}/rf_diagnostics/src/rf_diagnostics.cpp"
     ${CJSON_SRC}
 )
 
@@ -237,4 +261,28 @@ add_host_test(test_radio_state_machine
     "${COMP_DIR}/event_bus/src/event_bus.cpp"
     "${COMP_DIR}/radio_cc1101/src/radio_cc1101.cpp"
     "${COMP_DIR}/radio_state_machine/src/radio_state_machine.cpp"
+)
+
+# ---- test_wmbus_tmode_framer ----
+add_host_test(test_wmbus_tmode_framer
+    test_wmbus_tmode_framer.cpp
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
+)
+
+# ---- test_rx_session_engine ----
+add_host_test(test_rx_session_engine
+    test_rx_session_engine.cpp
+    "${COMP_DIR}/wmbus_tmode_rx/src/packet_length_strategy.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/rx_session_engine.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
+)
+
+# ---- test_wmbus_link ----
+add_host_test(test_wmbus_link
+    test_wmbus_link.cpp
+    "${COMP_DIR}/wmbus_link/src/wmbus_link.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
 )

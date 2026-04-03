@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "src/mqtt_publish.cpp"
         "src/mqtt_service.cpp"
         "src/mqtt_topics.cpp"
         "src/mqtt_payloads.cpp"

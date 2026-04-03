@@ -2,12 +2,16 @@
 
 #include "common/result.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
+#include "wmbus_link/wmbus_link.hpp"
 #include "wmbus_minimal_pipeline/wmbus_frame.hpp"
 #include <string>
 #include <vector>
 
 namespace wmbus_minimal_pipeline {
 
+// Legacy compile-only compatibility shim.
+// The active runtime path uses wmbus_tmode_rx -> wmbus_link directly and does not
+// route through this adapter anymore.
 class WmbusPipeline {
   public:
     // Convert a radio-layer packet into a WmbusFrame with metadata.
@@ -19,6 +23,7 @@ class WmbusPipeline {
     // Pure function — no side effects, fully host-testable.
     static common::Result<WmbusFrame> from_radio_frame(const radio_cc1101::RawRadioFrame& raw,
                                                        int64_t timestamp_ms, uint32_t rx_count);
+    static common::Result<WmbusFrame> from_exact_frame(const wmbus_link::EncodedRxFrame& frame);
 
     // Convert raw bytes to uppercase hex string.
     // Pure function, host-testable.

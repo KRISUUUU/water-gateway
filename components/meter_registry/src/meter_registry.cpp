@@ -79,12 +79,13 @@ common::Result<void> MeterRegistry::initialize() {
     return common::Result<void>::ok();
 }
 
-void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& frame, bool duplicate) {
+void MeterRegistry::observe_telegram(const wmbus_link::ValidatedTelegram& telegram,
+                                     bool duplicate) {
     if (!initialized_) {
         return;
     }
     RegistryState& s = state();
-    const std::string key = derive_meter_key(frame);
+    const std::string key = derive_meter_key(telegram);
 
     std::lock_guard<std::mutex> lock(s.mutex);
     int idx = detected_index_by_key(s.detected, key);
@@ -99,16 +100,16 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
         }
         DetectedMeter m{};
         m.key = key;
-        if (frame.has_reliable_identity()) {
-            m.manufacturer_id = frame.manufacturer_id();
-            m.device_id = frame.device_id();
+        if (telegram.has_reliable_identity()) {
+            m.manufacturer_id = telegram.manufacturer_id();
+            m.device_id = telegram.device_id();
         }
-        m.first_seen_ms = frame.metadata.timestamp_ms;
-        m.last_seen_ms = frame.metadata.timestamp_ms;
+        m.first_seen_ms = telegram.link.metadata.timestamp_ms;
+        m.last_seen_ms = telegram.link.metadata.timestamp_ms;
         m.seen_count = 1;
-        m.last_rssi_dbm = frame.metadata.rssi_dbm;
-        m.last_lqi = frame.metadata.lqi;
-        m.last_crc_ok = frame.metadata.crc_ok;
+        m.last_rssi_dbm = telegram.link.metadata.rssi_dbm;
+        m.last_lqi = telegram.link.metadata.lqi;
+        m.last_crc_ok = telegram.link.metadata.crc_ok;
         s.detected.push_back(std::move(m));
         if (s.detected.size() > 100) {
             auto oldest = std::min_element(
@@ -126,19 +127,19 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
         }
     } else {
         DetectedMeter& m = s.detected[static_cast<size_t>(idx)];
-        if (frame.has_reliable_identity()) {
-            m.manufacturer_id = frame.manufacturer_id();
-            m.device_id = frame.device_id();
+        if (telegram.has_reliable_identity()) {
+            m.manufacturer_id = telegram.manufacturer_id();
+            m.device_id = telegram.device_id();
         }
-        m.last_seen_ms = frame.metadata.timestamp_ms;
+        m.last_seen_ms = telegram.link.metadata.timestamp_ms;
         m.seen_count++;
-        m.last_rssi_dbm = frame.metadata.rssi_dbm;
-        m.last_lqi = frame.metadata.lqi;
-        m.last_crc_ok = frame.metadata.crc_ok;
+        m.last_rssi_dbm = telegram.link.metadata.rssi_dbm;
+        m.last_lqi = telegram.link.metadata.lqi;
+        m.last_crc_ok = telegram.link.metadata.crc_ok;
     }
 
     DetectedMeter& meter = s.detected[static_cast<size_t>(idx)];
-    if (!frame.metadata.crc_ok) {
+    if (!telegram.link.metadata.crc_ok) {
         meter.crc_fail_count++;
     }
     if (duplicate) {
@@ -155,23 +156,24 @@ void MeterRegistry::observe_frame(const wmbus_minimal_pipeline::WmbusFrame& fram
     }
 
     RecentTelegram t{};
-    t.timestamp_ms = frame.metadata.timestamp_ms;
-    t.raw_hex = frame.canonical_hex();
-    t.frame_length = frame.metadata.canonical_frame_length;
-    t.captured_hex = frame.captured_hex();
-    t.captured_frame_length = frame.metadata.captured_frame_length;
-    t.payload_offset = frame.metadata.payload_offset;
-    t.payload_length = frame.metadata.payload_length;
-    t.first_data_byte = frame.metadata.first_data_byte;
-    t.canonical_hex = frame.canonical_hex();
-    t.canonical_frame_length = frame.metadata.canonical_frame_length;
-    t.decoded_ok = frame.decoded_ok;
-    t.raw_frame_contract_valid = frame.metadata.raw_frame_contract_valid;
-    t.burst_end_reason = frame.metadata.burst_end_reason;
-    t.rssi_dbm = frame.metadata.rssi_dbm;
-    t.lqi = frame.metadata.lqi;
-    t.crc_ok = frame.metadata.crc_ok;
-    t.radio_crc_available = frame.metadata.radio_crc_available;
+    t.timestamp_ms = telegram.link.metadata.timestamp_ms;
+    t.raw_hex = telegram.canonical_hex();
+    t.frame_length = telegram.link.metadata.canonical_length;
+    t.captured_hex = telegram.captured_hex();
+    t.captured_frame_length = telegram.exact_frame.metadata.captured_frame_length;
+    t.payload_offset = 0;
+    t.payload_length = telegram.exact_frame.encoded_length;
+    t.first_data_byte = telegram.exact_frame.metadata.first_data_byte;
+    t.canonical_hex = telegram.canonical_hex();
+    t.canonical_frame_length = telegram.link.metadata.canonical_length;
+    t.decoded_ok = true;
+    t.raw_frame_contract_valid = telegram.exact_frame.metadata.exact_frame_contract_valid;
+    t.burst_end_reason =
+        static_cast<radio_cc1101::RadioBurstEndReason>(telegram.exact_frame.metadata.burst_end_reason);
+    t.rssi_dbm = telegram.link.metadata.rssi_dbm;
+    t.lqi = telegram.link.metadata.lqi;
+    t.crc_ok = telegram.link.metadata.crc_ok;
+    t.radio_crc_available = telegram.link.metadata.radio_crc_available;
     t.duplicate = duplicate;
     t.meter_key = key;
     t.watched = watched;
@@ -271,8 +273,8 @@ common::Result<void> MeterRegistry::remove_watchlist(const std::string& key) {
     return persist_watchlist();
 }
 
-std::string MeterRegistry::derive_meter_key(const wmbus_minimal_pipeline::WmbusFrame& frame) {
-    return frame.identity_key();
+std::string MeterRegistry::derive_meter_key(const wmbus_link::ValidatedTelegram& telegram) {
+    return telegram.identity_key();
 }
 
 std::string MeterRegistry::escape_field(const std::string& s) {

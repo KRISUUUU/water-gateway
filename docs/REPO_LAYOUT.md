@@ -56,9 +56,11 @@ explicitly documented.
 
 - `radio_cc1101` — CC1101 SPI driver. Depends on: `common`.
 - `radio_state_machine` — Radio lifecycle FSM. Depends on: `common`, `radio_cc1101`, `event_bus`.
-- `wmbus_minimal_pipeline` — Frame-to-metadata conversion. Depends on: `common`, `radio_cc1101`.
+- `wmbus_tmode_rx` — IRQ-driven RX session engine and incremental framing. Depends on: `common`, `radio_cc1101`, `rf_diagnostics`.
+- `wmbus_link` — Exact-frame validation and validated telegram model. Depends on: `common`, `wmbus_tmode_rx`.
+- `wmbus_minimal_pipeline` — Legacy compatibility shim, not part of the active runtime data path.
 - `dedup_service` — Duplicate frame detection. Depends on: `common`.
-- `telegram_router` — Frame routing decisions. Depends on: `common`, `dedup_service`, `wmbus_minimal_pipeline`.
+- `telegram_router` — Validated telegram routing decisions. Depends on: `common`, `dedup_service`, `wmbus_link`.
 - `mqtt_service` — MQTT client lifecycle. Depends on: `common`, `event_bus`, `config_store`.
 - `auth_service` — Authentication and sessions. Depends on: `common`, `config_store`.
 

@@ -1,10 +1,26 @@
 #include "diagnostics_service/diagnostics_service.hpp"
 #include "metrics_service/metrics_service.hpp"
+#include "rf_diagnostics/rf_diagnostics.hpp"
 
 #include <cassert>
 #include <string>
 
 int main() {
+    rf_diagnostics::RfDiagnosticsService::instance().clear();
+    rf_diagnostics::RfDiagnosticRecord rf_record{};
+    rf_record.sequence = 1;
+    rf_record.timestamp_epoch_ms = 1234;
+    rf_record.monotonic_ms = 5678;
+    rf_record.reject_reason = rf_diagnostics::RejectReason::InvalidLength;
+    rf_record.orientation = rf_diagnostics::Orientation::BitReversed;
+    rf_record.expected_encoded_length = 48;
+    rf_record.actual_encoded_length = 42;
+    rf_record.captured_prefix_length = 3;
+    rf_record.captured_prefix[0] = 0x11;
+    rf_record.captured_prefix[1] = 0x22;
+    rf_record.captured_prefix[2] = 0x33;
+    rf_diagnostics::RfDiagnosticsService::instance().insert(rf_record);
+
     metrics_service::MetricsService::reset_queue_metrics();
     metrics_service::MetricsService::reset_task_metrics();
     metrics_service::MetricsService::report_queue_metrics(4, 15, 16, 100, 7, 2, 5, 6, 12, 80, 9, 3);
@@ -19,14 +35,21 @@ int main() {
     assert(!snap.ntp.synchronized);
     assert(snap.now_epoch_ms == 0);
     assert(snap.timestamp_uses_monotonic_fallback);
+    assert(snap.rf_diagnostics.count == 1);
+    assert(snap.rf_diagnostics.records[0].sequence == 1);
 
     const std::string json = diagnostics_service::DiagnosticsService::to_json(snap);
     assert(json.find("\"time\"") != std::string::npos);
     assert(json.find("\"timestamp_source\":\"monotonic\"") != std::string::npos);
     assert(json.find("\"reset_reason\"") != std::string::npos);
-    assert(json.find("\"radio_rx_mode\":\"polling\"") != std::string::npos);
-    assert(json.find("\"radio_rx_interrupt_path_active\":false") != std::string::npos);
+    assert(json.find("\"radio_rx_mode\":\"session_engine\"") != std::string::npos);
+    assert(json.find("\"radio_rx_interrupt_path_active\":true") != std::string::npos);
     assert(json.find("\"radio_rx_hardware_validation\"") != std::string::npos);
+    assert(json.find("\"rf_diagnostics\"") != std::string::npos);
+    assert(json.find("\"recent_sessions\"") != std::string::npos);
+    assert(json.find("\"reject_reason\":\"invalid_length\"") != std::string::npos);
+    assert(json.find("\"orientation\":\"bit_reversed\"") != std::string::npos);
+    assert(json.find("\"captured_prefix_hex\":\"112233\"") != std::string::npos);
     assert(json.find("\"radio_poll_delay_ms\":2") != std::string::npos);
     assert(json.find("\"radio_stack_hwm_words\"") != std::string::npos);
     assert(json.find("\"radio_read_not_found_count\"") != std::string::npos);

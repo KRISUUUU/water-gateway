@@ -1,5 +1,7 @@
 #pragma once
 
+#include "radio_cc1101/cc1101_owner_events.hpp"
+#include "radio_cc1101/cc1101_irq.hpp"
 #include "common/error.hpp"
 #include "common/result.hpp"
 #include <cstddef>
@@ -80,6 +82,25 @@ struct RawRadioFrame {
     bool radio_crc_available = false;
 };
 
+struct RxFifoStatus {
+    uint8_t fifo_bytes = 0;
+    bool fifo_overflow = false;
+    uint8_t marcstate = 0;
+    bool receiving = false;
+};
+
+struct RxSignalQuality {
+    int8_t rssi_dbm = 0;
+    uint8_t lqi = 0;
+    bool crc_ok = false;
+    bool radio_crc_available = false;
+};
+
+enum class RadioPacketLengthMode : uint8_t {
+    Infinite = 0,
+    FixedLength,
+};
+
 // SPI pin configuration
 struct SpiPins {
     int mosi;
@@ -147,24 +168,24 @@ class RadioCc1101 {
 
     // Read chip part number and version for identification
     bool verify_chip_id();
+    common::Result<void> claim_owner(void* owner_token);
+    void release_owner(void* owner_token);
+    [[nodiscard]] bool is_owned_by(void* owner_token) const;
+    common::Result<void> enable_gdo_interrupts(void* owner_token, void* owner_task_handle);
+    void disable_gdo_interrupts();
+    [[nodiscard]] GdoIrqSnapshot take_gdo_irq_snapshot();
+    [[nodiscard]] RadioOwnerEventSet take_owner_events();
+    common::Result<RxFifoStatus> owner_read_rx_status(void* owner_token);
+    common::Result<uint16_t> owner_read_fifo_bytes(void* owner_token, uint8_t* buffer,
+                                                   uint16_t capacity);
+    common::Result<RxSignalQuality> owner_read_signal_quality(void* owner_token);
+    common::Result<void> owner_switch_to_fixed_length_capture(void* owner_token,
+                                                              uint8_t remaining_encoded_bytes);
+    common::Result<void> owner_restore_infinite_packet_mode(void* owner_token);
+    common::Result<void> owner_abort_and_restart_rx(void* owner_token);
 
   private:
     RadioCc1101() = default;
-
-#ifndef HOST_TEST_BUILD
-    // Low-level SPI operations
-    bool spi_strobe(uint8_t strobe_addr, uint8_t* chip_status = nullptr);
-    bool spi_read_register(uint8_t addr, uint8_t& value);
-    bool spi_write_register(uint8_t addr, uint8_t value);
-    bool spi_read_burst(uint8_t addr, uint8_t* buffer, size_t length);
-
-    common::Result<void> apply_tmode_config();
-    int8_t convert_rssi(uint8_t raw_rssi);
-    common::Result<uint8_t> read_marcstate();
-    void record_drop(RadioDropReason reason, const uint8_t* data, uint16_t length, bool quality_issue);
-
-    void* spi_handle_ = nullptr; // spi_device_handle_t
-#endif
 
     bool initialized_ = false;
     RadioState state_ = RadioState::Uninitialized;
@@ -173,6 +194,10 @@ class RadioCc1101 {
     RadioDropInfo last_drop_{};
     SpiPins pins_{};
     SpiBusConfig bus_config_{};
+    GdoIrqTracker irq_tracker_{};
+    RadioOwnerClaimState owner_claim_{};
+    bool irq_plumbing_enabled_ = false;
+    void* spi_handle_ = nullptr; // spi_device_handle_t
 };
 
 } // namespace radio_cc1101

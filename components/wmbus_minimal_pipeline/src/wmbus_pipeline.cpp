@@ -1,4 +1,6 @@
 #include "wmbus_minimal_pipeline/wmbus_pipeline.hpp"
+#include "wmbus_link/wmbus_link.hpp"
+#include "wmbus_tmode_rx/wmbus_tmode_framer.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -6,22 +8,6 @@
 namespace wmbus_minimal_pipeline {
 
 namespace {
-static const uint8_t kDecode3of6High[64] = {
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x30, 0xFF, 0x10, 0x20,
-    0xFF, 0xFF, 0xFF, 0xFF, 0x70, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x50, 0x60, 0xFF, 0x40, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xB0, 0xFF, 0x90, 0xA0, 0xFF, 0xFF, 0xF0, 0xFF, 0xFF, 0x80,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xD0, 0xE0, 0xFF, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF,
-};
-
-static const uint8_t kDecode3of6Low[64] = {
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0xFF, 0x01, 0x02,
-    0xFF, 0xFF, 0xFF, 0xFF, 0x07, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x05, 0x06, 0xFF, 0x04, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0B, 0xFF, 0x09, 0x0A, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0x08,
-    0xFF, 0xFF, 0xFF, 0xFF, 0x0D, 0x0E, 0xFF, 0x0C, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF,
-};
-
 uint8_t byte_at(const std::vector<uint8_t>& bytes, size_t idx) {
     if (idx >= bytes.size()) {
         return 0;
@@ -45,80 +31,48 @@ bool raw_frame_contract_is_valid(const radio_cc1101::RawRadioFrame& raw) {
     return true;
 }
 
-uint8_t reverse_bits8(uint8_t value) {
-    return static_cast<uint8_t>(((value & 0x01U) << 7U) | ((value & 0x02U) << 5U) |
-                                ((value & 0x04U) << 3U) | ((value & 0x08U) << 1U) |
-                                ((value & 0x10U) >> 1U) | ((value & 0x20U) >> 3U) |
-                                ((value & 0x40U) >> 5U) | ((value & 0x80U) >> 7U));
-}
+bool transitional_raw_to_exact_frame(const radio_cc1101::RawRadioFrame& raw,
+                                     wmbus_link::EncodedRxFrame& exact_frame) {
+    // Transitional adapter only: this bridges the current polling raw-burst path into the new
+    // exact-frame and link-layer contracts until the IRQ/session RX path becomes the sole producer.
+    wmbus_tmode_rx::WmbusTmodeFramer framer;
+    wmbus_tmode_rx::FeedResult feed_result{};
+    for (uint16_t i = 0; i < raw.length; ++i) {
+        feed_result = framer.feed_byte(raw.data[i]);
+        if (feed_result.state == wmbus_tmode_rx::FramerState::CandidateRejected) {
+            return false;
+        }
+    }
 
-bool decode_3of6_bytes(const uint8_t* raw, size_t raw_len, std::vector<uint8_t>& out) {
-    out.clear();
-    if (!raw || raw_len == 0) {
+    if (!feed_result.has_complete_frame ||
+        feed_result.state != wmbus_tmode_rx::FramerState::ExactFrameComplete) {
         return false;
     }
 
-    const size_t total_bits = raw_len * 8U;
-    auto read_bits = [raw, total_bits](size_t bit_pos, size_t bit_count) -> uint8_t {
-        if (bit_pos + bit_count > total_bits || bit_count == 0 || bit_count > 8U) {
-            return 0;
-        }
-
-        uint8_t value = 0;
-        for (size_t i = 0; i < bit_count; ++i) {
-            const size_t absolute_bit = bit_pos + i;
-            const size_t byte_index = absolute_bit / 8U;
-            const uint8_t bit_index = static_cast<uint8_t>(7U - (absolute_bit % 8U));
-            value = static_cast<uint8_t>((value << 1U) | ((raw[byte_index] >> bit_index) & 0x01U));
-        }
-        return value;
-    };
-
-    for (size_t bit_pos = 0; bit_pos + 12U <= total_bits; bit_pos += 12U) {
-        const uint8_t sym1 = read_bits(bit_pos, 6U);
-        const uint8_t sym2 = read_bits(bit_pos + 6U, 6U);
-        const uint8_t hi = kDecode3of6High[sym1];
-        const uint8_t lo = kDecode3of6Low[sym2];
-
-        if (hi == 0xFF || lo == 0xFF) {
-            break;
-        }
-
-        out.push_back(static_cast<uint8_t>(hi | lo));
+    const auto& frame = feed_result.frame;
+    exact_frame.encoded_length = frame.encoded_length;
+    exact_frame.decoded_length = frame.decoded_length;
+    exact_frame.exact_encoded_bytes_required = frame.exact_encoded_bytes_required;
+    exact_frame.l_field = frame.l_field;
+    exact_frame.orientation = frame.orientation;
+    exact_frame.first_block_validation = frame.first_block_validation;
+    for (uint16_t i = 0; i < frame.encoded_length; ++i) {
+        exact_frame.encoded_bytes[i] = frame.encoded_bytes[i];
     }
-
-    if (out.empty()) {
-        return false;
+    for (uint16_t i = 0; i < frame.decoded_length; ++i) {
+        exact_frame.decoded_bytes[i] = frame.decoded_bytes[i];
     }
+    exact_frame.metadata.rssi_dbm = raw.rssi_dbm;
+    exact_frame.metadata.lqi = raw.lqi;
+    exact_frame.metadata.crc_ok = raw.crc_ok;
+    exact_frame.metadata.radio_crc_available = raw.radio_crc_available;
+    exact_frame.metadata.exact_frame_contract_valid = true;
+    exact_frame.metadata.transitional_raw_adapter_used = true;
+    exact_frame.metadata.capture_elapsed_ms = raw.capture_elapsed_ms;
+    exact_frame.metadata.captured_frame_length = raw.length;
+    exact_frame.metadata.first_data_byte = raw.first_data_byte;
+    exact_frame.metadata.burst_end_reason = static_cast<uint8_t>(raw.burst_end_reason);
     return true;
-}
-
-bool validate_decoded_frame(const std::vector<uint8_t>& decoded) {
-    if (decoded.size() < 10U) {
-        return false;
-    }
-
-    const size_t expected_size = static_cast<size_t>(decoded[0]) + 1U;
-    if (expected_size != decoded.size()) {
-        return false;
-    }
-
-    return true;
-}
-
-bool normalize_decoded_candidate(const std::vector<uint8_t>& decoded, std::vector<uint8_t>& normalized) {
-    normalized.clear();
-    if (decoded.empty()) {
-        return false;
-    }
-
-    normalized = decoded;
-    const size_t expected_size = static_cast<size_t>(normalized[0]) + 1U;
-    if (normalized.size() > expected_size) {
-        normalized.resize(expected_size);
-    }
-
-    return validate_decoded_frame(normalized);
 }
 } // namespace
 
@@ -211,26 +165,17 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     frame.raw_bytes.assign(raw.data, raw.data + raw.length);
     frame.original_raw_bytes = frame.raw_bytes;
 
-    std::vector<uint8_t> decoded;
-    std::vector<uint8_t> normalized;
-    bool decoded_valid = false;
-
-    if (decode_3of6_bytes(frame.raw_bytes.data(), frame.raw_bytes.size(), decoded)) {
-        decoded_valid = normalize_decoded_candidate(decoded, normalized);
-    }
-
-    if (!decoded_valid && !frame.raw_bytes.empty()) {
-        std::vector<uint8_t> reversed(frame.raw_bytes);
-        for (auto& b : reversed) {
-            b = reverse_bits8(b);
+    wmbus_link::EncodedRxFrame exact_frame{};
+    if (transitional_raw_to_exact_frame(raw, exact_frame)) {
+        exact_frame.metadata.timestamp_ms = timestamp_ms;
+        exact_frame.metadata.rx_count = rx_count;
+        const auto link_result = wmbus_link::WmbusLink::validate_and_build(exact_frame);
+        if (link_result.accepted) {
+            frame.raw_bytes.assign(link_result.telegram.link.canonical_bytes.begin(),
+                                   link_result.telegram.link.canonical_bytes.begin() +
+                                       link_result.telegram.link.metadata.canonical_length);
+            frame.decoded_ok = true;
         }
-        if (decode_3of6_bytes(reversed.data(), reversed.size(), decoded)) {
-            decoded_valid = normalize_decoded_candidate(decoded, normalized);
-        }
-    }
-    if (decoded_valid) {
-        frame.raw_bytes = std::move(normalized);
-        frame.decoded_ok = true;
     }
 
     frame.metadata.rssi_dbm = raw.rssi_dbm;
@@ -248,6 +193,39 @@ common::Result<WmbusFrame> WmbusPipeline::from_radio_frame(const radio_cc1101::R
     frame.metadata.timestamp_ms = timestamp_ms;
     frame.metadata.rx_count = rx_count;
 
+    return common::Result<WmbusFrame>::ok(std::move(frame));
+}
+
+common::Result<WmbusFrame> WmbusPipeline::from_exact_frame(
+    const wmbus_link::EncodedRxFrame& exact_frame) {
+    const auto link_result = wmbus_link::WmbusLink::validate_and_build(exact_frame);
+    if (!link_result.accepted) {
+        return common::Result<WmbusFrame>::error(common::ErrorCode::ValidationFailed);
+    }
+
+    WmbusFrame frame;
+    frame.raw_bytes.assign(link_result.telegram.link.canonical_bytes.begin(),
+                           link_result.telegram.link.canonical_bytes.begin() +
+                               link_result.telegram.link.metadata.canonical_length);
+    frame.original_raw_bytes.assign(exact_frame.encoded_bytes.begin(),
+                                    exact_frame.encoded_bytes.begin() + exact_frame.encoded_length);
+    frame.decoded_ok = true;
+    frame.metadata.rssi_dbm = exact_frame.metadata.rssi_dbm;
+    frame.metadata.lqi = exact_frame.metadata.lqi;
+    frame.metadata.crc_ok = exact_frame.metadata.crc_ok;
+    frame.metadata.radio_crc_available = exact_frame.metadata.radio_crc_available;
+    frame.metadata.raw_frame_contract_valid = exact_frame.metadata.exact_frame_contract_valid;
+    frame.metadata.burst_end_reason =
+        static_cast<radio_cc1101::RadioBurstEndReason>(exact_frame.metadata.burst_end_reason);
+    frame.metadata.first_data_byte = exact_frame.metadata.first_data_byte;
+    frame.metadata.payload_offset = 0;
+    frame.metadata.payload_length = exact_frame.encoded_length;
+    frame.metadata.capture_elapsed_ms = exact_frame.metadata.capture_elapsed_ms;
+    frame.metadata.captured_frame_length = exact_frame.metadata.captured_frame_length;
+    frame.metadata.canonical_frame_length =
+        static_cast<uint16_t>(link_result.telegram.link.metadata.canonical_length);
+    frame.metadata.timestamp_ms = exact_frame.metadata.timestamp_ms;
+    frame.metadata.rx_count = exact_frame.metadata.rx_count;
     return common::Result<WmbusFrame>::ok(std::move(frame));
 }
 
