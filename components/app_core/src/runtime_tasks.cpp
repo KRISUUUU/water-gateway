@@ -173,7 +173,7 @@ static wmbus_link::EncodedRxFrame encode_session_capture(
     frame.metadata.capture_elapsed_ms = capture.capture_elapsed_ms;
     frame.metadata.captured_frame_length = capture.candidate.encoded_length;
     frame.metadata.first_data_byte = capture.first_data_byte;
-    frame.metadata.burst_end_reason = 0U;
+
     return frame;
 }
 

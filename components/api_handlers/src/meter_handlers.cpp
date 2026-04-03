@@ -7,18 +7,7 @@
 namespace api_handlers::detail {
 
 namespace {
-const char* burst_end_reason_name(radio_cc1101::RadioBurstEndReason reason) {
-    using radio_cc1101::RadioBurstEndReason;
-    switch (reason) {
-    case RadioBurstEndReason::None:
-        return "none";
-    case RadioBurstEndReason::EmptyPolls:
-        return "empty_polls";
-    case RadioBurstEndReason::MaxDuration:
-        return "max_duration";
-    }
-    return "unknown";
-}
+
 
 esp_err_t begin_stream_array(httpd_req_t* req, const char* key) {
     httpd_resp_set_type(req, "application/json");
@@ -76,9 +65,7 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
         row += t.decoded_ok ? "true" : "false";
         row += ",\"raw_frame_contract_valid\":";
         row += t.raw_frame_contract_valid ? "true" : "false";
-        row += ",\"burst_end_reason\":\"";
-        row += burst_end_reason_name(t.burst_end_reason);
-        row += "\"";
+
         row += ",\"rssi_dbm\":" + std::to_string(static_cast<int>(t.rssi_dbm));
         row += ",\"lqi\":" + std::to_string(static_cast<unsigned int>(t.lqi));
         row += ",\"crc_ok\":";

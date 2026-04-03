@@ -77,45 +77,6 @@ const char* radio_state_str(radio_cc1101::RadioState s) {
     return "Unknown";
 }
 
-const char* radio_drop_reason_str(radio_cc1101::RadioDropReason reason) {
-    using radio_cc1101::RadioDropReason;
-    switch (reason) {
-    case RadioDropReason::None:
-        return "none";
-    case RadioDropReason::OversizedBurst:
-        return "oversized_burst";
-    case RadioDropReason::BurstTimeout:
-        return "burst_timeout";
-    }
-    return "unknown";
-}
-
-std::string drop_prefix_hex(const radio_cc1101::RadioDropInfo& drop) {
-    static constexpr char hex_chars[] = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(static_cast<size_t>(drop.prefix_length) * 2U);
-    for (uint8_t i = 0; i < drop.prefix_length; ++i) {
-        const uint8_t b = drop.prefix[i];
-        out.push_back(hex_chars[(b >> 4U) & 0x0F]);
-        out.push_back(hex_chars[b & 0x0F]);
-    }
-    return out;
-}
-
-bool same_radio_drop(const radio_cc1101::RadioDropInfo& lhs, const radio_cc1101::RadioDropInfo& rhs) {
-    if (lhs.reason != rhs.reason || lhs.captured_length != rhs.captured_length ||
-        lhs.elapsed_ms != rhs.elapsed_ms || lhs.first_data_byte != rhs.first_data_byte ||
-        lhs.prefix_length != rhs.prefix_length || lhs.quality_issue != rhs.quality_issue) {
-        return false;
-    }
-
-    for (uint8_t i = 0; i < lhs.prefix_length; ++i) {
-        if (lhs.prefix[i] != rhs.prefix[i]) {
-            return false;
-        }
-    }
-    return true;
-}
 
 const char* mqtt_state_str(mqtt_service::MqttState s) {
     using mqtt_service::MqttState;
@@ -209,17 +170,7 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
     cJSON_AddStringToObject(counters, "last_recovery_reason",
                             common::error_code_to_string(static_cast<common::ErrorCode>(
                                 snap.radio_last_recovery_reason_code)));
-    cJSON* last_drop = cJSON_AddObjectToObject(counters, "last_drop");
-    if (!last_drop) {
-        return;
-    }
-    cJSON_AddStringToObject(last_drop, "reason", radio_drop_reason_str(snap.radio_last_drop.reason));
-    cJSON_AddBoolToObject(last_drop, "quality_issue", snap.radio_last_drop.quality_issue);
-    cJSON_AddNumberToObject(last_drop, "captured_length",
-                            static_cast<double>(snap.radio_last_drop.captured_length));
-    cJSON_AddNumberToObject(last_drop, "first_data_byte",
-                            static_cast<double>(snap.radio_last_drop.first_data_byte));
-    cJSON_AddStringToObject(last_drop, "prefix_hex", drop_prefix_hex(snap.radio_last_drop).c_str());
+
 }
 
 void fill_mqtt(cJSON* root, const DiagnosticsSnapshot& snap) {
@@ -455,7 +406,6 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
     const auto& rsm = radio_state_machine::RadioStateMachine::instance();
     s.radio_state = radio_cc1101::RadioCc1101::instance().state();
     s.radio = radio_cc1101::RadioCc1101::instance().counters();
-    s.radio_last_drop = radio_cc1101::RadioCc1101::instance().last_drop();
     s.radio_rx_polling_mode = false;
     s.radio_rx_interrupt_path_active = true;
     s.radio_recovery_attempts = rsm.recovery_attempts();
@@ -481,7 +431,6 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
         return common::Result<DiagnosticsSnapshot>::error(health_res.error());
     }
     s.health = health_res.value();
-    ingest_radio_drop_if_new(s);
     s.rf_diagnostics = rf_diagnostics::RfDiagnosticsService::instance().snapshot();
     return common::Result<DiagnosticsSnapshot>::ok(s);
 }
@@ -503,52 +452,5 @@ std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     return to_unformatted_json(root.get());
 }
 
-void DiagnosticsService::ingest_radio_drop_if_new(const DiagnosticsSnapshot& snap) const {
-    if (snap.radio_last_drop.reason == radio_cc1101::RadioDropReason::None) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(rf_ingest_mutex_);
-    if (last_ingested_radio_drop_valid_ &&
-        same_radio_drop(last_ingested_radio_drop_, snap.radio_last_drop)) {
-        return;
-    }
-
-    rf_diagnostics::RfDiagnosticRecord record{};
-    record.timestamp_epoch_ms = snap.now_epoch_ms;
-    record.monotonic_ms = snap.monotonic_ms;
-    record.orientation = rf_diagnostics::Orientation::Unknown;
-    record.expected_encoded_length = 0;
-    record.actual_encoded_length = snap.radio_last_drop.captured_length;
-    record.expected_decoded_length = 0;
-    record.actual_decoded_length = 0;
-    record.capture_elapsed_ms = snap.radio_last_drop.elapsed_ms;
-    record.first_data_byte = snap.radio_last_drop.first_data_byte;
-    record.quality_issue = snap.radio_last_drop.quality_issue;
-    record.signal_quality_valid = false;
-    record.captured_prefix_length = std::min<size_t>(snap.radio_last_drop.prefix_length,
-                                                     record.captured_prefix.size());
-    for (size_t i = 0; i < record.captured_prefix_length; ++i) {
-        record.captured_prefix[i] = snap.radio_last_drop.prefix[i];
-    }
-
-    switch (snap.radio_last_drop.reason) {
-    case radio_cc1101::RadioDropReason::OversizedBurst:
-        record.reject_reason = rf_diagnostics::RejectReason::OversizedBurst;
-        break;
-    case radio_cc1101::RadioDropReason::BurstTimeout:
-        record.reject_reason = rf_diagnostics::RejectReason::BurstTimeout;
-        break;
-    case radio_cc1101::RadioDropReason::None:
-        record.reject_reason = rf_diagnostics::RejectReason::None;
-        break;
-    }
-
-    const auto before = rf_diagnostics::RfDiagnosticsService::instance().snapshot();
-    record.sequence = before.total_inserted + 1U;
-    rf_diagnostics::RfDiagnosticsService::instance().insert(record);
-    last_ingested_radio_drop_ = snap.radio_last_drop;
-    last_ingested_radio_drop_valid_ = true;
-}
 
 } // namespace diagnostics_service

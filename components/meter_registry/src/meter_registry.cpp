@@ -168,8 +168,6 @@ void MeterRegistry::observe_telegram(const wmbus_link::ValidatedTelegram& telegr
     t.canonical_frame_length = telegram.link.metadata.canonical_length;
     t.decoded_ok = true;
     t.raw_frame_contract_valid = telegram.exact_frame.metadata.exact_frame_contract_valid;
-    t.burst_end_reason =
-        static_cast<radio_cc1101::RadioBurstEndReason>(telegram.exact_frame.metadata.burst_end_reason);
     t.rssi_dbm = telegram.link.metadata.rssi_dbm;
     t.lqi = telegram.link.metadata.lqi;
     t.crc_ok = telegram.link.metadata.crc_ok;

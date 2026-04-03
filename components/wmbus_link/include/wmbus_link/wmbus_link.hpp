@@ -37,7 +37,7 @@ struct EncodedRxFrameMetadata {
     uint16_t capture_elapsed_ms = 0;
     uint16_t captured_frame_length = 0;
     uint8_t first_data_byte = 0;
-    uint8_t burst_end_reason = 0;
+
 };
 
 struct EncodedRxFrame {

@@ -15,7 +15,5 @@ common::Result<void> apply_register_profile(void* spi_handle, RadioCounters& cou
 common::Result<uint8_t> read_marcstate(void* spi_handle, RadioCounters& counters);
 bool verify_chip_id(void* spi_handle, RadioCounters& counters, uint8_t& partnum, uint8_t& version);
 int8_t convert_rssi(uint8_t raw_rssi);
-void record_drop(RadioDropInfo& last_drop, std::mutex& last_drop_mutex, RadioDropReason reason,
-                 const uint8_t* data, uint16_t length, bool quality_issue);
 
 } // namespace radio_cc1101::device

@@ -48,7 +48,6 @@ struct RecentTelegram {
     uint16_t canonical_frame_length = 0;
     bool decoded_ok = false;
     bool raw_frame_contract_valid = false;
-    radio_cc1101::RadioBurstEndReason burst_end_reason = radio_cc1101::RadioBurstEndReason::None;
     int8_t rssi_dbm = 0;
     uint8_t lqi = 0;
     bool crc_ok = false;

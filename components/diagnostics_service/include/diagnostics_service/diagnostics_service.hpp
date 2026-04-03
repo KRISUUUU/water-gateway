@@ -17,7 +17,6 @@ namespace diagnostics_service {
 struct DiagnosticsSnapshot {
     radio_cc1101::RadioState radio_state{radio_cc1101::RadioState::Uninitialized};
     radio_cc1101::RadioCounters radio{};
-    radio_cc1101::RadioDropInfo radio_last_drop{};
     bool radio_rx_polling_mode{true};
     bool radio_rx_interrupt_path_active{false};
     std::uint32_t radio_recovery_attempts{0};
@@ -47,11 +46,7 @@ class DiagnosticsService {
   private:
     DiagnosticsService() = default;
 
-    void ingest_radio_drop_if_new(const DiagnosticsSnapshot& snap) const;
 
-    mutable std::mutex rf_ingest_mutex_{};
-    mutable radio_cc1101::RadioDropInfo last_ingested_radio_drop_{};
-    mutable bool last_ingested_radio_drop_valid_{false};
 };
 
 } // namespace diagnostics_service

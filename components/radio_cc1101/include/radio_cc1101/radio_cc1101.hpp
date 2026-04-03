@@ -32,55 +32,6 @@ struct RadioCounters {
     uint32_t spi_errors = 0;
 };
 
-enum class RadioDropReason : uint8_t {
-    None = 0,
-    OversizedBurst,
-    BurstTimeout,
-};
-
-enum class RadioBurstEndReason : uint8_t {
-    None = 0,
-    EmptyPolls,
-    MaxDuration,
-};
-
-enum class RawBurstTimeoutAction : uint8_t {
-    Continue = 0,
-    ReturnNotFound,
-    EndBurst,
-};
-
-RawBurstTimeoutAction raw_burst_timeout_action(uint32_t elapsed_ticks, uint16_t received,
-                                               uint32_t max_duration_ticks);
-
-struct RadioDropInfo {
-    RadioDropReason reason = RadioDropReason::None;
-    uint16_t captured_length = 0;
-    uint16_t elapsed_ms = 0;
-    uint8_t first_data_byte = 0;
-    uint8_t prefix[8]{};
-    uint8_t prefix_length = 0;
-    bool quality_issue = false;
-};
-
-struct RawRadioFrame {
-    static constexpr size_t MAX_DATA_SIZE = 290;
-
-    // Exact data bytes drained from the CC1101 RX FIFO for one raw receive burst.
-    // In the current raw-capture contract there is no packet-length prefix semantics:
-    // the whole buffer is the radio payload that should be handed to the pipeline.
-    uint8_t data[MAX_DATA_SIZE]{};
-    uint16_t length = 0;
-    uint16_t payload_offset = 0;
-    uint16_t payload_length = 0;
-    uint16_t capture_elapsed_ms = 0;
-    uint8_t first_data_byte = 0;
-    RadioBurstEndReason burst_end_reason = RadioBurstEndReason::None;
-    int8_t rssi_dbm = 0;
-    uint8_t lqi = 0;
-    bool crc_ok = false;
-    bool radio_crc_available = false;
-};
 
 struct RxFifoStatus {
     uint8_t fifo_bytes = 0;
@@ -135,22 +86,6 @@ class RadioCc1101 {
     // Return to idle
     common::Result<void> go_idle();
 
-    // Polling-mode RX contract:
-    // - Success: one raw receive burst was drained from the FIFO. RawRadioFrame contains the exact
-    //   radio bytes that should be handed to the pipeline, without CC1101 length-prefix semantics.
-    // - Expected idle: NotFound means no complete frame is currently available.
-    // - Quality drop: RadioQualityDrop means a burst was seen but rejected due to framing /
-    //   boundary issues such as timeout or oversize capture.
-    // - Soft failure: Timeout and RadioSpiError still represent RX-path problems that the caller
-    //   may keep alive or escalate after repeated occurrences.
-    // - Recovery trigger: FIFO overflow returns RadioFifoOverflow immediately; repeated soft
-    //   failures are escalated by RadioStateMachine.
-    // - Hardware gap: burst traffic, FIFO timing margins, and poll-vs-interrupt trade-offs still
-    //   require real ESP32 + CC1101 validation.
-    //
-    // Read one raw receive burst from the RX FIFO. Long frames are drained in <=64 B bursts
-    // with a bounded wait; burst end is detected by an inter-byte idle gap while RX remains active.
-    common::Result<RawRadioFrame> read_frame();
 
     // Flush RX FIFO (used during error recovery)
     common::Result<void> flush_rx_fifo();
@@ -164,7 +99,6 @@ class RadioCc1101 {
     const RadioCounters& counters() const {
         return counters_;
     }
-    RadioDropInfo last_drop() const;
 
     // Read chip part number and version for identification
     bool verify_chip_id();
@@ -190,8 +124,6 @@ class RadioCc1101 {
     bool initialized_ = false;
     RadioState state_ = RadioState::Uninitialized;
     RadioCounters counters_{};
-    mutable std::mutex last_drop_mutex_{};
-    RadioDropInfo last_drop_{};
     SpiPins pins_{};
     SpiBusConfig bus_config_{};
     GdoIrqTracker irq_tracker_{};

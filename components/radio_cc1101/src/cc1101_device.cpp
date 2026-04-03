@@ -57,23 +57,5 @@ int8_t convert_rssi(uint8_t raw_rssi) {
     return static_cast<int8_t>(rssi);
 }
 
-void record_drop(RadioDropInfo& last_drop, std::mutex& last_drop_mutex, RadioDropReason reason,
-                 const uint8_t* data, uint16_t length, bool quality_issue) {
-    std::lock_guard<std::mutex> lock(last_drop_mutex);
-    last_drop.reason = reason;
-    last_drop.captured_length = length;
-    last_drop.elapsed_ms = 0;
-    last_drop.first_data_byte = (data && length > 0U) ? data[0] : 0U;
-    last_drop.quality_issue = quality_issue;
-    last_drop.prefix_length = static_cast<uint8_t>(length < sizeof(last_drop.prefix)
-                                                       ? length
-                                                       : sizeof(last_drop.prefix));
-    for (uint8_t i = 0; i < last_drop.prefix_length; ++i) {
-        last_drop.prefix[i] = data[i];
-    }
-    for (uint8_t i = last_drop.prefix_length; i < sizeof(last_drop.prefix); ++i) {
-        last_drop.prefix[i] = 0U;
-    }
-}
 
 } // namespace radio_cc1101::device
