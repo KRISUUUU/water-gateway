@@ -126,7 +126,7 @@ void WmbusTmodeFramer::process_candidate(InternalCandidate& candidate, uint8_t t
 
         if (!candidate.progress.l_field_known) {
             candidate.progress.l_field = decoded;
-            candidate.progress.expected_decoded_bytes = static_cast<uint16_t>(decoded) + 1U;
+            candidate.progress.expected_decoded_bytes = calculate_format_a_decoded_length(decoded);
             candidate.progress.exact_encoded_bytes_required =
                 encoded_bytes_for_decoded_length(candidate.progress.expected_decoded_bytes);
             candidate.progress.l_field_known = true;

@@ -110,6 +110,10 @@ void RadioStateMachine::on_read_success() {
         return;
     }
     soft_failure_streak_ = 0;
+    consecutive_errors_ = 0;
+    if (state_ == RsmState::Error) {
+        transition_to(RsmState::Receiving);
+    }
 }
 
 bool RadioStateMachine::is_escalating_soft_failure(common::ErrorCode error) const {

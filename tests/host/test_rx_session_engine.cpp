@@ -54,7 +54,7 @@ std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse
 
 std::vector<uint8_t> make_valid_first_block_frame(uint8_t c_field = 0x44, uint8_t marker = 0x07) {
     std::vector<uint8_t> decoded = {
-        0x0B,
+        0x09,
         c_field,
         0x84,
         0x0D,

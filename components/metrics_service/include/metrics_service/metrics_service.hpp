@@ -23,20 +23,10 @@ struct RuntimeQueueMetrics {
 };
 
 struct RuntimeTaskMetrics {
-    std::uint32_t radio_poll_delay_ms{0};
     std::uint32_t radio_loop_age_ms{0};
     std::uint32_t pipeline_loop_age_ms{0};
     std::uint32_t mqtt_loop_age_ms{0};
     std::uint32_t pipeline_frames_processed{0};
-    std::uint32_t radio_read_success_count{0};
-    std::uint32_t radio_read_not_found_count{0};
-    std::uint32_t radio_read_timeout_count{0};
-    std::uint32_t radio_read_error_count{0};
-    std::uint32_t radio_not_found_streak{0};
-    std::uint32_t radio_not_found_streak_peak{0};
-    std::uint32_t radio_poll_iterations{0};
-    std::uint32_t radio_timeout_streak{0};
-    std::uint32_t radio_timeout_streak_peak{0};
     std::uint32_t radio_stall_count{0};
     std::uint32_t pipeline_stall_count{0};
     std::uint32_t mqtt_stall_count{0};
@@ -46,6 +36,14 @@ struct RuntimeTaskMetrics {
     std::uint32_t pipeline_stack_hwm_words{0};
     std::uint32_t mqtt_stack_hwm_words{0};
     std::uint32_t health_stack_hwm_words{0};
+};
+
+struct RuntimeSessionMetrics {
+    std::uint32_t completed{0};
+    std::uint32_t crc_ok{0};
+    std::uint32_t crc_fail{0};
+    std::uint32_t incomplete{0};
+    std::uint32_t dropped_too_long{0};
 };
 
 /// Heap and uptime figures sampled from ESP-IDF (see snapshot()).
@@ -59,6 +57,7 @@ struct RuntimeMetrics {
     std::uint32_t reset_reason_code{0};
     RuntimeQueueMetrics queues{};
     RuntimeTaskMetrics tasks{};
+    RuntimeSessionMetrics sessions{};
 };
 
 class MetricsService {
@@ -81,19 +80,9 @@ class MetricsService {
                                      std::uint32_t mqtt_outbox_enqueue_drop,
                                      std::uint32_t mqtt_outbox_enqueue_errors);
     static void report_task_metrics(std::uint32_t radio_loop_age_ms,
-                                    std::uint32_t radio_poll_delay_ms,
                                     std::uint32_t pipeline_loop_age_ms,
                                     std::uint32_t mqtt_loop_age_ms,
                                     std::uint32_t pipeline_frames_processed,
-                                    std::uint32_t radio_read_success_count,
-                                    std::uint32_t radio_read_not_found_count,
-                                    std::uint32_t radio_read_timeout_count,
-                                    std::uint32_t radio_read_error_count,
-                                    std::uint32_t radio_not_found_streak,
-                                    std::uint32_t radio_not_found_streak_peak,
-                                    std::uint32_t radio_poll_iterations,
-                                    std::uint32_t radio_timeout_streak,
-                                    std::uint32_t radio_timeout_streak_peak,
                                     std::uint32_t radio_stall_count,
                                     std::uint32_t pipeline_stall_count,
                                     std::uint32_t mqtt_stall_count,
@@ -105,6 +94,10 @@ class MetricsService {
                                           std::uint32_t health_stack_hwm_words);
     static void reset_queue_metrics();
     static void reset_task_metrics();
+
+    static void report_session_completed(bool crc_ok);
+    static void report_session_aborted();
+    static void reset_session_metrics();
 
   private:
     MetricsService() = default;

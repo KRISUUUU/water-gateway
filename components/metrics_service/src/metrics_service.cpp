@@ -50,6 +50,12 @@ std::atomic<std::uint32_t> g_pipeline_stack_hwm_words{0};
 std::atomic<std::uint32_t> g_mqtt_stack_hwm_words{0};
 std::atomic<std::uint32_t> g_health_stack_hwm_words{0};
 
+std::atomic<std::uint32_t> g_session_completed{0};
+std::atomic<std::uint32_t> g_session_crc_ok{0};
+std::atomic<std::uint32_t> g_session_crc_fail{0};
+std::atomic<std::uint32_t> g_session_incomplete{0};
+std::atomic<std::uint32_t> g_session_dropped_too_long{0};
+
 } // namespace
 
 MetricsService& MetricsService::instance() {
@@ -91,23 +97,10 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.queues.mqtt_outbox_enqueue_errors =
         g_mqtt_outbox_enqueue_errors.load(std::memory_order_relaxed);
 
-    m.tasks.radio_poll_delay_ms = g_radio_poll_delay_ms.load(std::memory_order_relaxed);
     m.tasks.radio_loop_age_ms = g_radio_loop_age_ms.load(std::memory_order_relaxed);
     m.tasks.pipeline_loop_age_ms = g_pipeline_loop_age_ms.load(std::memory_order_relaxed);
     m.tasks.mqtt_loop_age_ms = g_mqtt_loop_age_ms.load(std::memory_order_relaxed);
     m.tasks.pipeline_frames_processed = g_pipeline_frames_processed.load(std::memory_order_relaxed);
-    m.tasks.radio_read_success_count = g_radio_read_success_count.load(std::memory_order_relaxed);
-    m.tasks.radio_read_not_found_count =
-        g_radio_read_not_found_count.load(std::memory_order_relaxed);
-    m.tasks.radio_read_timeout_count = g_radio_read_timeout_count.load(std::memory_order_relaxed);
-    m.tasks.radio_read_error_count = g_radio_read_error_count.load(std::memory_order_relaxed);
-    m.tasks.radio_not_found_streak = g_radio_not_found_streak.load(std::memory_order_relaxed);
-    m.tasks.radio_not_found_streak_peak =
-        g_radio_not_found_streak_peak.load(std::memory_order_relaxed);
-    m.tasks.radio_poll_iterations = g_radio_poll_iterations.load(std::memory_order_relaxed);
-    m.tasks.radio_timeout_streak = g_radio_timeout_streak.load(std::memory_order_relaxed);
-    m.tasks.radio_timeout_streak_peak =
-        g_radio_timeout_streak_peak.load(std::memory_order_relaxed);
     m.tasks.radio_stall_count = g_radio_stall_count.load(std::memory_order_relaxed);
     m.tasks.pipeline_stall_count = g_pipeline_stall_count.load(std::memory_order_relaxed);
     m.tasks.mqtt_stall_count = g_mqtt_stall_count.load(std::memory_order_relaxed);
@@ -117,6 +110,12 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.tasks.pipeline_stack_hwm_words = g_pipeline_stack_hwm_words.load(std::memory_order_relaxed);
     m.tasks.mqtt_stack_hwm_words = g_mqtt_stack_hwm_words.load(std::memory_order_relaxed);
     m.tasks.health_stack_hwm_words = g_health_stack_hwm_words.load(std::memory_order_relaxed);
+
+    m.sessions.completed = g_session_completed.load(std::memory_order_relaxed);
+    m.sessions.crc_ok = g_session_crc_ok.load(std::memory_order_relaxed);
+    m.sessions.crc_fail = g_session_crc_fail.load(std::memory_order_relaxed);
+    m.sessions.incomplete = g_session_incomplete.load(std::memory_order_relaxed);
+    m.sessions.dropped_too_long = g_session_dropped_too_long.load(std::memory_order_relaxed);
 
     return common::Result<RuntimeMetrics>::ok(m);
 }
@@ -156,38 +155,18 @@ void MetricsService::reset_queue_metrics() {
 }
 
 void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
-                                         std::uint32_t radio_poll_delay_ms,
                                          std::uint32_t pipeline_loop_age_ms,
                                          std::uint32_t mqtt_loop_age_ms,
                                          std::uint32_t pipeline_frames_processed,
-                                         std::uint32_t radio_read_success_count,
-                                         std::uint32_t radio_read_not_found_count,
-                                         std::uint32_t radio_read_timeout_count,
-                                         std::uint32_t radio_read_error_count,
-                                         std::uint32_t radio_not_found_streak,
-                                         std::uint32_t radio_not_found_streak_peak,
-                                         std::uint32_t radio_poll_iterations,
-                                         std::uint32_t radio_timeout_streak,
-                                         std::uint32_t radio_timeout_streak_peak,
                                          std::uint32_t radio_stall_count,
                                          std::uint32_t pipeline_stall_count,
                                          std::uint32_t mqtt_stall_count,
                                          std::uint32_t watchdog_register_errors,
                                          std::uint32_t watchdog_feed_errors) {
     g_radio_loop_age_ms.store(radio_loop_age_ms, std::memory_order_relaxed);
-    g_radio_poll_delay_ms.store(radio_poll_delay_ms, std::memory_order_relaxed);
     g_pipeline_loop_age_ms.store(pipeline_loop_age_ms, std::memory_order_relaxed);
     g_mqtt_loop_age_ms.store(mqtt_loop_age_ms, std::memory_order_relaxed);
     g_pipeline_frames_processed.store(pipeline_frames_processed, std::memory_order_relaxed);
-    g_radio_read_success_count.store(radio_read_success_count, std::memory_order_relaxed);
-    g_radio_read_not_found_count.store(radio_read_not_found_count, std::memory_order_relaxed);
-    g_radio_read_timeout_count.store(radio_read_timeout_count, std::memory_order_relaxed);
-    g_radio_read_error_count.store(radio_read_error_count, std::memory_order_relaxed);
-    g_radio_not_found_streak.store(radio_not_found_streak, std::memory_order_relaxed);
-    g_radio_not_found_streak_peak.store(radio_not_found_streak_peak, std::memory_order_relaxed);
-    g_radio_poll_iterations.store(radio_poll_iterations, std::memory_order_relaxed);
-    g_radio_timeout_streak.store(radio_timeout_streak, std::memory_order_relaxed);
-    g_radio_timeout_streak_peak.store(radio_timeout_streak_peak, std::memory_order_relaxed);
     g_radio_stall_count.store(radio_stall_count, std::memory_order_relaxed);
     g_pipeline_stall_count.store(pipeline_stall_count, std::memory_order_relaxed);
     g_mqtt_stall_count.store(mqtt_stall_count, std::memory_order_relaxed);
@@ -196,7 +175,7 @@ void MetricsService::report_task_metrics(std::uint32_t radio_loop_age_ms,
 }
 
 void MetricsService::reset_task_metrics() {
-    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    report_task_metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
     report_task_stack_metrics(0, 0, 0, 0);
 }
 
@@ -208,6 +187,27 @@ void MetricsService::report_task_stack_metrics(std::uint32_t radio_stack_hwm_wor
     g_pipeline_stack_hwm_words.store(pipeline_stack_hwm_words, std::memory_order_relaxed);
     g_mqtt_stack_hwm_words.store(mqtt_stack_hwm_words, std::memory_order_relaxed);
     g_health_stack_hwm_words.store(health_stack_hwm_words, std::memory_order_relaxed);
+}
+
+void MetricsService::report_session_completed(bool crc_ok) {
+    g_session_completed.fetch_add(1, std::memory_order_relaxed);
+    if (crc_ok) {
+        g_session_crc_ok.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        g_session_crc_fail.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void MetricsService::report_session_aborted() {
+    g_session_incomplete.fetch_add(1, std::memory_order_relaxed);
+}
+
+void MetricsService::reset_session_metrics() {
+    g_session_completed.store(0, std::memory_order_relaxed);
+    g_session_crc_ok.store(0, std::memory_order_relaxed);
+    g_session_crc_fail.store(0, std::memory_order_relaxed);
+    g_session_incomplete.store(0, std::memory_order_relaxed);
+    g_session_dropped_too_long.store(0, std::memory_order_relaxed);
 }
 
 } // namespace metrics_service

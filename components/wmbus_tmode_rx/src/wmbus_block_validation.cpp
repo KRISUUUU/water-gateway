@@ -10,7 +10,7 @@ constexpr size_t kFirstBlockTotalBytes = 12;
 
 uint16_t calculate_wmbus_crc16(const uint8_t* data, size_t length) {
     if (!data || length == 0) {
-        return 0;
+        return 0xFFFF;
     }
 
     uint16_t crc = 0;
@@ -24,7 +24,7 @@ uint16_t calculate_wmbus_crc16(const uint8_t* data, size_t length) {
             }
         }
     }
-    return crc;
+    return static_cast<uint16_t>(~crc);
 }
 
 FirstBlockValidationResult validate_first_block(const uint8_t* decoded, size_t decoded_length) {

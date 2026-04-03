@@ -52,7 +52,7 @@ std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse
 
 std::vector<uint8_t> make_valid_first_block_frame(uint8_t c_field = 0x44, uint8_t marker = 0x07) {
     std::vector<uint8_t> decoded = {
-        0x0B,
+        0x09,
         c_field,
         0x84,
         0x0D,
@@ -150,6 +150,9 @@ void test_exact_encoded_length_calculation() {
                   "12 decoded bytes must require 18 encoded bytes");
     static_assert(WmbusTmodeFramer::encoded_bytes_for_decoded_length(11) == 17,
                   "11 decoded bytes must require 17 encoded bytes");
+    static_assert(WmbusTmodeFramer::encoded_bytes_for_decoded_length(
+                      calculate_format_a_decoded_length(9)) == 18,
+                  "format-A L=9 (12 decoded bytes) requires 18 encoded bytes");
 
     WmbusTmodeFramer framer;
     const auto decoded = make_valid_first_block_frame();
@@ -184,6 +187,29 @@ void test_early_rejection_without_huge_buffer() {
     std::printf("  PASS: early rejection without huge buffer\n");
 }
 
+void test_format_a_length_calculation() {
+    assert(calculate_format_a_decoded_length(9) == 12);
+    assert(calculate_format_a_decoded_length(25) == 30);
+    assert(calculate_format_a_decoded_length(26) == 33);
+    std::printf("  PASS: format-A length calculation\n");
+}
+
+void test_explicit_ft3_crc() {
+    uint8_t raw_data[12] = {0x09, 0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, 0x00, 0x00};
+    uint16_t expected_crc = calculate_wmbus_crc16(raw_data, 10);
+    raw_data[10] = static_cast<uint8_t>((expected_crc >> 8) & 0xFF);
+    raw_data[11] = static_cast<uint8_t>(expected_crc & 0xFF);
+    
+    auto result = validate_first_block(raw_data, 12);
+    assert(result.state == FirstBlockValidationState::Passed);
+    
+    raw_data[11] ^= 0x01;
+    auto result_failed = validate_first_block(raw_data, 12);
+    assert(result_failed.state == FirstBlockValidationState::Failed);
+    
+    std::printf("  PASS: explicit FT3 CRC first-block validation\n");
+}
+
 void test_first_block_validation_behavior() {
     const auto decoded = make_valid_first_block_frame();
     auto result = validate_first_block(decoded.data(), 8);
@@ -208,6 +234,8 @@ int main() {
     test_sane_vs_insane_l_field();
     test_exact_encoded_length_calculation();
     test_early_rejection_without_huge_buffer();
+    test_explicit_ft3_crc();
     test_first_block_validation_behavior();
+    test_format_a_length_calculation();
     return 0;
 }

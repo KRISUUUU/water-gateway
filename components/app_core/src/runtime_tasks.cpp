@@ -63,15 +63,6 @@ static std::atomic<uint32_t> radio_loop_last_ms{0};
 static std::atomic<uint32_t> pipeline_loop_last_ms{0};
 static std::atomic<uint32_t> mqtt_loop_last_ms{0};
 static std::atomic<uint32_t> pipeline_frames_processed{0};
-static std::atomic<uint32_t> radio_read_success_count{0};
-static std::atomic<uint32_t> radio_read_not_found_count{0};
-static std::atomic<uint32_t> radio_read_timeout_count{0};
-static std::atomic<uint32_t> radio_read_error_count{0};
-static std::atomic<uint32_t> radio_not_found_streak{0};
-static std::atomic<uint32_t> radio_not_found_streak_peak{0};
-static std::atomic<uint32_t> radio_poll_iterations{0};
-static std::atomic<uint32_t> radio_timeout_streak{0};
-static std::atomic<uint32_t> radio_timeout_streak_peak{0};
 static std::atomic<uint32_t> radio_stall_count{0};
 static std::atomic<uint32_t> pipeline_stall_count{0};
 static std::atomic<uint32_t> mqtt_stall_count{0};
@@ -224,17 +215,8 @@ static void sample_queue_levels() {
     const uint32_t pipeline_age = now - pipeline_loop_last_ms.load(std::memory_order_relaxed);
     const uint32_t mqtt_age = now - mqtt_loop_last_ms.load(std::memory_order_relaxed);
     metrics_service::MetricsService::report_task_metrics(
-        radio_age, kRadioPollDelayMs, pipeline_age, mqtt_age,
+        radio_age, pipeline_age, mqtt_age,
         pipeline_frames_processed.load(std::memory_order_relaxed),
-        radio_read_success_count.load(std::memory_order_relaxed),
-        radio_read_not_found_count.load(std::memory_order_relaxed),
-        radio_read_timeout_count.load(std::memory_order_relaxed),
-        radio_read_error_count.load(std::memory_order_relaxed),
-        radio_not_found_streak.load(std::memory_order_relaxed),
-        radio_not_found_streak_peak.load(std::memory_order_relaxed),
-        radio_poll_iterations.load(std::memory_order_relaxed),
-        radio_timeout_streak.load(std::memory_order_relaxed),
-        radio_timeout_streak_peak.load(std::memory_order_relaxed),
         radio_stall_count.load(std::memory_order_relaxed),
         pipeline_stall_count.load(std::memory_order_relaxed),
         mqtt_stall_count.load(std::memory_order_relaxed),
@@ -372,7 +354,6 @@ static void radio_rx_task(void* /*param*/) {
 
     while (true) {
         radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
-        radio_poll_iterations.fetch_add(1, std::memory_order_relaxed);
         rsm.tick();
         const auto wait_result = wait_for_radio_rx_work(radio);
         const auto& owner_events = wait_result.events;
@@ -381,10 +362,10 @@ static void radio_rx_task(void* /*param*/) {
         if (step_result.is_ok()) {
             const auto& step = step_result.value();
             if (step.has_frame && frame_queue) {
+                ESP_LOGI(TAG, "Exact-frame compiled: %u bytes, CRC=%s",
+                         step.frame.candidate.decoded_length, step.frame.crc_ok ? "OK" : "FAIL");
+                metrics_service::MetricsService::report_session_completed(step.frame.crc_ok);
                 rsm.on_read_success();
-                radio_read_success_count.fetch_add(1, std::memory_order_relaxed);
-                radio_not_found_streak.store(0, std::memory_order_relaxed);
-                radio_timeout_streak.store(0, std::memory_order_relaxed);
                 rx_count++;
                 auto frame = encode_session_capture(step.frame,
                                                     ntp_service::NtpService::instance().now_epoch_ms(),
@@ -406,33 +387,19 @@ static void radio_rx_task(void* /*param*/) {
                     sample_queue_levels();
                 }
             } else if (step.has_diagnostic) {
+                ESP_LOGI(TAG, "Session aborted: reject_reason=%d, radio_error=%s",
+                         static_cast<int>(step.diagnostic.reject_reason),
+                         common::error_code_to_string(step.radio_error));
+                metrics_service::MetricsService::report_session_aborted();
                 auto record = step.diagnostic;
                 populate_rf_diagnostic_timestamps(record);
                 rf_diagnostics::RfDiagnosticsService::instance().insert(record);
-            } else {
-                radio_read_not_found_count.fetch_add(1, std::memory_order_relaxed);
-                const uint32_t streak =
-                    radio_not_found_streak.fetch_add(1, std::memory_order_relaxed) + 1U;
-                update_peak(radio_not_found_streak_peak, streak);
             }
 
             if (step.radio_error != common::ErrorCode::OK) {
-                radio_not_found_streak.store(0, std::memory_order_relaxed);
-                if (step.radio_error == common::ErrorCode::RadioQualityDrop) {
-                    radio_timeout_streak.store(0, std::memory_order_relaxed);
-                } else if (step.radio_error == common::ErrorCode::RadioFifoOverflow) {
-                    radio_timeout_streak.store(0, std::memory_order_relaxed);
-                    radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
-                } else {
-                    radio_timeout_streak.store(0, std::memory_order_relaxed);
-                    radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
-                }
                 rsm.on_read_failure(step.radio_error);
             }
         } else {
-            radio_not_found_streak.store(0, std::memory_order_relaxed);
-            radio_timeout_streak.store(0, std::memory_order_relaxed);
-            radio_read_error_count.fetch_add(1, std::memory_order_relaxed);
             rsm.on_read_failure(step_result.error());
         }
 
@@ -715,7 +682,6 @@ static void health_task(void* /*param*/) {
             auto metrics_res = metrics_service::MetricsService::instance().snapshot();
             if (metrics_res.is_ok()) {
                 const auto& m = metrics_res.value();
-                const auto& rc = radio_cc1101::RadioCc1101::instance().counters();
                 const auto& tc = telegram_router::TelegramRouter::instance().counters();
                 const auto ms = mqtt.status();
                 const bool rx_active = radio_state_machine::RadioStateMachine::instance().state() ==
@@ -725,8 +691,8 @@ static void health_task(void* /*param*/) {
                     cfg.mqtt.prefix, cfg.device.hostname, static_cast<uint32_t>(m.uptime_s),
                     m.free_heap_bytes, m.min_free_heap_bytes, wifi.status().rssi_dbm,
                     mqtt.is_connected() ? "connected" : "disconnected",
-                    rx_active ? "rx_active" : "idle", rc.frames_received, tc.frames_published,
-                    tc.frames_duplicate, rc.frames_crc_fail, ms.publish_count,
+                    rx_active ? "rx_active" : "idle", m.sessions.completed, tc.frames_published,
+                    tc.frames_duplicate, m.sessions.crc_fail, ms.publish_count,
                     ms.publish_failures, "");
                 if (command_result.is_ok()) {
                     enqueue_mqtt(command_result.value());
@@ -771,15 +737,6 @@ common::Result<void> AppCore::create_runtime_tasks() {
     pipeline_loop_last_ms.store(now, std::memory_order_relaxed);
     mqtt_loop_last_ms.store(now, std::memory_order_relaxed);
     pipeline_frames_processed.store(0, std::memory_order_relaxed);
-    radio_read_success_count.store(0, std::memory_order_relaxed);
-    radio_read_not_found_count.store(0, std::memory_order_relaxed);
-    radio_read_timeout_count.store(0, std::memory_order_relaxed);
-    radio_read_error_count.store(0, std::memory_order_relaxed);
-    radio_not_found_streak.store(0, std::memory_order_relaxed);
-    radio_not_found_streak_peak.store(0, std::memory_order_relaxed);
-    radio_poll_iterations.store(0, std::memory_order_relaxed);
-    radio_timeout_streak.store(0, std::memory_order_relaxed);
-    radio_timeout_streak_peak.store(0, std::memory_order_relaxed);
     radio_stall_count.store(0, std::memory_order_relaxed);
     pipeline_stall_count.store(0, std::memory_order_relaxed);
     mqtt_stall_count.store(0, std::memory_order_relaxed);
@@ -789,6 +746,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
     pipeline_config_dirty.store(false, std::memory_order_relaxed);
     metrics_service::MetricsService::reset_queue_metrics();
     metrics_service::MetricsService::reset_task_metrics();
+    metrics_service::MetricsService::reset_session_metrics();
 
     frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(wmbus_link::EncodedRxFrame));
     mqtt_outbox = xQueueCreate(kMqttOutboxDepth, sizeof(mqtt_service::MqttPublishCommand));

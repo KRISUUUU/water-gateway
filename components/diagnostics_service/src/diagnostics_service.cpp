@@ -136,21 +136,15 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
         return;
     }
     cJSON_AddNumberToObject(counters, "frames_received",
-                            static_cast<double>(snap.radio.frames_received));
-    cJSON_AddNumberToObject(counters, "rx_read_calls",
-                            static_cast<double>(snap.radio.rx_read_calls));
-    cJSON_AddNumberToObject(counters, "rx_not_found",
-                            static_cast<double>(snap.radio.rx_not_found));
-    cJSON_AddNumberToObject(counters, "rx_timeouts",
-                            static_cast<double>(snap.radio.rx_timeouts));
+                            static_cast<double>(snap.metrics.sessions.completed));
     cJSON_AddNumberToObject(counters, "frames_crc_ok",
-                            static_cast<double>(snap.radio.frames_crc_ok));
+                            static_cast<double>(snap.metrics.sessions.crc_ok));
     cJSON_AddNumberToObject(counters, "frames_crc_fail",
-                            static_cast<double>(snap.radio.frames_crc_fail));
+                            static_cast<double>(snap.metrics.sessions.crc_fail));
     cJSON_AddNumberToObject(counters, "frames_incomplete",
-                            static_cast<double>(snap.radio.frames_incomplete));
+                            static_cast<double>(snap.metrics.sessions.incomplete));
     cJSON_AddNumberToObject(counters, "frames_dropped_too_long",
-                            static_cast<double>(snap.radio.frames_dropped_too_long));
+                            static_cast<double>(snap.metrics.sessions.dropped_too_long));
     cJSON_AddNumberToObject(counters, "fifo_overflows",
                             static_cast<double>(snap.radio.fifo_overflows));
     cJSON_AddNumberToObject(counters, "radio_resets", static_cast<double>(snap.radio.radio_resets));
@@ -245,8 +239,6 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
     if (!tasks) {
         return;
     }
-    cJSON_AddNumberToObject(tasks, "radio_poll_delay_ms",
-                            static_cast<double>(snap.metrics.tasks.radio_poll_delay_ms));
     cJSON_AddNumberToObject(tasks, "radio_loop_age_ms",
                             static_cast<double>(snap.metrics.tasks.radio_loop_age_ms));
     cJSON_AddNumberToObject(tasks, "pipeline_loop_age_ms",
@@ -255,24 +247,6 @@ void fill_metrics(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.tasks.mqtt_loop_age_ms));
     cJSON_AddNumberToObject(tasks, "pipeline_frames_processed",
                             static_cast<double>(snap.metrics.tasks.pipeline_frames_processed));
-    cJSON_AddNumberToObject(tasks, "radio_read_success_count",
-                            static_cast<double>(snap.metrics.tasks.radio_read_success_count));
-    cJSON_AddNumberToObject(tasks, "radio_read_not_found_count",
-                            static_cast<double>(snap.metrics.tasks.radio_read_not_found_count));
-    cJSON_AddNumberToObject(tasks, "radio_read_timeout_count",
-                            static_cast<double>(snap.metrics.tasks.radio_read_timeout_count));
-    cJSON_AddNumberToObject(tasks, "radio_read_error_count",
-                            static_cast<double>(snap.metrics.tasks.radio_read_error_count));
-    cJSON_AddNumberToObject(tasks, "radio_not_found_streak",
-                            static_cast<double>(snap.metrics.tasks.radio_not_found_streak));
-    cJSON_AddNumberToObject(tasks, "radio_not_found_streak_peak",
-                            static_cast<double>(snap.metrics.tasks.radio_not_found_streak_peak));
-    cJSON_AddNumberToObject(tasks, "radio_poll_iterations",
-                            static_cast<double>(snap.metrics.tasks.radio_poll_iterations));
-    cJSON_AddNumberToObject(tasks, "radio_timeout_streak",
-                            static_cast<double>(snap.metrics.tasks.radio_timeout_streak));
-    cJSON_AddNumberToObject(tasks, "radio_timeout_streak_peak",
-                            static_cast<double>(snap.metrics.tasks.radio_timeout_streak_peak));
     cJSON_AddNumberToObject(tasks, "radio_stall_count",
                             static_cast<double>(snap.metrics.tasks.radio_stall_count));
     cJSON_AddNumberToObject(tasks, "pipeline_stall_count",

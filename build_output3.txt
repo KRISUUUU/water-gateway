@@ -1,0 +1,46 @@
+Executing action: all (aliases: build)
+Running ninja in directory /home/krzycho/Projekty/water-gateway/build
+Executing "ninja all"...
+[1/26] Building CXX object esp-idf/wmbus_tmode_rx/CMakeFiles/__idf_wmbus_tmode_rx.dir/src/wmbus_block_validation.cpp.obj
+[2/26] cd /home/krzycho/Projekty/water-gateway/build && /home/krzycho/.espressif/python_env/idf5.5_py3.14_env/bin/python /home/krzycho/.espressif/v5.5.4/esp-idf/components/spiffs/spiffsgen.py 0xe0000 /home/krzycho/Projekty/water-gateway/web /home/krzycho/Projekty/water-gateway/build/storage.bin --page-size=256 --obj-name-len=32 --meta-len=4 --use-magic --use-magic-len
+[3/26] Performing build step for 'bootloader'
+[1/1] cd /home/krzycho/Projekty/water-gateway/build/bootloader/esp-idf/esptool_py && /home/krzycho/.espressif/python_env/idf5.5_py3.14_env/bin/python /home/krzycho/.espressif/v5.5.4/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x1000 /home/krzycho/Projekty/water-gateway/build/bootloader/bootloader.bin
+Bootloader binary size 0x5e40 bytes. 0x11c0 bytes (16%) free.
+[4/26] No install step for 'bootloader'
+[5/26] Completed 'bootloader'
+[6/26] Building CXX object esp-idf/wmbus_tmode_rx/CMakeFiles/__idf_wmbus_tmode_rx.dir/src/wmbus_tmode_framer.cpp.obj
+[7/26] Building CXX object esp-idf/wmbus_tmode_rx/CMakeFiles/__idf_wmbus_tmode_rx.dir/src/packet_length_strategy.cpp.obj
+[8/26] Building CXX object esp-idf/telegram_router/CMakeFiles/__idf_telegram_router.dir/src/telegram_router.cpp.obj
+[9/26] Building CXX object esp-idf/wmbus_link/CMakeFiles/__idf_wmbus_link.dir/src/wmbus_link.cpp.obj
+[10/26] Building CXX object esp-idf/wmbus_tmode_rx/CMakeFiles/__idf_wmbus_tmode_rx.dir/src/rx_session_engine.cpp.obj
+[11/26] Linking C static library esp-idf/wmbus_tmode_rx/libwmbus_tmode_rx.a
+[12/26] Linking C static library esp-idf/wmbus_link/libwmbus_link.a
+[13/26] Linking C static library esp-idf/telegram_router/libtelegram_router.a
+[14/26] Building CXX object esp-idf/app_core/CMakeFiles/__idf_app_core.dir/src/app_core.cpp.obj
+[15/26] Building CXX object esp-idf/app_core/CMakeFiles/__idf_app_core.dir/src/runtime_tasks.cpp.obj
+[16/26] Building CXX object esp-idf/support_bundle_service/CMakeFiles/__idf_support_bundle_service.dir/src/support_bundle_service.cpp.obj
+[17/26] Building CXX object esp-idf/api_handlers/CMakeFiles/__idf_api_handlers.dir/src/meter_handlers.cpp.obj
+[18/26] Building CXX object esp-idf/meter_registry/CMakeFiles/__idf_meter_registry.dir/src/meter_registry.cpp.obj
+[19/26] Linking C static library esp-idf/meter_registry/libmeter_registry.a
+[20/26] Linking C static library esp-idf/support_bundle_service/libsupport_bundle_service.a
+[21/26] Linking C static library esp-idf/api_handlers/libapi_handlers.a
+[22/26] Linking C static library esp-idf/app_core/libapp_core.a
+[23/26] Generating esp-idf/esp_system/ld/sections.ld
+[24/26] Linking CXX executable water_gateway.elf
+[25/26] Generating binary image from built executable
+esptool.py v4.12.dev1
+Creating esp32 image...
+Merged 2 ELF sections
+Successfully created esp32 image.
+Generated /home/krzycho/Projekty/water-gateway/build/water_gateway.bin
+[26/26] cd /home/krzycho/Projekty/water-gateway/build/esp-idf/esptool_py && /home/krzycho/.espressif/python_env/idf5.5_py3.14_env/bin/python /home/krzycho/.espressif/v5.5.4/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/krzycho/Projekty/water-gateway/build/partition_table/partition-table.bin /home/krzycho/Projekty/water-gateway/build/water_gateway.bin
+water_gateway.bin binary size 0x1576b0 bytes. Smallest app partition is 0x180000 bytes. 0x28950 bytes (11%) free.
+
+Project build complete. To flash, run:
+ idf.py flash
+or
+ idf.py -p PORT flash
+or
+ python -m esptool --chip esp32 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 4MB --flash_freq 40m 0x1000 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0xf000 build/ota_data_initial.bin 0x20000 build/water_gateway.bin 0x320000 build/storage.bin
+or from the "/home/krzycho/Projekty/water-gateway/build" directory
+ python -m esptool --chip esp32 -b 460800 --before default_reset --after hard_reset write_flash "@flash_args"

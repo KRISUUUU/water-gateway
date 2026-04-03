@@ -105,9 +105,13 @@ RxSessionEngine::process_impl(SessionRadio& radio, const radio_cc1101::RadioOwne
 
     const auto status = status_result.value();
     if (status.fifo_overflow) {
+        auto restart = radio.abort_and_restart_rx();
+        if (restart.is_error()) {
+            return start_recovery(radio, SessionAbortReason::RadioSpiFailure, restart.error(),
+                                  now_ms);
+        }
         auto result = make_diagnostic_result(SessionAbortReason::RadioOverflow,
                                              rf_diagnostics::RejectReason::RadioOverflow, now_ms);
-        result.state = SessionStepState::RecoveryRequested;
         result.radio_error = common::ErrorCode::RadioFifoOverflow;
         clear_session();
         return common::Result<SessionStepResult>::ok(result);
@@ -201,6 +205,12 @@ RxSessionEngine::process_impl(SessionRadio& radio, const radio_cc1101::RadioOwne
                         result.radio_error = restore_result.error();
                     }
                 }
+                
+                auto restart = radio.abort_and_restart_rx();
+                if (restart.is_error() && result.radio_error == common::ErrorCode::OK) {
+                    result.radio_error = restart.error();
+                }
+
                 clear_session();
                 return common::Result<SessionStepResult>::ok(result);
             }
@@ -213,10 +223,14 @@ RxSessionEngine::process_impl(SessionRadio& radio, const radio_cc1101::RadioOwne
         }
         current_status = next_status_result.value();
         if (current_status.fifo_overflow) {
+            auto restart = radio.abort_and_restart_rx();
+            if (restart.is_error()) {
+                return start_recovery(radio, SessionAbortReason::RadioSpiFailure, restart.error(),
+                                      now_ms);
+            }
             auto result = make_diagnostic_result(SessionAbortReason::RadioOverflow,
                                                  rf_diagnostics::RejectReason::RadioOverflow,
                                                  now_ms);
-            result.state = SessionStepState::RecoveryRequested;
             result.radio_error = common::ErrorCode::RadioFifoOverflow;
             clear_session();
             return common::Result<SessionStepResult>::ok(result);

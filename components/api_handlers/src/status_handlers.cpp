@@ -48,30 +48,7 @@ esp_err_t send_json_fragment(httpd_req_t* req, const std::string& fragment, bool
     return send_chunk(req, chunk);
 }
 
-const char* radio_drop_reason_name(radio_cc1101::RadioDropReason reason) {
-    using radio_cc1101::RadioDropReason;
-    switch (reason) {
-    case RadioDropReason::None:
-        return "none";
-    case RadioDropReason::OversizedBurst:
-        return "oversized_burst";
-    case RadioDropReason::BurstTimeout:
-        return "burst_timeout";
-    }
-    return "unknown";
-}
 
-std::string radio_drop_prefix_hex(const radio_cc1101::RadioDropInfo& drop) {
-    static constexpr char kHex[] = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(static_cast<size_t>(drop.prefix_length) * 2U);
-    for (uint8_t i = 0; i < drop.prefix_length; ++i) {
-        const uint8_t b = drop.prefix[i];
-        out.push_back(kHex[(b >> 4U) & 0x0F]);
-        out.push_back(kHex[b & 0x0F]);
-    }
-    return out;
-}
 
 template <typename Builder>
 esp_err_t send_json_object_section(httpd_req_t* req, bool& first_field, Builder&& builder) {
@@ -123,15 +100,6 @@ void add_metrics_json(cJSON* root, const metrics_service::RuntimeMetrics& metric
     cJSON_AddNumberToObject(tasks, "pipeline_loop_age_ms", static_cast<double>(metrics.tasks.pipeline_loop_age_ms));
     cJSON_AddNumberToObject(tasks, "mqtt_loop_age_ms", static_cast<double>(metrics.tasks.mqtt_loop_age_ms));
     cJSON_AddNumberToObject(tasks, "pipeline_frames_processed", static_cast<double>(metrics.tasks.pipeline_frames_processed));
-    cJSON_AddNumberToObject(tasks, "radio_read_success_count", static_cast<double>(metrics.tasks.radio_read_success_count));
-    cJSON_AddNumberToObject(tasks, "radio_read_not_found_count", static_cast<double>(metrics.tasks.radio_read_not_found_count));
-    cJSON_AddNumberToObject(tasks, "radio_read_timeout_count", static_cast<double>(metrics.tasks.radio_read_timeout_count));
-    cJSON_AddNumberToObject(tasks, "radio_read_error_count", static_cast<double>(metrics.tasks.radio_read_error_count));
-    cJSON_AddNumberToObject(tasks, "radio_not_found_streak", static_cast<double>(metrics.tasks.radio_not_found_streak));
-    cJSON_AddNumberToObject(tasks, "radio_not_found_streak_peak", static_cast<double>(metrics.tasks.radio_not_found_streak_peak));
-    cJSON_AddNumberToObject(tasks, "radio_poll_iterations", static_cast<double>(metrics.tasks.radio_poll_iterations));
-    cJSON_AddNumberToObject(tasks, "radio_timeout_streak", static_cast<double>(metrics.tasks.radio_timeout_streak));
-    cJSON_AddNumberToObject(tasks, "radio_timeout_streak_peak", static_cast<double>(metrics.tasks.radio_timeout_streak_peak));
     cJSON_AddNumberToObject(tasks, "radio_stall_count", static_cast<double>(metrics.tasks.radio_stall_count));
     cJSON_AddNumberToObject(tasks, "pipeline_stall_count", static_cast<double>(metrics.tasks.pipeline_stall_count));
     cJSON_AddNumberToObject(tasks, "mqtt_stall_count", static_cast<double>(metrics.tasks.mqtt_stall_count));
@@ -224,7 +192,6 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
                             const mqtt_service::MqttStatus& mqtt, const radio_cc1101::RadioCc1101& radio,
                             const ota_manager::OtaStatus& ota) {
     const auto& counters = radio.counters();
-    const auto last_drop = radio.last_drop();
     cJSON_AddStringToObject(root, "mode", cfg.wifi.is_configured() ? "normal" : "provisioning");
     cJSON_AddStringToObject(root, "firmware_version", ota.current_version);
     cJSON* wifi_obj = cJSON_AddObjectToObject(root, "wifi");
@@ -248,24 +215,12 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
     cJSON_AddNumberToObject(mqtt_obj, "outbox_carry_drops", static_cast<double>(mqtt.outbox_carry_drops));
     cJSON* radio_obj = cJSON_AddObjectToObject(root, "radio");
     cJSON_AddStringToObject(radio_obj, "state", radio_state_name(radio.state()));
-    cJSON_AddNumberToObject(radio_obj, "rx_read_calls", static_cast<double>(counters.rx_read_calls));
-    cJSON_AddNumberToObject(radio_obj, "rx_not_found", static_cast<double>(counters.rx_not_found));
-    cJSON_AddNumberToObject(radio_obj, "rx_timeouts", static_cast<double>(counters.rx_timeouts));
-    cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(counters.frames_received));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(counters.frames_crc_ok));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(counters.frames_crc_fail));
-    cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(counters.frames_incomplete));
-    cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long", static_cast<double>(counters.frames_dropped_too_long));
+    cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(metrics.sessions.completed));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.crc_ok));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.crc_fail));
+    cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(metrics.sessions.incomplete));
+    cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long", static_cast<double>(metrics.sessions.dropped_too_long));
     cJSON_AddNumberToObject(radio_obj, "fifo_overflows", static_cast<double>(counters.fifo_overflows));
-    cJSON* last_drop_obj = cJSON_AddObjectToObject(radio_obj, "last_drop");
-    cJSON_AddStringToObject(last_drop_obj, "reason", radio_drop_reason_name(last_drop.reason));
-    cJSON_AddBoolToObject(last_drop_obj, "quality_issue", last_drop.quality_issue);
-    cJSON_AddNumberToObject(last_drop_obj, "captured_length",
-                            static_cast<double>(last_drop.captured_length));
-    cJSON_AddNumberToObject(last_drop_obj, "first_data_byte",
-                            static_cast<double>(last_drop.first_data_byte));
-    cJSON_AddStringToObject(last_drop_obj, "prefix_hex",
-                            radio_drop_prefix_hex(last_drop).c_str());
     cJSON* queues = cJSON_AddObjectToObject(root, "queues");
     cJSON* frame_q = cJSON_AddObjectToObject(queues, "frame_queue");
     cJSON_AddNumberToObject(frame_q, "depth", static_cast<double>(metrics.queues.frame_queue_depth));
@@ -290,12 +245,12 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
     cJSON_AddNumberToObject(outbox, "outbox_carry_drops", static_cast<double>(mqtt.outbox_carry_drops));
 }
 
-void add_runtime_links_summary_json(cJSON* root, const config_store::AppConfig& cfg,
+void add_runtime_links_summary_json(cJSON* root, const metrics_service::RuntimeMetrics& metrics,
+                                    const config_store::AppConfig& cfg,
                                     const wifi_manager::WifiStatus& wifi,
                                     const mqtt_service::MqttStatus& mqtt,
                                     const radio_cc1101::RadioCc1101& radio,
                                     const ota_manager::OtaStatus& ota) {
-    const auto& counters = radio.counters();
     cJSON_AddStringToObject(root, "mode", cfg.wifi.is_configured() ? "normal" : "provisioning");
     cJSON_AddStringToObject(root, "firmware_version", ota.current_version);
     cJSON* wifi_obj = cJSON_AddObjectToObject(root, "wifi");
@@ -311,12 +266,12 @@ void add_runtime_links_summary_json(cJSON* root, const config_store::AppConfig& 
     cJSON_AddNumberToObject(mqtt_obj, "reconnect_count", static_cast<double>(mqtt.reconnect_count));
     cJSON* radio_obj = cJSON_AddObjectToObject(root, "radio");
     cJSON_AddStringToObject(radio_obj, "state", radio_state_name(radio.state()));
-    cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(counters.frames_received));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(counters.frames_crc_ok));
-    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(counters.frames_crc_fail));
-    cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(counters.frames_incomplete));
+    cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(metrics.sessions.completed));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.crc_ok));
+    cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.crc_fail));
+    cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(metrics.sessions.incomplete));
     cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long",
-                            static_cast<double>(counters.frames_dropped_too_long));
+                            static_cast<double>(metrics.sessions.dropped_too_long));
 }
 
 esp_err_t send_status_full_chunked(httpd_req_t* req, const health_monitor::HealthSnapshot& health,
@@ -397,7 +352,7 @@ esp_err_t handle_status(httpd_req_t* req) {
         return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
 
-    add_runtime_links_summary_json(root.get(), *cfg, *wifi, *mqtt, radio, *ota);
+    add_runtime_links_summary_json(root.get(), *metrics, *cfg, *wifi, *mqtt, radio, *ota);
     add_health_summary_json(root.get(), *health);
     add_metrics_summary_json(root.get(), *metrics);
     add_time_summary_json(root.get());

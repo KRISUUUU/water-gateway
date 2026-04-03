@@ -50,7 +50,7 @@ std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse
 
 std::vector<uint8_t> make_valid_frame(uint8_t c_field = 0x44, uint8_t marker = 0x07) {
     std::vector<uint8_t> decoded = {
-        0x0B, c_field, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, marker, 0x00, 0x00,
+        0x09, c_field, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, marker, 0x00, 0x00,
     };
     const uint16_t crc = calculate_wmbus_crc16(decoded.data(), 10);
     decoded[10] = static_cast<uint8_t>((crc >> 8U) & 0xFFU);
@@ -155,6 +155,35 @@ void test_exact_frame_contract_is_unambiguous() {
     std::printf("  PASS: exact-frame contract is unambiguous\n");
 }
 
+void test_continuation_block_crc() {
+    std::vector<uint8_t> decoded = {
+        0x19, // L-field = 25. 1 + 25 + 4 = 30 bytes
+        0x44, 0x84, 0x0D, 0x90, 0x48, 0x46, 0x06, 0x01, 0x07, // 9 user
+        0x00, 0x00, // CRC 1
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, // 16 user
+        0x00, 0x00 // CRC 2
+    };
+    uint16_t first_crc = calculate_wmbus_crc16(decoded.data(), 10);
+    decoded[10] = static_cast<uint8_t>((first_crc >> 8) & 0xFF);
+    decoded[11] = static_cast<uint8_t>(first_crc & 0xFF);
+    
+    uint16_t second_crc = calculate_wmbus_crc16(decoded.data() + 12, 16);
+    decoded[28] = static_cast<uint8_t>((second_crc >> 8) & 0xFF);
+    decoded[29] = static_cast<uint8_t>(second_crc & 0xFF);
+
+    auto encoded = encode_3of6(decoded);
+    auto frame = exact_frame_from_encoded(encoded);
+    auto link = WmbusLink::validate_and_build(frame);
+    assert(link.accepted);
+
+    frame.decoded_bytes[29] ^= 0x01;
+    auto link_failed = WmbusLink::validate_and_build(frame);
+    assert(!link_failed.accepted);
+    assert(link_failed.reject_reason == LinkRejectReason::BlockValidationFailed);
+    
+    std::printf("  PASS: continuation block CRC validation\n");
+}
+
 } // namespace
 
 int main() {
@@ -164,5 +193,6 @@ int main() {
     test_correct_canonical_bytes();
     test_reverse_orientation_valid_case();
     test_exact_frame_contract_is_unambiguous();
+    test_continuation_block_crc();
     return 0;
 }

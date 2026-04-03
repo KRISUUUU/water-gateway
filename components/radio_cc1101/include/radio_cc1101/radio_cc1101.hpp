@@ -18,14 +18,6 @@ enum class RadioState : uint8_t {
 };
 
 struct RadioCounters {
-    uint32_t rx_read_calls = 0;
-    uint32_t rx_not_found = 0;
-    uint32_t rx_timeouts = 0;
-    uint32_t frames_received = 0;
-    uint32_t frames_crc_ok = 0;
-    uint32_t frames_crc_fail = 0;
-    uint32_t frames_incomplete = 0;
-    uint32_t frames_dropped_too_long = 0;
     uint32_t fifo_overflows = 0;
     uint32_t radio_resets = 0;
     uint32_t radio_recoveries = 0;

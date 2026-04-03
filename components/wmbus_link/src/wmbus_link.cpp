@@ -100,7 +100,7 @@ ExactFrameValidationResult WmbusLink::validate_exact_frame(const EncodedRxFrame&
         result.reject_reason = ExactFrameRejectReason::InvalidLength;
         return result;
     }
-    if (frame.decoded_length != static_cast<uint16_t>(frame.l_field) + 1U ||
+    if (frame.decoded_length != wmbus_tmode_rx::calculate_format_a_decoded_length(frame.l_field) ||
         frame.encoded_length != frame.exact_encoded_bytes_required) {
         result.reject_reason = ExactFrameRejectReason::InvalidLength;
         return result;
