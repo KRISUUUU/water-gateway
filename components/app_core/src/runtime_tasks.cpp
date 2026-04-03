@@ -362,13 +362,18 @@ static void radio_rx_task(void* /*param*/) {
                                                         session_watchdog_tick_ms);
         const auto& owner_events = wait_result.events;
 
-        auto step_result = session_engine.process(session_device, owner_events, now_ms());
+            auto step_result = session_engine.process(session_device, owner_events, now_ms());
         if (step_result.is_ok()) {
             const auto& step = step_result.value();
             if (step.has_frame && frame_queue) {
-                ESP_LOGI(TAG, "Exact-frame compiled: %u bytes, CRC=%s",
-                         step.frame.candidate.decoded_length, step.frame.crc_ok ? "OK" : "FAIL");
-                metrics_service::MetricsService::report_session_completed();
+                const char* radio_crc_state = "unavailable";
+                if (step.frame.radio_crc_available) {
+                    radio_crc_state = step.frame.crc_ok ? "ok" : "fail";
+                }
+                ESP_LOGI(TAG, "Exact-frame compiled: %u bytes, radio_crc=%s",
+                         step.frame.candidate.decoded_length, radio_crc_state);
+                metrics_service::MetricsService::report_session_completed(
+                    step.frame.radio_crc_available, step.frame.crc_ok);
                 rsm.on_read_success();
                 rx_count++;
                 auto frame = encode_session_capture(step.frame,

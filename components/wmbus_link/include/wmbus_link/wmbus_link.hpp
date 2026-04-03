@@ -13,14 +13,19 @@ namespace wmbus_link {
 enum class ExactFrameRejectReason : uint8_t {
     None = 0,
     InvalidLength,
+    DecodedLengthMismatch,
+    ExactLengthMismatch,
     InvalidOrientation,
     InvalidFirstBlock,
 };
 
 enum class LinkRejectReason : uint8_t {
     None = 0,
+    InvalidLength,
+    InvalidOrientation,
     FrameTooShort,
     DecodedLengthMismatch,
+    ExactLengthMismatch,
     FirstBlockValidationFailed,
     BlockValidationFailed,
     IdentityUnavailable,

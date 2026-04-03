@@ -100,9 +100,12 @@ ExactFrameValidationResult WmbusLink::validate_exact_frame(const EncodedRxFrame&
         result.reject_reason = ExactFrameRejectReason::InvalidLength;
         return result;
     }
-    if (frame.decoded_length != wmbus_tmode_rx::calculate_format_a_decoded_length(frame.l_field) ||
-        frame.encoded_length != frame.exact_encoded_bytes_required) {
-        result.reject_reason = ExactFrameRejectReason::InvalidLength;
+    if (frame.decoded_length != wmbus_tmode_rx::calculate_format_a_decoded_length(frame.l_field)) {
+        result.reject_reason = ExactFrameRejectReason::DecodedLengthMismatch;
+        return result;
+    }
+    if (frame.encoded_length != frame.exact_encoded_bytes_required) {
+        result.reject_reason = ExactFrameRejectReason::ExactLengthMismatch;
         return result;
     }
     if (frame.first_block_validation != wmbus_tmode_rx::FirstBlockValidationState::Passed) {
@@ -118,7 +121,27 @@ LinkValidationResult WmbusLink::validate_and_build(const EncodedRxFrame& frame) 
     LinkValidationResult result{};
     const auto exact_validation = validate_exact_frame(frame);
     if (!exact_validation.accepted) {
-        result.reject_reason = LinkRejectReason::DecodedLengthMismatch;
+        switch (exact_validation.reject_reason) {
+        case ExactFrameRejectReason::InvalidLength:
+            result.reject_reason = LinkRejectReason::InvalidLength;
+            break;
+        case ExactFrameRejectReason::DecodedLengthMismatch:
+            result.reject_reason = LinkRejectReason::DecodedLengthMismatch;
+            break;
+        case ExactFrameRejectReason::ExactLengthMismatch:
+            result.reject_reason = LinkRejectReason::ExactLengthMismatch;
+            break;
+        case ExactFrameRejectReason::InvalidOrientation:
+            result.reject_reason = LinkRejectReason::InvalidOrientation;
+            break;
+        case ExactFrameRejectReason::InvalidFirstBlock:
+            result.reject_reason = LinkRejectReason::FirstBlockValidationFailed;
+            break;
+        case ExactFrameRejectReason::None:
+        default:
+            result.reject_reason = LinkRejectReason::None;
+            break;
+        }
         return result;
     }
 
@@ -195,10 +218,15 @@ LinkValidationResult WmbusLink::validate_and_build(const EncodedRxFrame& frame) 
 // Keep this in sync with the LinkRejectReason enum whenever new reasons are added.
 rf_diagnostics::RejectReason link_reject_to_rf_reason(LinkRejectReason reason) {
     switch (reason) {
+    case LinkRejectReason::InvalidLength:
+        return rf_diagnostics::RejectReason::InvalidLength;
+    case LinkRejectReason::InvalidOrientation:
+        return rf_diagnostics::RejectReason::InvalidOrientation;
     case LinkRejectReason::FrameTooShort:
         return rf_diagnostics::RejectReason::FrameTooShort;
     case LinkRejectReason::DecodedLengthMismatch:
-        // Exact-frame contract violation: encoded/decoded lengths don't match expectation.
+        return rf_diagnostics::RejectReason::DecodedLengthMismatch;
+    case LinkRejectReason::ExactLengthMismatch:
         return rf_diagnostics::RejectReason::ExactLengthMismatch;
     case LinkRejectReason::FirstBlockValidationFailed:
         return rf_diagnostics::RejectReason::FirstBlockValidationFailed;

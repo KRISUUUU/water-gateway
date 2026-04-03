@@ -3,7 +3,7 @@
 namespace wmbus_tmode_rx {
 
 namespace {
-constexpr uint8_t kInvalidNibble = 0xFF;
+constexpr uint16_t kInvalidDecodedByte = 0x1FFU;
 
 constexpr uint8_t kDecode3of6High[64] = {
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x30, 0xFF, 0x10, 0x20,
@@ -109,10 +109,15 @@ void WmbusTmodeFramer::process_candidate(InternalCandidate& candidate, uint8_t t
         const uint16_t symbol_pair = static_cast<uint16_t>(
             (candidate.bit_buffer >> (candidate.pending_bits - 12U)) & 0x0FFFU);
         candidate.pending_bits = static_cast<uint8_t>(candidate.pending_bits - 12U);
+        if (candidate.pending_bits > 0U) {
+            candidate.bit_buffer &= (1UL << candidate.pending_bits) - 1UL;
+        } else {
+            candidate.bit_buffer = 0U;
+        }
 
-        const uint8_t decoded = decode_symbol_pair(static_cast<uint8_t>((symbol_pair >> 6U) & 0x3FU),
-                                                   static_cast<uint8_t>(symbol_pair & 0x3FU));
-        if (decoded == kInvalidNibble) {
+        const uint16_t decoded = decode_symbol_pair(static_cast<uint8_t>((symbol_pair >> 6U) & 0x3FU),
+                                                    static_cast<uint8_t>(symbol_pair & 0x3FU));
+        if (decoded == kInvalidDecodedByte) {
             reject_candidate(candidate, RejectReason::InvalidSymbol);
             return;
         }
@@ -122,7 +127,8 @@ void WmbusTmodeFramer::process_candidate(InternalCandidate& candidate, uint8_t t
             return;
         }
 
-        candidate.decoded_bytes[candidate.progress.decoded_bytes_produced++] = decoded;
+        candidate.decoded_bytes[candidate.progress.decoded_bytes_produced++] =
+            static_cast<uint8_t>(decoded);
 
         if (!candidate.progress.l_field_known) {
             candidate.progress.l_field = decoded;
@@ -209,13 +215,13 @@ uint8_t WmbusTmodeFramer::reverse_bits8(uint8_t value) {
                                 ((value & 0x40U) >> 5U) | ((value & 0x80U) >> 7U));
 }
 
-uint8_t WmbusTmodeFramer::decode_symbol_pair(uint8_t hi_symbol, uint8_t lo_symbol) {
+uint16_t WmbusTmodeFramer::decode_symbol_pair(uint8_t hi_symbol, uint8_t lo_symbol) {
     const uint8_t hi = kDecode3of6High[hi_symbol];
     const uint8_t lo = kDecode3of6Low[lo_symbol];
-    if (hi == kInvalidNibble || lo == kInvalidNibble) {
-        return kInvalidNibble;
+    if (hi == 0xFFU || lo == 0xFFU) {
+        return kInvalidDecodedByte;
     }
-    return static_cast<uint8_t>(hi | lo);
+    return static_cast<uint16_t>(hi | lo);
 }
 
 } // namespace wmbus_tmode_rx

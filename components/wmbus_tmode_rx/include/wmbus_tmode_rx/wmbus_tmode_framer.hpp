@@ -96,7 +96,7 @@ class WmbusTmodeFramer {
     bool copy_complete_frame(FeedResult& result) const;
 
     static uint8_t reverse_bits8(uint8_t value);
-    static uint8_t decode_symbol_pair(uint8_t hi_symbol, uint8_t lo_symbol);
+    static uint16_t decode_symbol_pair(uint8_t hi_symbol, uint8_t lo_symbol);
 
     uint16_t encoded_length_ = 0;
     std::array<uint8_t, kMaxEncodedBytes> encoded_bytes_{};

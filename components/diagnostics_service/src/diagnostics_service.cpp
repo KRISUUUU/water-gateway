@@ -143,6 +143,20 @@ void fill_radio(cJSON* root, const DiagnosticsSnapshot& snap) {
                             static_cast<double>(snap.metrics.sessions.link_validated));
     cJSON_AddNumberToObject(counters, "frames_crc_fail",
                             static_cast<double>(snap.metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(counters, "telegrams_validated",
+                            static_cast<double>(snap.metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(counters, "telegrams_rejected",
+                            static_cast<double>(snap.metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(counters, "sessions_aborted",
+                            static_cast<double>(snap.metrics.sessions.incomplete));
+    cJSON_AddNumberToObject(counters, "radio_crc_available_sessions",
+                            static_cast<double>(snap.metrics.sessions.radio_crc_available));
+    cJSON_AddNumberToObject(counters, "radio_crc_unavailable_sessions",
+                            static_cast<double>(snap.metrics.sessions.radio_crc_unavailable));
+    cJSON_AddNumberToObject(counters, "radio_crc_ok_sessions",
+                            static_cast<double>(snap.metrics.sessions.radio_crc_ok));
+    cJSON_AddNumberToObject(counters, "radio_crc_fail_sessions",
+                            static_cast<double>(snap.metrics.sessions.radio_crc_fail));
     cJSON_AddNumberToObject(counters, "frames_incomplete",
                             static_cast<double>(snap.metrics.sessions.incomplete));
     cJSON_AddNumberToObject(counters, "frames_dropped_too_long",

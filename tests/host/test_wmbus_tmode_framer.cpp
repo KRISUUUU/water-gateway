@@ -23,17 +23,22 @@ uint8_t reverse_bits8(uint8_t value) {
 
 std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse_encoded = false) {
     std::vector<uint8_t> out;
-    uint32_t bit_buf = 0;
+    uint64_t bit_buf = 0;
     int bits_in_buf = 0;
 
     for (uint8_t byte : bytes) {
         const uint8_t hi = kEncode3of6[(byte >> 4U) & 0x0FU];
         const uint8_t lo = kEncode3of6[byte & 0x0FU];
-        bit_buf = (bit_buf << 12U) | (static_cast<uint32_t>(hi) << 6U) | lo;
+        bit_buf = (bit_buf << 12U) | (static_cast<uint64_t>(hi) << 6U) | lo;
         bits_in_buf += 12;
         while (bits_in_buf >= 8) {
             bits_in_buf -= 8;
             out.push_back(static_cast<uint8_t>((bit_buf >> bits_in_buf) & 0xFFU));
+        }
+        if (bits_in_buf > 0) {
+            bit_buf &= (1ULL << bits_in_buf) - 1ULL;
+        } else {
+            bit_buf = 0;
         }
     }
 
@@ -48,6 +53,50 @@ std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse
     }
 
     return out;
+}
+
+std::vector<uint8_t> make_valid_two_block_frame() {
+    std::vector<uint8_t> decoded = {
+        0x19,
+        0x44,
+        0x84,
+        0x0D,
+        0x90,
+        0x48,
+        0x46,
+        0x06,
+        0x01,
+        0x07,
+        0x00,
+        0x00,
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x88,
+        0x99,
+        0xAA,
+        0xBB,
+        0xCC,
+        0xDD,
+        0xEE,
+        0xFF,
+        0x00,
+        0x00,
+        0x00,
+    };
+
+    const uint16_t first_crc = calculate_wmbus_crc16(decoded.data(), 10);
+    decoded[10] = static_cast<uint8_t>((first_crc >> 8U) & 0xFFU);
+    decoded[11] = static_cast<uint8_t>(first_crc & 0xFFU);
+
+    const uint16_t second_crc = calculate_wmbus_crc16(decoded.data() + 12U, 16U);
+    decoded[28] = static_cast<uint8_t>((second_crc >> 8U) & 0xFFU);
+    decoded[29] = static_cast<uint8_t>(second_crc & 0xFFU);
+    return decoded;
 }
 
 std::vector<uint8_t> make_valid_first_block_frame(uint8_t c_field = 0x44, uint8_t marker = 0x07) {
@@ -165,6 +214,20 @@ void test_exact_encoded_length_calculation() {
     std::printf("  PASS: exact encoded-length calculation\n");
 }
 
+void test_valid_multi_block_frame_completes() {
+    WmbusTmodeFramer framer;
+    const auto decoded = make_valid_two_block_frame();
+    const auto encoded = encode_3of6(decoded);
+    const auto result = feed_all(framer, encoded);
+
+    assert(result.state == FramerState::ExactFrameComplete);
+    assert(result.has_complete_frame);
+    assert(result.frame.decoded_length == decoded.size());
+    assert(result.frame.encoded_length == encoded.size());
+    assert(result.frame.exact_encoded_bytes_required == encoded.size());
+    std::printf("  PASS: valid multi-block frame completes\n");
+}
+
 void test_early_rejection_without_huge_buffer() {
     WmbusTmodeFramer framer;
     auto decoded = make_valid_first_block_frame();
@@ -233,6 +296,7 @@ int main() {
     test_invalid_symbol_sequence_rejected();
     test_sane_vs_insane_l_field();
     test_exact_encoded_length_calculation();
+    test_valid_multi_block_frame_completes();
     test_early_rejection_without_huge_buffer();
     test_explicit_ft3_crc();
     test_first_block_validation_behavior();

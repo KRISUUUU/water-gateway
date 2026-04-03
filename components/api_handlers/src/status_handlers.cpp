@@ -109,6 +109,19 @@ void add_metrics_json(cJSON* root, const metrics_service::RuntimeMetrics& metric
     cJSON_AddNumberToObject(tasks, "pipeline_stack_hwm_words", static_cast<double>(metrics.tasks.pipeline_stack_hwm_words));
     cJSON_AddNumberToObject(tasks, "mqtt_stack_hwm_words", static_cast<double>(metrics.tasks.mqtt_stack_hwm_words));
     cJSON_AddNumberToObject(tasks, "health_stack_hwm_words", static_cast<double>(metrics.tasks.health_stack_hwm_words));
+    cJSON* sessions = cJSON_AddObjectToObject(obj, "sessions");
+    cJSON_AddNumberToObject(sessions, "completed", static_cast<double>(metrics.sessions.completed));
+    cJSON_AddNumberToObject(sessions, "validated", static_cast<double>(metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(sessions, "rejected", static_cast<double>(metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(sessions, "aborted", static_cast<double>(metrics.sessions.incomplete));
+    cJSON_AddNumberToObject(sessions, "radio_crc_available",
+                            static_cast<double>(metrics.sessions.radio_crc_available));
+    cJSON_AddNumberToObject(sessions, "radio_crc_unavailable",
+                            static_cast<double>(metrics.sessions.radio_crc_unavailable));
+    cJSON_AddNumberToObject(sessions, "radio_crc_ok",
+                            static_cast<double>(metrics.sessions.radio_crc_ok));
+    cJSON_AddNumberToObject(sessions, "radio_crc_fail",
+                            static_cast<double>(metrics.sessions.radio_crc_fail));
 }
 
 void add_metrics_summary_json(cJSON* root, const metrics_service::RuntimeMetrics& metrics) {
@@ -117,6 +130,11 @@ void add_metrics_summary_json(cJSON* root, const metrics_service::RuntimeMetrics
     cJSON_AddNumberToObject(obj, "free_heap_bytes", static_cast<double>(metrics.free_heap_bytes));
     cJSON_AddNumberToObject(obj, "min_free_heap_bytes", static_cast<double>(metrics.min_free_heap_bytes));
     cJSON_AddStringToObject(obj, "reset_reason", reset_reason_str(metrics.reset_reason_code));
+    cJSON* sessions = cJSON_AddObjectToObject(obj, "sessions");
+    cJSON_AddNumberToObject(sessions, "completed", static_cast<double>(metrics.sessions.completed));
+    cJSON_AddNumberToObject(sessions, "validated", static_cast<double>(metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(sessions, "rejected", static_cast<double>(metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(sessions, "aborted", static_cast<double>(metrics.sessions.incomplete));
 }
 
 void add_time_json(cJSON* root) {
@@ -221,6 +239,20 @@ void add_runtime_links_json(cJSON* root, const metrics_service::RuntimeMetrics& 
     // not radio hardware CRC (which is disabled in T-mode profile).
     cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.link_validated));
     cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(radio_obj, "telegrams_validated",
+                            static_cast<double>(metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(radio_obj, "telegrams_rejected",
+                            static_cast<double>(metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(radio_obj, "sessions_aborted",
+                            static_cast<double>(metrics.sessions.incomplete));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_available_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_available));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_unavailable_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_unavailable));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_ok_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_ok));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_fail_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_fail));
     cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(metrics.sessions.incomplete));
     cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long", static_cast<double>(metrics.sessions.dropped_too_long));
     cJSON_AddNumberToObject(radio_obj, "fifo_overflows", static_cast<double>(counters.fifo_overflows));
@@ -272,6 +304,20 @@ void add_runtime_links_summary_json(cJSON* root, const metrics_service::RuntimeM
     cJSON_AddNumberToObject(radio_obj, "frames_received", static_cast<double>(metrics.sessions.completed));
     cJSON_AddNumberToObject(radio_obj, "frames_crc_ok", static_cast<double>(metrics.sessions.link_validated));
     cJSON_AddNumberToObject(radio_obj, "frames_crc_fail", static_cast<double>(metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(radio_obj, "telegrams_validated",
+                            static_cast<double>(metrics.sessions.link_validated));
+    cJSON_AddNumberToObject(radio_obj, "telegrams_rejected",
+                            static_cast<double>(metrics.sessions.link_rejected));
+    cJSON_AddNumberToObject(radio_obj, "sessions_aborted",
+                            static_cast<double>(metrics.sessions.incomplete));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_available_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_available));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_unavailable_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_unavailable));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_ok_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_ok));
+    cJSON_AddNumberToObject(radio_obj, "radio_crc_fail_sessions",
+                            static_cast<double>(metrics.sessions.radio_crc_fail));
     cJSON_AddNumberToObject(radio_obj, "frames_incomplete", static_cast<double>(metrics.sessions.incomplete));
     cJSON_AddNumberToObject(radio_obj, "frames_dropped_too_long",
                             static_cast<double>(metrics.sessions.dropped_too_long));

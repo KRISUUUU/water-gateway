@@ -14,6 +14,8 @@ enum class RejectReason : uint8_t {
     BurstTimeout,
     Invalid3of6Symbol,
     InvalidLength,
+    InvalidOrientation,
+    DecodedLengthMismatch,
     FirstBlockValidationFailed,
     BlockValidationFailed,
     ExactLengthMismatch,

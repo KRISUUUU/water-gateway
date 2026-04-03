@@ -15,7 +15,10 @@ struct TmodeRegisterConfig {
 // T-mode: 868.95 MHz, ~32.768 kbaud raw capture profile for post-capture 3-of-6 processing.
 static constexpr TmodeRegisterConfig kTmodeConfig[] = {
     {registers::IOCFG2, 0x06},   // GDO2: sync word sent/received
-    {registers::IOCFG0, 0x00},   // GDO0: packet sync/clock source routed to owner-task IRQ plumbing
+    // GDO0: RX FIFO threshold / end-of-packet indication in packet mode.
+    // In this design it is used as an owner-task wake hint for "more RX work is likely available",
+    // not as a protocol-level frame boundary or sync signal.
+    {registers::IOCFG0, 0x00},
     {registers::FIFOTHR, 0x47},  // RX FIFO threshold: 33 bytes
     {registers::SYNC1, 0x54},    // WMBus T-mode sync word MSB
     {registers::SYNC0, 0x3D},    // WMBus T-mode sync word LSB

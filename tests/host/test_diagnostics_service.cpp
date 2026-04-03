@@ -23,8 +23,14 @@ int main() {
 
     metrics_service::MetricsService::reset_queue_metrics();
     metrics_service::MetricsService::reset_task_metrics();
+    metrics_service::MetricsService::reset_session_metrics();
     metrics_service::MetricsService::report_queue_metrics(4, 15, 16, 100, 7, 2, 5, 6, 12, 80, 9, 3);
     metrics_service::MetricsService::report_task_metrics(250, 75, 50, 10, 2, 3, 4, 5, 6);
+    metrics_service::MetricsService::report_session_completed(false, false);
+    metrics_service::MetricsService::report_session_completed(true, true);
+    metrics_service::MetricsService::report_telegram_validated();
+    metrics_service::MetricsService::report_telegram_link_rejected();
+    metrics_service::MetricsService::report_session_aborted();
 
     auto snap_res = diagnostics_service::DiagnosticsService::instance().snapshot();
     assert(!snap_res.is_error());
@@ -68,6 +74,13 @@ int main() {
     assert(json.find("\"soft_failure_streak\"") != std::string::npos);
     assert(json.find("\"consecutive_errors\"") != std::string::npos);
     assert(json.find("\"last_recovery_reason\"") != std::string::npos);
+    assert(json.find("\"telegrams_validated\":1") != std::string::npos);
+    assert(json.find("\"telegrams_rejected\":1") != std::string::npos);
+    assert(json.find("\"sessions_aborted\":1") != std::string::npos);
+    assert(json.find("\"radio_crc_available_sessions\":1") != std::string::npos);
+    assert(json.find("\"radio_crc_unavailable_sessions\":1") != std::string::npos);
+    assert(json.find("\"radio_crc_ok_sessions\":1") != std::string::npos);
+    assert(json.find("\"radio_crc_fail_sessions\":0") != std::string::npos);
     assert(json.find("\"enqueue_drop\":7") != std::string::npos);
     assert(json.find("\"enqueue_drop\":9") != std::string::npos);
     assert(json.find("\"peak_depth\":16") != std::string::npos);

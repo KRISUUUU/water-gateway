@@ -25,17 +25,22 @@ uint8_t reverse_bits8(uint8_t value) {
 
 std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse_encoded = false) {
     std::vector<uint8_t> out;
-    uint32_t bit_buf = 0;
+    uint64_t bit_buf = 0;
     int bits_in_buf = 0;
 
     for (uint8_t byte : bytes) {
         const uint8_t hi = kEncode3of6[(byte >> 4U) & 0x0FU];
         const uint8_t lo = kEncode3of6[byte & 0x0FU];
-        bit_buf = (bit_buf << 12U) | (static_cast<uint32_t>(hi) << 6U) | lo;
+        bit_buf = (bit_buf << 12U) | (static_cast<uint64_t>(hi) << 6U) | lo;
         bits_in_buf += 12;
         while (bits_in_buf >= 8) {
             bits_in_buf -= 8;
             out.push_back(static_cast<uint8_t>((bit_buf >> bits_in_buf) & 0xFFU));
+        }
+        if (bits_in_buf > 0) {
+            bit_buf &= (1ULL << bits_in_buf) - 1ULL;
+        } else {
+            bit_buf = 0;
         }
     }
 
@@ -71,6 +76,50 @@ std::vector<uint8_t> make_valid_first_block_frame(uint8_t c_field = 0x44, uint8_
     const uint16_t crc = calculate_wmbus_crc16(decoded.data(), 10);
     decoded[10] = static_cast<uint8_t>((crc >> 8U) & 0xFFU);
     decoded[11] = static_cast<uint8_t>(crc & 0xFFU);
+    return decoded;
+}
+
+std::vector<uint8_t> make_valid_two_block_frame(uint8_t marker = 0x07) {
+    std::vector<uint8_t> decoded = {
+        0x19,
+        0x44,
+        0x84,
+        0x0D,
+        0x90,
+        0x48,
+        0x46,
+        0x06,
+        0x01,
+        marker,
+        0x00,
+        0x00,
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x88,
+        0x99,
+        0xAA,
+        0xBB,
+        0xCC,
+        0xDD,
+        0xEE,
+        0xFF,
+        0x00,
+        0x00,
+        0x00,
+    };
+
+    const uint16_t first_crc = calculate_wmbus_crc16(decoded.data(), 10);
+    decoded[10] = static_cast<uint8_t>((first_crc >> 8U) & 0xFFU);
+    decoded[11] = static_cast<uint8_t>(first_crc & 0xFFU);
+
+    const uint16_t second_crc = calculate_wmbus_crc16(decoded.data() + 12U, 16U);
+    decoded[28] = static_cast<uint8_t>((second_crc >> 8U) & 0xFFU);
+    decoded[29] = static_cast<uint8_t>(second_crc & 0xFFU);
     return decoded;
 }
 
@@ -190,6 +239,18 @@ radio_cc1101::RadioOwnerEventSet irq_event() {
     snapshot.pending_mask = radio_cc1101::GdoIrqSnapshot::bit_for(radio_cc1101::GdoPin::Gdo0);
     snapshot.gdo0_edges = 1;
     return radio_cc1101::make_owner_events_from_irq(snapshot);
+}
+
+void test_idle_without_owner_event_does_not_attempt_rx_work() {
+    FakeSessionRadio radio;
+    RxSessionEngine engine;
+    const auto result = engine.process(radio, radio_cc1101::RadioOwnerEventSet{}, 50);
+    assert(result.is_ok());
+    assert(result.value().state == SessionStepState::Idle);
+    assert(!result.value().has_frame);
+    assert(!result.value().has_diagnostic);
+    assert(radio.restart_calls() == 0U);
+    std::printf("  PASS: idle without owner event does not attempt RX work\n");
 }
 
 void test_session_start_and_exact_frame_completion() {
@@ -437,6 +498,23 @@ void test_engine_ready_for_next_frame_after_completion() {
     std::printf("  PASS: engine ready for next frame after completion (back-to-back)\n");
 }
 
+void test_multi_block_frame_completes_without_restart() {
+    FakeSessionRadio radio;
+    RxSessionEngine engine;
+    const auto decoded = make_valid_two_block_frame();
+    const auto encoded = encode_3of6(decoded);
+    radio.push_fifo_chunk(encoded);
+
+    const auto result = engine.process(radio, irq_event(), 1075);
+    assert(result.is_ok());
+    assert(result.value().state == SessionStepState::ExactFrameComplete);
+    assert(result.value().has_frame);
+    assert(result.value().frame.candidate.decoded_length == decoded.size());
+    assert(result.value().frame.candidate.encoded_length == encoded.size());
+    assert(radio.restart_calls() == 0U);
+    std::printf("  PASS: multi-block frame completes without restart\n");
+}
+
 void test_second_frame_survives_same_fifo_chunk_after_success() {
     FakeSessionRadio radio;
     RxSessionEngine engine;
@@ -502,6 +580,7 @@ void test_failure_paths_still_restart() {
 
 int main() {
     std::printf("=== test_rx_session_engine ===\n");
+    test_idle_without_owner_event_does_not_attempt_rx_work();
     test_packet_length_strategy_length_unknown_does_not_switch();
     test_packet_length_strategy_switches_once_exact_length_is_known();
     test_exact_read_window_caps_fifo_request();
@@ -515,6 +594,7 @@ int main() {
     test_session_recovery_when_mode_switch_fails();
     test_success_path_no_restart_no_restore_in_infinite_mode();
     test_engine_ready_for_next_frame_after_completion();
+    test_multi_block_frame_completes_without_restart();
     test_second_frame_survives_same_fifo_chunk_after_success();
     test_failure_paths_still_restart();
     std::printf("All RX session engine tests passed.\n");

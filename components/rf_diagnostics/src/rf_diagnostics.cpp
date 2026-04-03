@@ -188,6 +188,10 @@ std::string RfDiagnosticsService::reject_reason_to_string(RejectReason reason) {
         return "invalid_3of6_symbol";
     case RejectReason::InvalidLength:
         return "invalid_length";
+    case RejectReason::InvalidOrientation:
+        return "invalid_orientation";
+    case RejectReason::DecodedLengthMismatch:
+        return "decoded_length_mismatch";
     case RejectReason::FirstBlockValidationFailed:
         return "first_block_validation_failed";
     case RejectReason::BlockValidationFailed:

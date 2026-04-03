@@ -11,8 +11,11 @@ using namespace radio_cc1101;
 
 static void test_tmode_profile_lookup() {
     const auto* pktctrl0 = find_tmode_register_config(registers::PKTCTRL0);
+    const auto* iocfg0 = find_tmode_register_config(registers::IOCFG0);
     assert(pktctrl0 != nullptr);
+    assert(iocfg0 != nullptr);
     assert(pktctrl0->value == 0x02);
+    assert(iocfg0->value == 0x00);
     assert(tmode_config_contains(registers::SYNC1, 0x54));
     assert(!tmode_config_contains(registers::SYNC1, 0x00));
     printf("  PASS: T-mode profile lookup helpers\n");
@@ -63,6 +66,10 @@ static void test_owner_event_mapping_and_merge() {
     assert(!make_session_watchdog_tick_event().should_attempt_rx_work(false));
     assert(make_session_watchdog_tick_event().should_attempt_rx_work(true));
     assert(make_fallback_poll_event().should_attempt_rx_work(false));
+    const auto merged_irq_and_fallback = merge_owner_events(make_fallback_poll_event(), irq_events);
+    assert(merged_irq_and_fallback.has(RadioOwnerEvent::FallbackPoll));
+    assert(merged_irq_and_fallback.has(RadioOwnerEvent::Gdo0Edge));
+    assert(merged_irq_and_fallback.has(RadioOwnerEvent::Gdo2Edge));
     printf("  PASS: owner event mapping and merge\n");
 }
 

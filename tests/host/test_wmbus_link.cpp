@@ -24,17 +24,22 @@ uint8_t reverse_bits8(uint8_t value) {
 
 std::vector<uint8_t> encode_3of6(const std::vector<uint8_t>& bytes, bool reverse_encoded = false) {
     std::vector<uint8_t> out;
-    uint32_t bit_buf = 0;
+    uint64_t bit_buf = 0;
     int bits_in_buf = 0;
 
     for (uint8_t byte : bytes) {
         const uint8_t hi = kEncode3of6[(byte >> 4U) & 0x0FU];
         const uint8_t lo = kEncode3of6[byte & 0x0FU];
-        bit_buf = (bit_buf << 12U) | (static_cast<uint32_t>(hi) << 6U) | lo;
+        bit_buf = (bit_buf << 12U) | (static_cast<uint64_t>(hi) << 6U) | lo;
         bits_in_buf += 12;
         while (bits_in_buf >= 8) {
             bits_in_buf -= 8;
             out.push_back(static_cast<uint8_t>((bit_buf >> bits_in_buf) & 0xFFU));
+        }
+        if (bits_in_buf > 0) {
+            bit_buf &= (1ULL << bits_in_buf) - 1ULL;
+        } else {
+            bit_buf = 0;
         }
     }
     if (bits_in_buf > 0) {
@@ -151,8 +156,34 @@ void test_exact_frame_contract_is_unambiguous() {
     frame.encoded_length += 1U;
     const auto exact = WmbusLink::validate_exact_frame(frame);
     assert(!exact.accepted);
-    assert(exact.reject_reason == ExactFrameRejectReason::InvalidLength);
+    assert(exact.reject_reason == ExactFrameRejectReason::ExactLengthMismatch);
     std::printf("  PASS: exact-frame contract is unambiguous\n");
+}
+
+void test_exact_frame_rejects_invalid_orientation() {
+    auto frame = exact_frame_from_encoded(encode_3of6(make_valid_frame()));
+    frame.orientation = FrameOrientation::Unknown;
+
+    const auto exact = WmbusLink::validate_exact_frame(frame);
+    const auto link = WmbusLink::validate_and_build(frame);
+    assert(!exact.accepted);
+    assert(exact.reject_reason == ExactFrameRejectReason::InvalidOrientation);
+    assert(!link.accepted);
+    assert(link.reject_reason == LinkRejectReason::InvalidOrientation);
+    std::printf("  PASS: exact-frame invalid orientation is preserved downstream\n");
+}
+
+void test_exact_frame_rejects_decoded_length_mismatch() {
+    auto frame = exact_frame_from_encoded(encode_3of6(make_valid_frame()));
+    frame.decoded_length -= 1U;
+
+    const auto exact = WmbusLink::validate_exact_frame(frame);
+    const auto link = WmbusLink::validate_and_build(frame);
+    assert(!exact.accepted);
+    assert(exact.reject_reason == ExactFrameRejectReason::DecodedLengthMismatch);
+    assert(!link.accepted);
+    assert(link.reject_reason == LinkRejectReason::DecodedLengthMismatch);
+    std::printf("  PASS: decoded length mismatch is preserved downstream\n");
 }
 
 void test_continuation_block_crc() {
@@ -190,19 +221,26 @@ void test_link_reject_to_rf_reason_mapping() {
     using LR = wmbus_link::LinkRejectReason;
     using RR = rf_diagnostics::RejectReason;
 
+    assert(wmbus_link::link_reject_to_rf_reason(LR::InvalidLength)           == RR::InvalidLength);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::InvalidOrientation)      == RR::InvalidOrientation);
     assert(wmbus_link::link_reject_to_rf_reason(LR::FrameTooShort)           == RR::FrameTooShort);
-    assert(wmbus_link::link_reject_to_rf_reason(LR::DecodedLengthMismatch)   == RR::ExactLengthMismatch);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::DecodedLengthMismatch)   == RR::DecodedLengthMismatch);
+    assert(wmbus_link::link_reject_to_rf_reason(LR::ExactLengthMismatch)     == RR::ExactLengthMismatch);
     assert(wmbus_link::link_reject_to_rf_reason(LR::FirstBlockValidationFailed) == RR::FirstBlockValidationFailed);
     assert(wmbus_link::link_reject_to_rf_reason(LR::BlockValidationFailed)   == RR::BlockValidationFailed);
     assert(wmbus_link::link_reject_to_rf_reason(LR::IdentityUnavailable)     == RR::IdentityUnavailable);
     assert(wmbus_link::link_reject_to_rf_reason(LR::None)                    == RR::Unknown);
 
     // Verify string representations are non-empty and distinct for new reasons.
+    const auto s_orientation = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(RR::InvalidOrientation);
+    const auto s_decoded = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(RR::DecodedLengthMismatch);
     const auto s_short   = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(RR::FrameTooShort);
     const auto s_id      = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(RR::IdentityUnavailable);
+    assert(s_orientation == "invalid_orientation");
+    assert(s_decoded == "decoded_length_mismatch");
     assert(s_short == "frame_too_short");
     assert(s_id   == "identity_unavailable");
-    std::printf("  PASS: link_reject_to_rf_reason mapping (all 5 reasons)\n");
+    std::printf("  PASS: link_reject_to_rf_reason mapping preserves detailed causes\n");
 }
 
 } // namespace
@@ -215,6 +253,8 @@ int main() {
     test_correct_canonical_bytes();
     test_reverse_orientation_valid_case();
     test_exact_frame_contract_is_unambiguous();
+    test_exact_frame_rejects_invalid_orientation();
+    test_exact_frame_rejects_decoded_length_mismatch();
     test_continuation_block_crc();
     test_link_reject_to_rf_reason_mapping();
     std::printf("All wmbus_link tests passed.\n");

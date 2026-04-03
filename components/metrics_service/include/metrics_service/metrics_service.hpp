@@ -46,6 +46,10 @@ struct RuntimeSessionMetrics {
     std::uint32_t link_rejected{0};
     std::uint32_t incomplete{0};
     std::uint32_t dropped_too_long{0};
+    std::uint32_t radio_crc_available{0};
+    std::uint32_t radio_crc_unavailable{0};
+    std::uint32_t radio_crc_ok{0};
+    std::uint32_t radio_crc_fail{0};
 };
 
 /// Heap and uptime figures sampled from ESP-IDF (see snapshot()).
@@ -98,8 +102,8 @@ class MetricsService {
     static void reset_task_metrics();
 
     /// Report that the session engine produced a complete exact-frame capture.
-    /// Does not imply CRC validity — radio CRC is disabled in T-mode.
-    static void report_session_completed();
+    /// Link-layer acceptance is reported separately by the pipeline task.
+    static void report_session_completed(bool radio_crc_available, bool radio_crc_ok);
     static void report_session_aborted();
 
     /// Report link-layer validation outcomes (pipeline task, after software CRC/block check).

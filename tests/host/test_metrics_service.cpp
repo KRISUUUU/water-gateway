@@ -86,9 +86,9 @@ static void test_session_completed_does_not_affect_link_validation() {
 
     // Report 3 session completions (radio task scope).
     // This must NOT increment link_validated or link_rejected.
-    metrics_service::MetricsService::report_session_completed();
-    metrics_service::MetricsService::report_session_completed();
-    metrics_service::MetricsService::report_session_completed();
+    metrics_service::MetricsService::report_session_completed(false, false);
+    metrics_service::MetricsService::report_session_completed(false, false);
+    metrics_service::MetricsService::report_session_completed(false, false);
 
     auto snap_res = metrics_service::MetricsService::instance().snapshot();
     assert(!snap_res.is_error());
@@ -97,6 +97,10 @@ static void test_session_completed_does_not_affect_link_validation() {
     assert(snap.sessions.link_validated == 0);
     assert(snap.sessions.link_rejected == 0);
     assert(snap.sessions.incomplete == 0);
+    assert(snap.sessions.radio_crc_available == 0);
+    assert(snap.sessions.radio_crc_unavailable == 3);
+    assert(snap.sessions.radio_crc_ok == 0);
+    assert(snap.sessions.radio_crc_fail == 0);
     std::printf("  PASS: session completed does not affect link validation\n");
 }
 
@@ -122,7 +126,7 @@ static void test_combined_session_and_link_metrics() {
 
     // Simulate the real pipeline: 5 sessions completed, 3 validated, 1 rejected, 1 aborted.
     for (int i = 0; i < 5; ++i) {
-        metrics_service::MetricsService::report_session_completed();
+        metrics_service::MetricsService::report_session_completed(false, false);
     }
     for (int i = 0; i < 3; ++i) {
         metrics_service::MetricsService::report_telegram_validated();
@@ -137,6 +141,26 @@ static void test_combined_session_and_link_metrics() {
     assert(snap.sessions.link_validated == 3);
     assert(snap.sessions.link_rejected == 1);
     assert(snap.sessions.incomplete == 1);
+    assert(snap.sessions.radio_crc_available == 0);
+    assert(snap.sessions.radio_crc_unavailable == 5);
+    std::printf("  PASS: radio CRC availability metrics\n");
+}
+
+static void test_radio_crc_availability_metrics() {
+    metrics_service::MetricsService::reset_session_metrics();
+
+    metrics_service::MetricsService::report_session_completed(true, true);
+    metrics_service::MetricsService::report_session_completed(true, false);
+    metrics_service::MetricsService::report_session_completed(false, false);
+
+    auto snap_res = metrics_service::MetricsService::instance().snapshot();
+    assert(!snap_res.is_error());
+    const auto snap = snap_res.value();
+    assert(snap.sessions.completed == 3);
+    assert(snap.sessions.radio_crc_available == 2);
+    assert(snap.sessions.radio_crc_unavailable == 1);
+    assert(snap.sessions.radio_crc_ok == 1);
+    assert(snap.sessions.radio_crc_fail == 1);
     std::printf("  PASS: combined session and link metrics\n");
 }
 
@@ -156,6 +180,10 @@ static void test_session_metrics_reset() {
     assert(snap.sessions.link_rejected == 0);
     assert(snap.sessions.incomplete == 0);
     assert(snap.sessions.dropped_too_long == 0);
+    assert(snap.sessions.radio_crc_available == 0);
+    assert(snap.sessions.radio_crc_unavailable == 0);
+    assert(snap.sessions.radio_crc_ok == 0);
+    assert(snap.sessions.radio_crc_fail == 0);
     std::printf("  PASS: session metrics reset\n");
 }
 
@@ -167,6 +195,7 @@ int main() {
     test_session_completed_does_not_affect_link_validation();
     test_link_validation_metrics_independent_of_sessions();
     test_combined_session_and_link_metrics();
+    test_radio_crc_availability_metrics();
     test_session_metrics_reset();
     std::printf("All metrics service tests passed.\n");
     return 0;

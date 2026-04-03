@@ -55,6 +55,10 @@ std::atomic<std::uint32_t> g_telegram_link_validated{0};
 std::atomic<std::uint32_t> g_telegram_link_rejected{0};
 std::atomic<std::uint32_t> g_session_incomplete{0};
 std::atomic<std::uint32_t> g_session_dropped_too_long{0};
+std::atomic<std::uint32_t> g_session_radio_crc_available{0};
+std::atomic<std::uint32_t> g_session_radio_crc_unavailable{0};
+std::atomic<std::uint32_t> g_session_radio_crc_ok{0};
+std::atomic<std::uint32_t> g_session_radio_crc_fail{0};
 
 } // namespace
 
@@ -116,6 +120,11 @@ common::Result<RuntimeMetrics> MetricsService::snapshot() const {
     m.sessions.link_rejected = g_telegram_link_rejected.load(std::memory_order_relaxed);
     m.sessions.incomplete = g_session_incomplete.load(std::memory_order_relaxed);
     m.sessions.dropped_too_long = g_session_dropped_too_long.load(std::memory_order_relaxed);
+    m.sessions.radio_crc_available = g_session_radio_crc_available.load(std::memory_order_relaxed);
+    m.sessions.radio_crc_unavailable =
+        g_session_radio_crc_unavailable.load(std::memory_order_relaxed);
+    m.sessions.radio_crc_ok = g_session_radio_crc_ok.load(std::memory_order_relaxed);
+    m.sessions.radio_crc_fail = g_session_radio_crc_fail.load(std::memory_order_relaxed);
 
     return common::Result<RuntimeMetrics>::ok(m);
 }
@@ -189,8 +198,18 @@ void MetricsService::report_task_stack_metrics(std::uint32_t radio_stack_hwm_wor
     g_health_stack_hwm_words.store(health_stack_hwm_words, std::memory_order_relaxed);
 }
 
-void MetricsService::report_session_completed() {
+void MetricsService::report_session_completed(bool radio_crc_available, bool radio_crc_ok) {
     g_session_completed.fetch_add(1, std::memory_order_relaxed);
+    if (radio_crc_available) {
+        g_session_radio_crc_available.fetch_add(1, std::memory_order_relaxed);
+        if (radio_crc_ok) {
+            g_session_radio_crc_ok.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            g_session_radio_crc_fail.fetch_add(1, std::memory_order_relaxed);
+        }
+    } else {
+        g_session_radio_crc_unavailable.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 void MetricsService::report_session_aborted() {
@@ -211,6 +230,10 @@ void MetricsService::reset_session_metrics() {
     g_telegram_link_rejected.store(0, std::memory_order_relaxed);
     g_session_incomplete.store(0, std::memory_order_relaxed);
     g_session_dropped_too_long.store(0, std::memory_order_relaxed);
+    g_session_radio_crc_available.store(0, std::memory_order_relaxed);
+    g_session_radio_crc_unavailable.store(0, std::memory_order_relaxed);
+    g_session_radio_crc_ok.store(0, std::memory_order_relaxed);
+    g_session_radio_crc_fail.store(0, std::memory_order_relaxed);
 }
 
 } // namespace metrics_service

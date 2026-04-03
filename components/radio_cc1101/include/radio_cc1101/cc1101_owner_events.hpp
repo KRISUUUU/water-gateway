@@ -30,6 +30,10 @@ struct RadioOwnerEventSet {
         return has(RadioOwnerEvent::Gdo0Edge) || has(RadioOwnerEvent::Gdo2Edge);
     }
 
+    // RX work is IRQ-first. FallbackPoll is reserved for bounded liveness checks:
+    //   - rare idle fallback when IRQ plumbing is enabled but a notification was missed
+    //   - explicit degraded-mode polling when IRQ plumbing is unavailable
+    // SessionWatchdogTick remains active only while a session is already in progress.
     bool should_attempt_rx_work(bool session_active) const {
         return has_any_irq() || has(RadioOwnerEvent::FallbackPoll) ||
                (session_active && has(RadioOwnerEvent::SessionWatchdogTick));
