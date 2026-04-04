@@ -16,11 +16,15 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "radio_cc1101/cc1101_owner_events.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
+#include "protocol_driver/protocol_ids.hpp"
+#include "protocol_driver/radio_profile_manager.hpp"
 #include "rf_diagnostics/rf_diagnostics.hpp"
 #include "telegram_router/telegram_router.hpp"
 #include "watchdog_service/watchdog_service.hpp"
 #include "wifi_manager/wifi_manager.hpp"
 #include "wmbus_link/wmbus_link.hpp"
+#include "wmbus_prios_rx/prios_bringup_session.hpp"
+#include "wmbus_prios_rx/prios_capture_service.hpp"
 #include "wmbus_tmode_rx/rx_session_engine.hpp"
 
 #include "esp_log.h"
@@ -70,6 +74,17 @@ static std::atomic<uint32_t> watchdog_register_errors{0};
 static std::atomic<uint32_t> watchdog_feed_errors{0};
 static bool boot_valid_marked_ = false;
 static std::atomic<bool> pipeline_config_dirty{false};
+
+// Queue item carrying an exact encoded frame together with the protocol
+// identity assigned by the radio task. Using a wrapper keeps protocol
+// metadata out of wmbus_link types and allows future protocol expansion
+// without touching the link-layer structs.
+struct RadioRxQueueItem {
+    wmbus_link::EncodedRxFrame frame{};
+    protocol_driver::ProtocolId      protocol_id     = protocol_driver::ProtocolId::WMbusT;
+    protocol_driver::RadioInstanceId radio_instance  = protocol_driver::kRadioInstancePrimary;
+    protocol_driver::RadioProfileId  radio_profile   = protocol_driver::RadioProfileId::WMbusT868;
+};
 
 static uint32_t now_ms() {
     return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -169,6 +184,33 @@ static void populate_rf_diagnostic_timestamps(rf_diagnostics::RfDiagnosticRecord
     record.timestamp_epoch_ms = ts > 0 ? ts : 0;
     record.monotonic_ms = ntp.monotonic_now_ms();
     record.sequence = rf_diagnostics::RfDiagnosticsService::instance().snapshot().total_inserted + 1U;
+}
+
+struct RadioStartupConfigSnapshot {
+    bool campaign_active = false;
+    bool campaign_manchester = false;
+    protocol_driver::RadioSchedulerMode scheduler_mode =
+        protocol_driver::RadioSchedulerMode::Locked;
+    protocol_driver::RadioProfileMask enabled_profiles =
+        protocol_driver::kRadioProfileMaskWMbusT868;
+};
+
+static RadioStartupConfigSnapshot load_radio_startup_config() {
+    const auto cfg = config_store::ConfigStore::instance().config();
+    return {
+        .campaign_active = cfg.radio.prios_capture_campaign,
+        .campaign_manchester = cfg.radio.prios_manchester_enabled,
+        .scheduler_mode = cfg.radio.scheduler_mode,
+        .enabled_profiles = cfg.radio.enabled_profiles,
+    };
+}
+
+static void log_radio_boot_stack_headroom(TaskHandle_t radio_task) {
+    if (!radio_task) {
+        return;
+    }
+    const auto hwm_words = static_cast<unsigned long>(uxTaskGetStackHighWaterMark(radio_task));
+    ESP_LOGI(TAG, "radio_rx boot stack_hwm=%lu words", hwm_words);
 }
 
 static RadioRxWaitResult wait_for_radio_rx_work(
@@ -323,20 +365,61 @@ static void radio_rx_task(void* /*param*/) {
     auto& radio = radio_cc1101::RadioCc1101::instance();
     auto& rsm = radio_state_machine::RadioStateMachine::instance();
     auto& wd = watchdog_service::WatchdogService::instance();
+    auto& profile_mgr = protocol_driver::RadioProfileManager::instance();
     TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
     RadioSessionDevice session_device(radio, current_task);
     const wmbus_tmode_rx::SessionEngineConfig session_config{};
     wmbus_tmode_rx::RxSessionEngine session_engine(session_config);
+    // PRIOS bring-up session: capture-only, no decode.
+    wmbus_prios_rx::PriosBringUpSession prios_session{};
     uint32_t rx_count = 0;
     bool irq_plumbing_enabled = false;
     const uint32_t session_watchdog_tick_ms =
         std::min(session_config.idle_poll_timeout_ms, session_config.min_watchdog_timeout_ms);
+    constexpr protocol_driver::ProtocolId kTmodeProtocolId = protocol_driver::ProtocolId::WMbusT;
+    constexpr protocol_driver::RadioProfileId kTmodeRadioProfile =
+        protocol_driver::RadioProfileId::WMbusT868;
+
+    // Read only the radio fields required at startup. The full AppConfig is
+    // large, so keep that copy scoped to the helper call instead of the
+    // radio_rx task lifetime.
+    const auto startup_radio_cfg = load_radio_startup_config();
+    const bool campaign_active = startup_radio_cfg.campaign_active;
+    const bool campaign_manchester = startup_radio_cfg.campaign_manchester;
+
+    if (campaign_active) {
+        // Campaign mode: lock the scheduler to PRIOS R3 only, regardless of
+        // whatever scheduler_mode and enabled_profiles are set in config.
+        // T-mode reception is suspended for the duration of the campaign.
+        profile_mgr.configure(protocol_driver::RadioSchedulerMode::Locked,
+                              protocol_driver::kRadioProfileMaskWMbusPriosR3);
+        ESP_LOGI(TAG, "PRIOS capture campaign ACTIVE — radio locked to WMbusPriosR3 "
+                      "(variant=%s, T-mode suspended)",
+                 campaign_manchester ? "manchester_on" : "manchester_off");
+    } else {
+        // Normal operation: apply scheduler mode and enabled profiles from config.
+        profile_mgr.configure(startup_radio_cfg.scheduler_mode, startup_radio_cfg.enabled_profiles);
+    }
 
     auto owner_claim = radio.claim_owner(current_task);
     if (owner_claim.is_error()) {
         ESP_LOGE(TAG, "radio_rx failed to claim sole radio ownership");
         vTaskDelete(nullptr);
         return;
+    }
+
+    // If campaign mode is active, overwrite the T-mode CC1101 registers with
+    // the PRIOS R3 experimental profile (Variant A or B) before starting RX.
+    if (campaign_active) {
+        auto profile_result = radio.owner_apply_prios_r3_profile(current_task, campaign_manchester);
+        if (profile_result.is_error()) {
+            ESP_LOGE(TAG, "Failed to apply PRIOS R3 profile for campaign (%d)",
+                     static_cast<int>(profile_result.error()));
+            // Non-fatal: the radio will run with T-mode registers but the sync
+            // word will be wrong for PRIOS.  Log prominently so the operator can
+            // diagnose why no captures arrive.
+        }
+        prios_session.set_variant(campaign_manchester);
     }
 
     auto irq_enable = radio.enable_gdo_interrupts(current_task, current_task);
@@ -353,6 +436,7 @@ static void radio_rx_task(void* /*param*/) {
         watchdog_register_errors.fetch_add(1, std::memory_order_relaxed);
         ESP_LOGW(TAG, "watchdog register failed for radio_rx");
     }
+    log_radio_boot_stack_headroom(current_task);
 
     while (true) {
         radio_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
@@ -362,7 +446,37 @@ static void radio_rx_task(void* /*param*/) {
                                                         session_watchdog_tick_ms);
         const auto& owner_events = wait_result.events;
 
-            auto step_result = session_engine.process(session_device, owner_events, now_ms());
+        if (wait_result.source == app_core::RadioRxWaitSource::IrqNotification) {
+            profile_mgr.record_irq_wake();
+        } else {
+            profile_mgr.record_fallback_wake();
+        }
+
+        const auto active_profile = profile_mgr.active_profile_id();
+
+        // PRIOS bring-up path: raw bounded capture, no decode, no link-layer routing.
+        if (active_profile == protocol_driver::RadioProfileId::WMbusPriosR3) {
+            const int64_t ts = ntp_service::NtpService::instance().now_epoch_ms();
+            const auto prios_result = prios_session.process(
+                session_device, owner_events, now_ms(), ts > 0 ? ts : 0);
+            if (prios_result.has_capture) {
+                wmbus_prios_rx::PriosCaptureService::instance().insert(prios_result.record);
+            }
+            if (prios_result.radio_error != common::ErrorCode::OK) {
+                rsm.on_read_failure(prios_result.radio_error);
+            }
+            if (wd.feed().is_error()) {
+                const uint32_t errors =
+                    watchdog_feed_errors.fetch_add(1, std::memory_order_relaxed) + 1U;
+                if ((errors % 64U) == 1U) {
+                    ESP_LOGW(TAG, "watchdog feed failed in radio_rx prios path (errors=%lu)",
+                             static_cast<unsigned long>(errors));
+                }
+            }
+            continue;
+        }
+
+        auto step_result = session_engine.process(session_device, owner_events, now_ms());
         if (step_result.is_ok()) {
             const auto& step = step_result.value();
             if (step.has_frame && frame_queue) {
@@ -376,10 +490,14 @@ static void radio_rx_task(void* /*param*/) {
                     step.frame.radio_crc_available, step.frame.crc_ok);
                 rsm.on_read_success();
                 rx_count++;
-                auto frame = encode_session_capture(step.frame,
+                RadioRxQueueItem item{};
+                item.frame = encode_session_capture(step.frame,
                                                     ntp_service::NtpService::instance().now_epoch_ms(),
                                                     rx_count);
-                if (xQueueSend(frame_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
+                item.protocol_id    = kTmodeProtocolId;
+                item.radio_instance = protocol_driver::kRadioInstancePrimary;
+                item.radio_profile  = kTmodeRadioProfile;
+                if (xQueueSend(frame_queue, &item, pdMS_TO_TICKS(10)) == pdTRUE) {
                     frame_enqueue_success.fetch_add(1, std::memory_order_relaxed);
                     sample_queue_levels();
                 } else {
@@ -439,15 +557,17 @@ static void pipeline_task(void* /*param*/) {
         ESP_LOGW(TAG, "watchdog register failed for pipeline");
     }
 
-    wmbus_link::EncodedRxFrame exact_frame{};
+    RadioRxQueueItem rx_item{};
     while (true) {
         pipeline_loop_last_ms.store(now_ms(), std::memory_order_relaxed);
         if (pipeline_config_dirty.exchange(false, std::memory_order_relaxed)) {
             cached_cfg = config_store::ConfigStore::instance().config();
         }
-        if (frame_queue && xQueueReceive(frame_queue, &exact_frame, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (frame_queue && xQueueReceive(frame_queue, &rx_item, pdMS_TO_TICKS(100)) == pdTRUE) {
             sample_queue_levels();
             pipeline_frames_processed.fetch_add(1, std::memory_order_relaxed);
+
+            wmbus_link::EncodedRxFrame& exact_frame = rx_item.frame;
 
             auto& ntp = ntp_service::NtpService::instance();
             const bool ntp_synced = ntp.status().synchronized;
@@ -757,7 +877,7 @@ common::Result<void> AppCore::create_runtime_tasks() {
     metrics_service::MetricsService::reset_task_metrics();
     metrics_service::MetricsService::reset_session_metrics();
 
-    frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(wmbus_link::EncodedRxFrame));
+    frame_queue = xQueueCreate(kFrameQueueDepth, sizeof(RadioRxQueueItem));
     mqtt_outbox = xQueueCreate(kMqttOutboxDepth, sizeof(mqtt_service::MqttPublishCommand));
     if (!frame_queue || !mqtt_outbox) {
         ESP_LOGE(TAG, "Runtime queue allocation failed (frame_queue=%p mqtt_outbox=%p)",

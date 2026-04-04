@@ -1,0 +1,91 @@
+#pragma once
+
+#include "common/error.hpp"
+#include "radio_cc1101/cc1101_owner_events.hpp"
+#include "wmbus_prios_rx/prios_capture_service.hpp"
+#include "wmbus_tmode_rx/rx_session_engine.hpp"
+
+#include <array>
+#include <cstdint>
+
+// PriosBringUpSession: minimal raw-capture session for PRIOS bring-up.
+//
+// When the radio is configured for the PRIOS R3 profile, the T-mode
+// RxSessionEngine cannot be used (it contains the T-mode 3-of-6 framer).
+// This class provides a minimal replacement for the PRIOS bring-up phase:
+//   - reads FIFO bytes through the same SessionRadio interface
+//   - accumulates bytes up to kMaxCaptureBytes
+//   - finalises the capture after the budget is reached or after an
+//     idle timeout (no new bytes for kIdleTimeoutMs)
+//   - stores a PriosCaptureRecord in PriosCaptureService
+//
+// This is NOT a framer or a decoder. It exists only to gather raw data.
+//
+// Design notes:
+//   - Uses wmbus_tmode_rx::SessionRadio (shared hardware interface).
+//   - Compact ESP_LOG calls for bring-up visibility (INFO-level, rate-limited).
+//   - No FreeRTOS primitives; only the radio task calls this.
+//   - Once the IProtocolDriver path is wired to the session engine (migration
+//     step 4), PriosCaptureDriver.feed_byte() will replace this class.
+
+namespace wmbus_prios_rx {
+
+class PriosBringUpSession {
+  public:
+    // Maximum raw bytes accumulated per capture attempt.
+    static constexpr uint16_t kMaxCaptureBytes = 64;
+
+    // Maximum bytes read from FIFO in a single process() call to bound latency.
+    static constexpr uint16_t kMaxFifoReadPerCall = 32;
+
+    // If no new bytes arrive for this long, finalise the partial capture.
+    static constexpr uint32_t kIdleTimeoutMs = 300;
+
+    struct Result {
+        bool                  has_capture  = false;
+        PriosCaptureRecord    record{};
+        common::ErrorCode     radio_error  = common::ErrorCode::OK;
+        bool                  is_fallback_wake = false;
+    };
+
+    void reset();
+
+    // Set the capture variant before starting a campaign session.
+    // This must be called whenever the operator switches variants so that
+    // every new PriosCaptureRecord carries the correct manchester_enabled flag.
+    // Safe to call at any time; takes effect on the next capture.
+    void set_variant(bool manchester_enabled) { manchester_enabled_ = manchester_enabled; }
+
+    // Returns the currently active variant.
+    bool manchester_enabled() const { return manchester_enabled_; }
+
+    // Called from the radio owner task loop in place of RxSessionEngine::process()
+    // when the active profile is WMbusPriosR3.
+    //
+    // Parameters:
+    //   radio         – the same SessionRadio adapter used by T-mode
+    //   events        – owner-task notification bitmask
+    //   now_ms        – current monotonic timestamp (from xTaskGetTickCount)
+    //   timestamp_ms  – NTP epoch timestamp for the record (0 if unavailable)
+    Result process(wmbus_tmode_rx::SessionRadio& radio,
+                   const radio_cc1101::RadioOwnerEventSet& events,
+                   uint32_t now_ms,
+                   int64_t  timestamp_ms);
+
+  private:
+    static constexpr size_t kBufSize = kMaxCaptureBytes;
+
+    uint8_t  buf_[kBufSize]{};
+    uint16_t len_               = 0;
+    bool     session_active_    = false;
+    uint32_t session_start_ms_  = 0;
+    uint32_t last_byte_ms_      = 0;
+    uint32_t seq_               = 0;
+    bool     manchester_enabled_ = false;  // set by set_variant(); propagated to records
+
+    PriosCaptureRecord finalise(int8_t rssi_dbm, uint8_t lqi,
+                                bool crc_ok, bool crc_available,
+                                int64_t timestamp_ms);
+};
+
+} // namespace wmbus_prios_rx

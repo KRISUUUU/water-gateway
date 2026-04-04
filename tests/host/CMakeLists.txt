@@ -15,6 +15,7 @@ set(COMP_DIR "${PROJECT_ROOT}/components")
 # Common include paths needed by most tests
 set(COMMON_INCLUDES
     "${COMP_DIR}/common/include"
+    "${COMP_DIR}/protocol_driver/include"
     "${COMP_DIR}/event_bus/include"
     "${COMP_DIR}/config_store/include"
     "${COMP_DIR}/storage_service/include"
@@ -23,6 +24,7 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/rf_diagnostics/include"
     "${COMP_DIR}/wmbus_tmode_rx/include"
     "${COMP_DIR}/wmbus_link/include"
+    "${COMP_DIR}/wmbus_prios_rx/include"
     "${COMP_DIR}/dedup_service/include"
     "${COMP_DIR}/telegram_router/include"
     "${COMP_DIR}/meter_registry/include"
@@ -283,6 +285,56 @@ add_host_test(test_rx_session_engine
     "${COMP_DIR}/wmbus_tmode_rx/src/rx_session_engine.cpp"
     "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
     "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
+)
+
+# ---- test_protocol_driver ----
+add_host_test(test_protocol_driver
+    test_protocol_driver.cpp
+    "${COMP_DIR}/protocol_driver/src/radio_protocol_scheduler.cpp"
+)
+
+# ---- test_radio_scheduler_config ----
+add_host_test(test_radio_scheduler_config
+    test_radio_scheduler_config.cpp
+    "${COMP_DIR}/protocol_driver/src/radio_protocol_scheduler.cpp"
+    "${COMP_DIR}/protocol_driver/src/radio_profile_manager.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+)
+
+# ---- test_prios_capture ----
+add_host_test(test_prios_capture
+    test_prios_capture.cpp
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_driver.cpp"
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_service.cpp"
+)
+
+# ---- test_prios_fixture_analyzer ----
+add_host_test(test_prios_fixture_analyzer
+    test_prios_fixture_analyzer.cpp
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_analyzer.cpp"
+)
+
+# ---- test_prios_framer_readiness ----
+# Documents which protocol facts are still missing before a framer can be
+# written.  Capture-mode smoke tests must always pass; framer-readiness
+# status is printed but does NOT fail the suite (the blocked state is
+# expected until hardware captures arrive).
+add_host_test(test_prios_framer_readiness
+    test_prios_framer_readiness.cpp
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_driver.cpp"
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_service.cpp"
+)
+
+# ---- test_wmbus_tmode_driver ----
+add_host_test(test_wmbus_tmode_driver
+    test_wmbus_tmode_driver.cpp
+    "${COMP_DIR}/wmbus_link/src/wmbus_link.cpp"
+    "${COMP_DIR}/wmbus_link/src/wmbus_tmode_driver.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_block_validation.cpp"
+    "${COMP_DIR}/wmbus_tmode_rx/src/wmbus_tmode_framer.cpp"
+    "${COMP_DIR}/rf_diagnostics/src/rf_diagnostics.cpp"
+    ${CJSON_SRC}
 )
 
 # ---- test_wmbus_link ----

@@ -13,10 +13,12 @@ idf_component_register(
         ntp_service
         mdns_service
         provisioning_manager
+        protocol_driver
         radio_cc1101
         radio_state_machine
         wmbus_tmode_rx
         wmbus_link
+        wmbus_prios_rx
         dedup_service
         telegram_router
         meter_registry

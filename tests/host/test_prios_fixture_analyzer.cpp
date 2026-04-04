@@ -1,0 +1,416 @@
+// Host tests for PriosFixtureFrame, PriosFixtureSuite, and PriosAnalyzer.
+//
+// All tests are pure host-side (no hardware, no FreeRTOS).
+// Run via: ctest --test-dir tests/host/build
+
+#include "wmbus_prios_rx/prios_fixture.hpp"
+#include "wmbus_prios_rx/prios_analyzer.hpp"
+
+#include <cassert>
+#include <cstdio>
+#include <cstring>
+
+using namespace wmbus_prios_rx;
+
+// ---- helpers -----------------------------------------------------------------
+
+static int g_pass = 0;
+static int g_fail = 0;
+
+#define PASS(name) do { printf("  PASS  %s\n", name); ++g_pass; } while(0)
+#define FAIL(name, ...) do { printf("  FAIL  %s: ", name); printf(__VA_ARGS__); printf("\n"); ++g_fail; } while(0)
+#define CHECK(name, expr) do { if (expr) { PASS(name); } else { FAIL(name, "expression false"); } } while(0)
+
+// Build a PriosCaptureRecord with a simple ascending byte pattern.
+static PriosCaptureRecord make_record(uint8_t len, int8_t rssi = -70,
+                                      uint8_t lqi = 80,
+                                      bool crc_ok = true,
+                                      bool crc_avail = true,
+                                      int64_t ts = 12345) {
+    PriosCaptureRecord r{};
+    r.rssi_dbm            = rssi;
+    r.lqi                 = lqi;
+    r.radio_crc_ok        = crc_ok;
+    r.radio_crc_available = crc_avail;
+    r.timestamp_ms        = ts;
+    r.total_bytes_captured = len;
+    const uint8_t copy = len < PriosCaptureRecord::kMaxPrefixBytes
+                             ? len
+                             : static_cast<uint8_t>(PriosCaptureRecord::kMaxPrefixBytes);
+    for (uint8_t i = 0; i < copy; ++i) {
+        r.prefix[i] = i;
+    }
+    r.prefix_length = copy;
+    return r;
+}
+
+// ---- PriosFixtureFrame -------------------------------------------------------
+
+static void test_from_record_copies_fields() {
+    const PriosCaptureRecord rec = make_record(10, -72, 90, true, true, 9999);
+    const PriosFixtureFrame f = PriosFixtureFrame::from_record(rec, "my_label");
+
+    CHECK("from_record_length",     f.length == 10);
+    CHECK("from_record_rssi",       f.rssi_dbm == -72);
+    CHECK("from_record_lqi",        f.lqi == 90);
+    CHECK("from_record_crc_ok",     f.radio_crc_ok == true);
+    CHECK("from_record_crc_avail",  f.radio_crc_available == true);
+    CHECK("from_record_timestamp",  f.timestamp_ms == 9999);
+    CHECK("from_record_label",      std::strcmp(f.label, "my_label") == 0);
+    // Bytes should match the ascending pattern.
+    bool bytes_ok = true;
+    for (uint8_t i = 0; i < 10; ++i) {
+        if (f.bytes[i] != i) { bytes_ok = false; }
+    }
+    CHECK("from_record_bytes", bytes_ok);
+}
+
+static void test_from_record_no_label() {
+    const PriosCaptureRecord rec = make_record(5);
+    const PriosFixtureFrame f = PriosFixtureFrame::from_record(rec);
+    CHECK("from_record_no_label_empty", f.label[0] == '\0');
+}
+
+static void test_from_record_truncates_to_max() {
+    // Make a record with more bytes than kMaxBytes (saturated at kMaxPrefixBytes=32
+    // by the record itself; fixture max is 64 — verify no overflow).
+    PriosCaptureRecord rec = make_record(32, -60, 70, false, false, 0);
+    const PriosFixtureFrame f = PriosFixtureFrame::from_record(rec);
+    CHECK("from_record_truncate_length", f.length == 32);
+}
+
+// ---- PriosFixtureSuite -------------------------------------------------------
+
+static void test_suite_append_and_count() {
+    PriosFixtureSuite suite{};
+    std::strncpy(suite.name, "test_suite", sizeof(suite.name) - 1);
+
+    for (size_t i = 0; i < 5; ++i) {
+        PriosFixtureFrame f{};
+        f.length = static_cast<uint8_t>(i + 1);
+        const bool ok = suite.append(f);
+        CHECK("suite_append_ok", ok);
+    }
+    CHECK("suite_count_5", suite.count == 5);
+}
+
+static void test_suite_capacity_limit() {
+    PriosFixtureSuite suite{};
+    for (size_t i = 0; i < PriosFixtureSuite::kMaxFrames; ++i) {
+        PriosFixtureFrame f{};
+        suite.append(f);
+    }
+    CHECK("suite_full_count", suite.count == PriosFixtureSuite::kMaxFrames);
+
+    // One more must be rejected.
+    PriosFixtureFrame extra{};
+    const bool rejected = !suite.append(extra);
+    CHECK("suite_overflow_rejected", rejected);
+    CHECK("suite_count_unchanged",   suite.count == PriosFixtureSuite::kMaxFrames);
+}
+
+// ---- PriosAnalyzer::compute_byte_votes ---------------------------------------
+
+// Build a set of frames that all agree on bytes 0..3, then diverge.
+static PriosFixtureFrame make_frame(const uint8_t* bytes, uint8_t len,
+                                    int8_t rssi = -70) {
+    PriosFixtureFrame f{};
+    f.length    = len;
+    f.rssi_dbm  = rssi;
+    for (uint8_t i = 0; i < len; ++i) {
+        f.bytes[i] = bytes[i];
+    }
+    return f;
+}
+
+static void test_byte_votes_stable_prefix() {
+    // All 5 frames share bytes 0-3 = {0xAA, 0xBB, 0xCC, 0xDD}, then differ.
+    const uint8_t base[] = {0xAA, 0xBB, 0xCC, 0xDD, 0x00};
+    PriosFixtureFrame frames[5];
+    for (int i = 0; i < 5; ++i) {
+        uint8_t buf[5];
+        std::memcpy(buf, base, 5);
+        buf[4] = static_cast<uint8_t>(i);  // differs per frame
+        frames[i] = make_frame(buf, 5);
+    }
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, 5, votes);
+
+    CHECK("votes_pos0_dominant",   votes[0].dominant_value == 0xAA);
+    CHECK("votes_pos0_agreement",  votes[0].agreement_pct  == 100);
+    CHECK("votes_pos1_dominant",   votes[1].dominant_value == 0xBB);
+    CHECK("votes_pos1_agreement",  votes[1].agreement_pct  == 100);
+    CHECK("votes_pos4_present",    votes[4].present_count  == 5);
+    // Position 4 has all different values — dominant_count == 1, pct ≤ 20%.
+    CHECK("votes_pos4_agreement_low", votes[4].agreement_pct <= 20);
+}
+
+static void test_byte_votes_empty_input() {
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(nullptr, 0, votes);
+    // Should not crash; votes remain zeroed.
+    CHECK("votes_empty_no_crash", votes[0].present_count == 0);
+}
+
+static void test_byte_votes_absent_position() {
+    // Frame 0 has length 2, frame 1 has length 4. Position 3 only appears in frame 1.
+    const uint8_t b0[] = {0x11, 0x22};
+    const uint8_t b1[] = {0x11, 0x22, 0x33, 0x44};
+    PriosFixtureFrame frames[2] = { make_frame(b0, 2), make_frame(b1, 4) };
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, 2, votes);
+
+    CHECK("votes_pos3_present_count_1", votes[3].present_count == 1);
+    CHECK("votes_pos3_dominant",        votes[3].dominant_value == 0x44);
+    CHECK("votes_pos3_agreement_100",   votes[3].agreement_pct  == 100);
+}
+
+// ---- PriosAnalyzer::common_prefix_length ------------------------------------
+
+static void test_common_prefix_length_happy() {
+    // 4 positions all with 100% agreement, 1 with 50%.
+    PriosAnalyzer::ByteVote votes[5]{};
+    for (int i = 0; i < 4; ++i) {
+        votes[i].present_count  = 4;
+        votes[i].dominant_count = 4;
+        votes[i].agreement_pct  = 100;
+    }
+    votes[4].present_count  = 4;
+    votes[4].dominant_count = 2;
+    votes[4].agreement_pct  = 50;
+
+    // With 75% threshold: prefix ends at position 4.
+    const size_t cpl = PriosAnalyzer::common_prefix_length(votes, 5, 75, 1);
+    CHECK("cpl_stops_at_bad_byte", cpl == 4);
+}
+
+static void test_common_prefix_length_all_agree() {
+    PriosAnalyzer::ByteVote votes[6]{};
+    for (int i = 0; i < 6; ++i) {
+        votes[i].present_count  = 6;
+        votes[i].dominant_count = 6;
+        votes[i].agreement_pct  = 100;
+    }
+    const size_t cpl = PriosAnalyzer::common_prefix_length(votes, 6, 75, 1);
+    CHECK("cpl_all_agree_full_length", cpl == 6);
+}
+
+static void test_common_prefix_length_null_input() {
+    const size_t cpl = PriosAnalyzer::common_prefix_length(nullptr, 10, 75, 1);
+    CHECK("cpl_null_returns_zero", cpl == 0);
+}
+
+static void test_common_prefix_length_min_frames_filter() {
+    // Position 0 has only 1 frame present but threshold requires 3.
+    PriosAnalyzer::ByteVote votes[3]{};
+    votes[0].present_count  = 1;
+    votes[0].dominant_count = 1;
+    votes[0].agreement_pct  = 100;
+
+    const size_t cpl = PriosAnalyzer::common_prefix_length(votes, 3, 75, 3);
+    CHECK("cpl_min_frames_stops_at_0", cpl == 0);
+}
+
+// ---- PriosAnalyzer::compute_length_histogram --------------------------------
+
+static void test_length_histogram_basic() {
+    // 3 frames of length 18, 2 of length 20.
+    PriosFixtureFrame frames[5]{};
+    for (int i = 0; i < 3; ++i) { frames[i].length = 18; }
+    for (int i = 3; i < 5; ++i) { frames[i].length = 20; }
+
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, 5, hist);
+
+    CHECK("hist_total",      hist.total_frames == 5);
+    CHECK("hist_min",        hist.min_length   == 18);
+    CHECK("hist_max",        hist.max_length   == 20);
+    CHECK("hist_modal_len",  hist.modal_length == 18);
+    CHECK("hist_modal_cnt",  hist.modal_count  == 3);
+    CHECK("hist_count_18",   hist.counts[18]   == 3);
+    CHECK("hist_count_20",   hist.counts[20]   == 2);
+}
+
+static void test_length_histogram_empty() {
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(nullptr, 0, hist);
+    CHECK("hist_empty_total",  hist.total_frames == 0);
+    CHECK("hist_empty_modal",  hist.modal_count  == 0);
+}
+
+// ---- PriosAnalyzer::assess_readiness ----------------------------------------
+
+static void build_identical_frames(PriosFixtureFrame* frames, size_t count,
+                                   int8_t rssi = -70) {
+    const uint8_t bytes[] = {0x54, 0x3D, 0x01, 0x02, 0x03, 0x04};
+    for (size_t i = 0; i < count; ++i) {
+        frames[i] = make_frame(bytes, 6, rssi);
+    }
+}
+
+static void test_readiness_all_criteria_met() {
+    constexpr size_t N = 6;
+    PriosFixtureFrame frames[N]{};
+    build_identical_frames(frames, N, -70);  // good RSSI
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, N, votes);
+
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, N, hist);
+
+    const auto r = PriosAnalyzer::assess_readiness(frames, N, hist, votes);
+
+    CHECK("readiness_enough_captures",   r.enough_captures);
+    CHECK("readiness_stable_prefix",     r.stable_prefix);
+    CHECK("readiness_consistent_lengths",r.consistent_lengths);
+    CHECK("readiness_good_rssi",         r.good_rssi);
+    CHECK("readiness_ready",             r.ready_for_decoder);
+}
+
+static void test_readiness_too_few_captures() {
+    constexpr size_t N = 2;  // < kMinCaptures (5)
+    PriosFixtureFrame frames[N]{};
+    build_identical_frames(frames, N);
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, N, votes);
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, N, hist);
+
+    const auto r = PriosAnalyzer::assess_readiness(frames, N, hist, votes);
+    CHECK("readiness_not_enough_caps",  !r.enough_captures);
+    CHECK("readiness_not_ready",        !r.ready_for_decoder);
+}
+
+static void test_readiness_bad_rssi() {
+    constexpr size_t N = 6;
+    PriosFixtureFrame frames[N]{};
+    build_identical_frames(frames, N, -110);  // below kMinRssiDbm (-100)
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, N, votes);
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, N, hist);
+
+    const auto r = PriosAnalyzer::assess_readiness(frames, N, hist, votes);
+    CHECK("readiness_bad_rssi",  !r.good_rssi);
+    CHECK("readiness_not_ready", !r.ready_for_decoder);
+}
+
+static void test_readiness_unstable_prefix() {
+    // Frames share only 1 byte (below kMinPrefixBytes=4).
+    constexpr size_t N = 6;
+    PriosFixtureFrame frames[N]{};
+    for (size_t i = 0; i < N; ++i) {
+        uint8_t buf[5] = {0xAA, 0x00, 0x00, 0x00, 0x00};
+        buf[1] = static_cast<uint8_t>(i);
+        buf[2] = static_cast<uint8_t>(i + 1);
+        buf[3] = static_cast<uint8_t>(i + 2);
+        buf[4] = static_cast<uint8_t>(i + 3);
+        frames[i] = make_frame(buf, 5, -70);
+    }
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, N, votes);
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, N, hist);
+
+    const auto r = PriosAnalyzer::assess_readiness(frames, N, hist, votes);
+    CHECK("readiness_unstable_prefix", !r.stable_prefix);
+    CHECK("readiness_not_ready",       !r.ready_for_decoder);
+}
+
+// ---- PriosAnalyzer::format_report -------------------------------------------
+
+static void test_format_report_nonempty() {
+    constexpr size_t N = 6;
+    PriosFixtureFrame frames[N]{};
+    build_identical_frames(frames, N, -70);
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, N, votes);
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, N, hist);
+    const auto r = PriosAnalyzer::assess_readiness(frames, N, hist, votes);
+
+    char buf[2048]{};
+    const size_t written = PriosAnalyzer::format_report(
+        buf, sizeof(buf), frames, N, votes, hist, r);
+
+    CHECK("format_report_written_nonzero",  written > 0);
+    CHECK("format_report_nul_terminated",   buf[written] == '\0');
+
+    // Must mention key sections.
+    const bool has_frames  = std::strstr(buf, "Frames:") != nullptr;
+    const bool has_lengths = std::strstr(buf, "Lengths:") != nullptr;
+    const bool has_prefix  = std::strstr(buf, "Stable prefix") != nullptr;
+    const bool has_ready   = std::strstr(buf, "READY FOR DECODER") != nullptr;
+    CHECK("format_report_has_frames",  has_frames);
+    CHECK("format_report_has_lengths", has_lengths);
+    CHECK("format_report_has_prefix",  has_prefix);
+    CHECK("format_report_has_ready",   has_ready);
+}
+
+static void test_format_report_null_buf() {
+    const size_t written = PriosAnalyzer::format_report(
+        nullptr, 0, nullptr, 0, nullptr,
+        PriosAnalyzer::LengthHistogram{}, PriosAnalyzer::Readiness{});
+    CHECK("format_report_null_buf_zero", written == 0);
+}
+
+static void test_format_report_empty_suite() {
+    char buf[256]{};
+    const size_t written = PriosAnalyzer::format_report(
+        buf, sizeof(buf), nullptr, 0, nullptr,
+        PriosAnalyzer::LengthHistogram{}, PriosAnalyzer::Readiness{});
+    CHECK("format_report_empty_written_nonzero", written > 0);
+    const bool has_no_captures = std::strstr(buf, "no captures") != nullptr;
+    CHECK("format_report_empty_has_no_captures", has_no_captures);
+}
+
+// ---- main --------------------------------------------------------------------
+
+int main() {
+    printf("=== test_prios_fixture_analyzer ===\n");
+
+    // PriosFixtureFrame
+    test_from_record_copies_fields();
+    test_from_record_no_label();
+    test_from_record_truncates_to_max();
+
+    // PriosFixtureSuite
+    test_suite_append_and_count();
+    test_suite_capacity_limit();
+
+    // compute_byte_votes
+    test_byte_votes_stable_prefix();
+    test_byte_votes_empty_input();
+    test_byte_votes_absent_position();
+
+    // common_prefix_length
+    test_common_prefix_length_happy();
+    test_common_prefix_length_all_agree();
+    test_common_prefix_length_null_input();
+    test_common_prefix_length_min_frames_filter();
+
+    // compute_length_histogram
+    test_length_histogram_basic();
+    test_length_histogram_empty();
+
+    // assess_readiness
+    test_readiness_all_criteria_met();
+    test_readiness_too_few_captures();
+    test_readiness_bad_rssi();
+    test_readiness_unstable_prefix();
+
+    // format_report
+    test_format_report_nonempty();
+    test_format_report_null_buf();
+    test_format_report_empty_suite();
+
+    printf("\n%d passed, %d failed\n", g_pass, g_fail);
+    return g_fail > 0 ? 1 : 0;
+}

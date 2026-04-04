@@ -1,4 +1,5 @@
 #include "config_store/config_validation.hpp"
+#include "protocol_driver/protocol_ids.hpp"
 #include <cctype>
 #include <cstring>
 
@@ -79,6 +80,15 @@ ValidationResult validate_config(const AppConfig& config) {
     if (config.radio.frequency_khz < 868000 || config.radio.frequency_khz > 870000) {
         result.add_error("radio.frequency_khz",
                          "Radio frequency must be between 868000 and 870000 kHz");
+    }
+
+    if (config.radio.scheduler_mode > protocol_driver::RadioSchedulerMode::Scan) {
+        result.add_error("radio.scheduler_mode", "Unknown radio scheduler mode");
+    }
+
+    if (config.radio.enabled_profiles == protocol_driver::kRadioProfileMaskNone) {
+        result.add_error("radio.enabled_profiles",
+                         "At least one radio profile must be enabled");
     }
 
     // --- Auth section ---

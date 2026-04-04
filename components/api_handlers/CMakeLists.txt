@@ -6,6 +6,7 @@ idf_component_register(
         "src/config_handlers.cpp"
         "src/meter_handlers.cpp"
         "src/radio_handlers.cpp"
+        "src/prios_handlers.cpp"
         "src/ota_handlers.cpp"
         "src/system_handlers.cpp"
         "src/status_handlers.cpp"
@@ -15,6 +16,8 @@ idf_component_register(
         http_server
         auth_service
         config_store
+        protocol_driver
+        wmbus_prios_rx
         mqtt_service
         diagnostics_service
         metrics_service

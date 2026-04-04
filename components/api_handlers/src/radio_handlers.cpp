@@ -4,6 +4,7 @@
 
 #include "common/error.hpp"
 #include "diagnostics_service/diagnostics_service.hpp"
+#include "protocol_driver/radio_profile_manager.hpp"
 #include "radio_state_machine/radio_state_machine.hpp"
 
 namespace api_handlers::detail {
@@ -43,6 +44,37 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
         return send_json(req, 500, "{\"error\":\"diagnostics_json_invalid\"}");
     }
     cJSON_AddItemToObject(root.get(), "diagnostics", diag.release());
+
+    // Scheduler / profile status
+    const auto sched = protocol_driver::RadioProfileManager::instance().status();
+    cJSON* sched_obj = cJSON_AddObjectToObject(root.get(), "scheduler");
+    cJSON_AddStringToObject(sched_obj, "mode",
+                            protocol_driver::radio_scheduler_mode_to_string(sched.scheduler_mode));
+    cJSON_AddStringToObject(sched_obj, "active_profile",
+                            protocol_driver::radio_profile_id_to_string(sched.active_profile_id));
+    cJSON_AddStringToObject(sched_obj, "last_switch_reason",
+                            protocol_driver::scheduler_switch_reason_to_string(
+                                sched.last_switch_reason));
+    cJSON_AddNumberToObject(sched_obj, "profile_switch_count",
+                            static_cast<double>(sched.profile_switch_count));
+    cJSON_AddNumberToObject(sched_obj, "enabled_profiles_mask",
+                            static_cast<double>(sched.enabled_profiles));
+    cJSON_AddNumberToObject(sched_obj, "irq_wake_count",
+                            static_cast<double>(sched.irq_wake_count));
+    cJSON_AddNumberToObject(sched_obj, "fallback_wake_count",
+                            static_cast<double>(sched.fallback_wake_count));
+
+    // Enabled profile list as human-readable strings
+    cJSON* profile_arr = cJSON_AddArrayToObject(sched_obj, "enabled_profiles");
+    for (uint8_t bit = 1; bit < 8; ++bit) {
+        if (sched.enabled_profiles & (1U << bit)) {
+            const auto pid = static_cast<protocol_driver::RadioProfileId>(bit);
+            cJSON_AddItemToArray(profile_arr,
+                                 cJSON_CreateString(
+                                     protocol_driver::radio_profile_id_to_string(pid)));
+        }
+    }
+
     return send_json_root(req, 200, root);
 }
 

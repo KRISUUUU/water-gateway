@@ -3,6 +3,7 @@
 #include "cc1101_device.hpp"
 #include "cc1101_hal.hpp"
 #include "cc1101_irq_hw.hpp"
+#include "radio_cc1101/cc1101_profile_prios_r3.hpp"
 #include "radio_cc1101/cc1101_profile_tmode.hpp"
 #include "radio_cc1101/cc1101_registers.hpp"
 
@@ -484,6 +485,39 @@ common::Result<void> RadioCc1101::owner_abort_and_restart_rx(void* owner_token) 
         return rx_result;
     }
     state_ = RadioState::Receiving;
+    return common::Result<void>::ok();
+}
+
+common::Result<void> RadioCc1101::owner_apply_prios_r3_profile(void* owner_token,
+                                                                bool  manchester_enabled) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    // Transition to idle before touching modem registers.
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
+        state_ = RadioState::Error;
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+
+    size_t count = 0;
+    const PriosR3RegisterConfig* profile = prios_r3_profile(manchester_enabled, count);
+    auto result = device::apply_register_profile(spi_handle_, counters_, profile, count);
+    if (result.is_error()) {
+        state_ = RadioState::Error;
+        return result;
+    }
+
+    ESP_LOGI(TAG, "PRIOS R3 profile applied: variant_%s (%zu registers)",
+             manchester_enabled ? "manchester_on" : "manchester_off", count);
+    state_ = RadioState::Idle;
+#else
+    (void)manchester_enabled;
+#endif
     return common::Result<void>::ok();
 }
 

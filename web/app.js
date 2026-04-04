@@ -784,13 +784,19 @@
     }
 
     function loadDiagnostics() {
-        Promise.all([api("GET", "/api/diagnostics/radio"), api("GET", "/api/diagnostics/mqtt"), api("GET", "/api/status"), api("GET", "/api/ota/status")])
-            .then(([radioData, mqttData, statusData, otaData]) => {
+        Promise.all([api("GET", "/api/diagnostics/radio"), api("GET", "/api/diagnostics/mqtt"), api("GET", "/api/status"), api("GET", "/api/ota/status"), api("GET", "/api/diagnostics/prios")])
+            .then(([radioData, mqttData, statusData, otaData, priosData]) => {
                 const radioEl = $("#rf-stats");
+                const schedEl = $("#scheduler-stats");
+                const priosStatusEl = $("#prios-status");
+                const priosCapturesEl = $("#prios-captures");
                 const mqttEl = $("#mqtt-stats");
                 const sysEl = $("#sys-stats");
                 const otaEl = $("#diag-ota-stats");
                 clearChildren(radioEl);
+                clearChildren(schedEl);
+                clearChildren(priosStatusEl);
+                clearChildren(priosCapturesEl);
                 clearChildren(mqttEl);
                 clearChildren(sysEl);
                 clearChildren(otaEl);
@@ -810,6 +816,67 @@
                     ["FIFO Overflows", rc.fifo_overflows],
                     ["SPI Errors", rc.spi_errors],
                 ].forEach((entry) => radioEl.appendChild(kvRow(entry[0], entry[1])));
+
+                // PRIOS capture campaign section
+                const prios = priosData || {};
+                const priosCampaign = prios.campaign_active === true;
+                const priosVariant  = prios.variant || "manchester_off";
+                [
+                    ["Campaign Mode", priosCampaign
+                        ? "\u25CF ACTIVE \u2014 T-mode suspended"
+                        : "\u25CB inactive"],
+                    ["Variant",       priosVariant === "manchester_on"
+                        ? "Variant B (Manchester ON)"
+                        : "Variant A (Manchester OFF)"],
+                    ["Profile",       prios.profile],
+                    ["Decoding",      prios.decoding ? "yes (active)" : "no \u2014 capture only"],
+                    ["Total Captures",prios.total_captures],
+                    ["Total Evicted", prios.total_evicted],
+                ].forEach((entry) => priosStatusEl.appendChild(kvRow(entry[0], entry[1])));
+
+                // Show export button only when there are captures
+                const exportRow = $("#prios-export-row");
+                if (exportRow) {
+                    exportRow.style.display = (prios.total_captures > 0) ? "" : "none";
+                }
+
+                const recentCaptures = Array.isArray(prios.recent_captures) ? prios.recent_captures : [];
+                if (recentCaptures.length === 0) {
+                    const note = document.createElement("p");
+                    note.className = "empty-state";
+                    note.textContent = priosCampaign
+                        ? "Campaign active. No captures yet \u2014 move near the meter."
+                        : "No PRIOS captures. Enable campaign mode in Settings to start.";
+                    priosCapturesEl.appendChild(note);
+                } else {
+                    recentCaptures.slice().reverse().forEach((c) => {
+                        const row = document.createElement("div");
+                        row.className = "kv-item";
+                        const left = document.createElement("span");
+                        const variantTag = c.variant === "manchester_on" ? "[B]" : "[A]";
+                        left.textContent = variantTag + " #" + c.seq + " (" + c.bytes_captured + "B, " + c.rssi_dbm + "dBm, lqi=" + c.lqi + ")";
+                        const right = document.createElement("span");
+                        right.className = "hex";
+                        right.textContent = c.prefix_hex || "--";
+                        row.appendChild(left);
+                        row.appendChild(right);
+                        priosCapturesEl.appendChild(row);
+                    });
+                }
+
+                const sched = radioData.scheduler || {};
+                const enabledProfiles = Array.isArray(sched.enabled_profiles)
+                    ? sched.enabled_profiles.join(", ")
+                    : "--";
+                [
+                    ["Scheduler Mode", sched.mode],
+                    ["Active Profile", sched.active_profile],
+                    ["Enabled Profiles", enabledProfiles],
+                    ["Last Switch Reason", sched.last_switch_reason],
+                    ["Profile Switches", sched.profile_switch_count],
+                    ["IRQ Wakes", sched.irq_wake_count],
+                    ["Fallback Wakes", sched.fallback_wake_count],
+                ].forEach((entry) => schedEl.appendChild(kvRow(entry[0], entry[1])));
 
                 [
                     ["State", mqttData.state],

@@ -1,4 +1,5 @@
 #include "config_store/config_migration.hpp"
+#include "protocol_driver/protocol_ids.hpp"
 
 namespace config_store {
 
@@ -37,6 +38,26 @@ static common::Result<AppConfig> migrate_v1_to_v2(const AppConfig& old) {
     return common::Result<AppConfig>::ok(migrated);
 }
 
+static common::Result<AppConfig> migrate_v2_to_v3(const AppConfig& old) {
+    AppConfig migrated = old;
+    migrated.version = 3;
+    // New in v3: scheduler mode and enabled profiles. Existing configs default
+    // to Locked mode with only T-mode enabled — preserving current behaviour.
+    migrated.radio.scheduler_mode   = protocol_driver::RadioSchedulerMode::Locked;
+    migrated.radio.enabled_profiles = protocol_driver::kRadioProfileMaskWMbusT868;
+    return common::Result<AppConfig>::ok(migrated);
+}
+
+static common::Result<AppConfig> migrate_v3_to_v4(const AppConfig& old) {
+    AppConfig migrated = old;
+    migrated.version = 4;
+    // New in v4: PRIOS capture campaign fields. Default to disabled so
+    // existing deployments continue operating in T-mode without any change.
+    migrated.radio.prios_capture_campaign  = false;
+    migrated.radio.prios_manchester_enabled = false;
+    return common::Result<AppConfig>::ok(migrated);
+}
+
 common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (old_config.version == kCurrentConfigVersion) {
         return common::Result<AppConfig>::ok(old_config);
@@ -59,6 +80,22 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
 
     if (current.version == 1) {
         auto result = migrate_v1_to_v2(current);
+        if (result.is_error()) {
+            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+        }
+        current = result.value();
+    }
+
+    if (current.version == 2) {
+        auto result = migrate_v2_to_v3(current);
+        if (result.is_error()) {
+            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+        }
+        current = result.value();
+    }
+
+    if (current.version == 3) {
+        auto result = migrate_v3_to_v4(current);
         if (result.is_error()) {
             return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
         }
