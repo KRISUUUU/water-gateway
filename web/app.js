@@ -942,6 +942,7 @@
                     ["Decoding",      prios.decoding ? "yes (active)" : "no \u2014 capture only"],
                     ["Total Captures",prios.total_captures],
                     ["Total Evicted", prios.total_evicted],
+                    ["Retained Captures", prios.retained_captures],
                 ].forEach((entry) => priosStatusEl.appendChild(kvRow(entry[0], entry[1])));
 
                 // Show export button only when there are captures
@@ -959,6 +960,10 @@
                         : "No PRIOS captures. Enable campaign mode in Settings to start.";
                     priosCapturesEl.appendChild(note);
                 } else {
+                    const previewNote = document.createElement("p");
+                    previewNote.className = "muted";
+                    previewNote.textContent = "Live diagnostics show only the most recent preview rows. Use export for the full retained capture set.";
+                    priosCapturesEl.appendChild(previewNote);
                     recentCaptures.slice().reverse().forEach((c) => {
                         const row = document.createElement("div");
                         row.className = "kv-item";

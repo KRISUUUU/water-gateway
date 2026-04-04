@@ -298,6 +298,37 @@ void test_service_ring_eviction() {
     std::printf("  PASS: ring buffer evicts oldest on overflow\n");
 }
 
+void test_service_preview_snapshot_is_bounded_and_recent() {
+    PriosCaptureService::instance().clear();
+
+    const size_t retained = PriosCaptureSnapshot::kMaxRecords;
+    const size_t preview = PriosCapturePreviewSnapshot::kMaxRecords;
+    for (uint32_t i = 1; i <= retained; ++i) {
+        PriosCaptureRecord r{};
+        r.sequence = i;
+        r.total_bytes_captured = PriosCaptureRecord::kDisplayPrefixBytes + 4;
+        for (size_t j = 0; j < PriosCaptureRecord::kMaxCaptureBytes; ++j) {
+            r.captured_bytes[j] = static_cast<uint8_t>(i + j);
+        }
+        PriosCaptureService::instance().insert(r);
+    }
+
+    const auto snap = PriosCaptureService::instance().preview_snapshot();
+    assert(snap.count == preview);
+    assert(snap.total_inserted == retained);
+    assert(snap.total_evicted == 0);
+    assert(snap.records[0].sequence == retained - preview + 1);
+    assert(snap.records[preview - 1].sequence == retained);
+    assert(snap.records[0].preview_length == PriosCaptureRecord::kDisplayPrefixBytes);
+    assert(snap.records[0].preview_bytes[0] ==
+           static_cast<uint8_t>((retained - preview + 1) + 0));
+    assert(snap.records[preview - 1].preview_bytes[0] ==
+           static_cast<uint8_t>(retained + 0));
+    static_assert(sizeof(PriosCapturePreviewSnapshot) < sizeof(PriosCaptureSnapshot),
+                  "Live diagnostics preview must stay lighter than the full export snapshot");
+    std::printf("  PASS: preview snapshot stays bounded to recent lightweight rows\n");
+}
+
 void test_service_snapshot_count_reaches_full_capacity() {
     PriosCaptureService::instance().clear();
     const size_t cap = PriosCaptureSnapshot::kMaxRecords;
@@ -354,6 +385,7 @@ int main() {
     test_service_insertion_order();
     test_service_snapshot_count_reaches_full_capacity();
     test_service_ring_eviction();
+    test_service_preview_snapshot_is_bounded_and_recent();
     test_service_clear_resets();
 
     std::printf("All prios capture tests passed.\n");

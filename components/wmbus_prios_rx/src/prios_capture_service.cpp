@@ -54,6 +54,42 @@ PriosCaptureStats PriosCaptureService::stats() const {
     return stats;
 }
 
+PriosCapturePreviewSnapshot PriosCaptureService::preview_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    PriosCapturePreviewSnapshot snap;
+    snap.total_inserted = total_inserted_;
+    snap.total_evicted  = total_evicted_;
+    snap.count          = count_ < PriosCapturePreviewSnapshot::kMaxRecords
+                              ? count_
+                              : PriosCapturePreviewSnapshot::kMaxRecords;
+
+    if (snap.count == 0) {
+        return snap;
+    }
+
+    const size_t first =
+        (head_ + kCapacity - snap.count) % kCapacity;
+    for (size_t i = 0; i < snap.count; ++i) {
+        const auto& src = storage_[(first + i) % kCapacity];
+        auto& dst = snap.records[i];
+        dst.sequence             = src.sequence;
+        dst.timestamp_ms         = src.timestamp_ms;
+        dst.rssi_dbm             = src.rssi_dbm;
+        dst.lqi                  = src.lqi;
+        dst.total_bytes_captured = src.total_bytes_captured;
+        dst.manchester_enabled   = src.manchester_enabled;
+        const size_t preview_len =
+            src.total_bytes_captured < PriosCapturePreviewRecord::kPreviewBytes
+                ? src.total_bytes_captured
+                : PriosCapturePreviewRecord::kPreviewBytes;
+        dst.preview_length = static_cast<uint8_t>(preview_len);
+        std::memcpy(dst.preview_bytes, src.captured_bytes, preview_len);
+    }
+
+    return snap;
+}
+
 void PriosCaptureService::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     storage_      = {};

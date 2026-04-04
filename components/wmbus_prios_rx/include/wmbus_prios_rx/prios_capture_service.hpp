@@ -56,6 +56,28 @@ struct PriosCaptureStats {
     uint32_t total_evicted  = 0;
 };
 
+struct PriosCapturePreviewRecord {
+    static constexpr size_t kPreviewBytes = PriosCaptureRecord::kDisplayPrefixBytes;
+
+    uint32_t sequence             = 0;
+    int64_t  timestamp_ms         = 0;
+    int8_t   rssi_dbm             = 0;
+    uint8_t  lqi                  = 0;
+    uint16_t total_bytes_captured = 0;
+    bool     manchester_enabled   = false;
+    uint8_t  preview_length       = 0;
+    uint8_t  preview_bytes[kPreviewBytes]{};
+};
+
+struct PriosCapturePreviewSnapshot {
+    static constexpr size_t kMaxRecords = 8;
+
+    std::array<PriosCapturePreviewRecord, kMaxRecords> records{};
+    size_t   count          = 0;
+    uint32_t total_inserted = 0;
+    uint32_t total_evicted  = 0;
+};
+
 class PriosCaptureService {
   public:
     static PriosCaptureService& instance();
@@ -63,6 +85,7 @@ class PriosCaptureService {
     void insert(const PriosCaptureRecord& record);
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
     [[nodiscard]] PriosCaptureStats stats() const;
+    [[nodiscard]] PriosCapturePreviewSnapshot preview_snapshot() const;
     void clear();
 
   private:

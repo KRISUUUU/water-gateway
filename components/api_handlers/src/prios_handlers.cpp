@@ -44,8 +44,9 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
         return auth;
     }
 
-    const auto snap = wmbus_prios_rx::PriosCaptureService::instance().snapshot();
-    const auto cfg  = config_store::ConfigStore::instance().config();
+    const auto preview = wmbus_prios_rx::PriosCaptureService::instance().preview_snapshot();
+    const auto stats   = wmbus_prios_rx::PriosCaptureService::instance().stats();
+    const auto cfg     = config_store::ConfigStore::instance().config();
 
     JsonPtr root = make_json_object();
     if (!root) {
@@ -61,13 +62,17 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                                 protocol_driver::RadioProfileId::WMbusPriosR3));
     cJSON_AddFalseToObject(root.get(),  "decoding");
     cJSON_AddNumberToObject(root.get(), "total_captures",
-                            static_cast<double>(snap.total_inserted));
+                            static_cast<double>(stats.total_inserted));
     cJSON_AddNumberToObject(root.get(), "total_evicted",
-                            static_cast<double>(snap.total_evicted));
+                            static_cast<double>(stats.total_evicted));
+    cJSON_AddNumberToObject(root.get(), "retained_captures",
+                            static_cast<double>(stats.count));
+    cJSON_AddNumberToObject(root.get(), "recent_preview_count",
+                            static_cast<double>(preview.count));
 
     cJSON* arr = cJSON_AddArrayToObject(root.get(), "recent_captures");
-    for (size_t i = 0; i < snap.count; ++i) {
-        const auto& r = snap.records[i];
+    for (size_t i = 0; i < preview.count; ++i) {
+        const auto& r = preview.records[i];
         cJSON* rec = cJSON_CreateObject();
         cJSON_AddNumberToObject(rec, "seq",           static_cast<double>(r.sequence));
         cJSON_AddNumberToObject(rec, "timestamp_ms",  static_cast<double>(r.timestamp_ms));
@@ -79,17 +84,13 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
 
         // Short dashboard preview only. Export uses the full bounded payload.
-        const uint8_t preview_len =
-            r.total_bytes_captured < wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes
-                ? static_cast<uint8_t>(r.total_bytes_captured)
-                : static_cast<uint8_t>(wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes);
         char hex_buf[wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes * 2 + 1]{};
-        for (uint8_t j = 0; j < preview_len; ++j) {
+        for (uint8_t j = 0; j < r.preview_length; ++j) {
             constexpr char kHex[] = "0123456789ABCDEF";
-            hex_buf[j * 2 + 0] = kHex[(r.captured_bytes[j] >> 4) & 0x0F];
-            hex_buf[j * 2 + 1] = kHex[r.captured_bytes[j] & 0x0F];
+            hex_buf[j * 2 + 0] = kHex[(r.preview_bytes[j] >> 4) & 0x0F];
+            hex_buf[j * 2 + 1] = kHex[r.preview_bytes[j] & 0x0F];
         }
-        hex_buf[preview_len * 2] = '\0';
+        hex_buf[r.preview_length * 2] = '\0';
         cJSON_AddStringToObject(rec, "display_prefix_hex", hex_buf);
 
         cJSON_AddItemToArray(arr, rec);
