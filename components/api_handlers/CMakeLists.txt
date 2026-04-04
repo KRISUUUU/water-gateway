@@ -4,6 +4,7 @@ idf_component_register(
         "src/api_handlers_common.cpp"
         "src/auth_handlers.cpp"
         "src/config_handlers.cpp"
+        "src/config_json_codec.cpp"
         "src/meter_handlers.cpp"
         "src/radio_handlers.cpp"
         "src/prios_handlers.cpp"

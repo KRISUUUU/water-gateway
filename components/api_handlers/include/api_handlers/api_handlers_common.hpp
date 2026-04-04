@@ -3,6 +3,7 @@
 #ifndef HOST_TEST_BUILD
 
 #include "auth_service/auth_service.hpp"
+#include "api_handlers/config_json_codec.hpp"
 #include "config_store/config_models.hpp"
 #include "config_store/config_store.hpp"
 #include "config_store/config_validation.hpp"
@@ -38,7 +39,6 @@ bool read_request_body(httpd_req_t* req, std::string& out, size_t max_len);
 bool request_content_type_is_json(httpd_req_t* req);
 bool request_content_type_is_binary(httpd_req_t* req);
 void apply_json_security_headers(httpd_req_t* req);
-void apply_config_json(const cJSON* root, config_store::AppConfig& cfg);
 void assign_admin_password_hash(config_store::AuthConfig& auth, const char* hash_cstr);
 
 bool has_https_scheme(const std::string& url);
@@ -55,8 +55,6 @@ const char* wifi_state_name(wifi_manager::WifiState s);
 const char* radio_state_name(radio_cc1101::RadioState s);
 const char* ota_state_name(ota_manager::OtaState s);
 const char* config_load_source_name(config_store::ConfigLoadSource s);
-
-std::string config_to_json_redacted(const config_store::AppConfig& c);
 
 } // namespace api_handlers::detail
 

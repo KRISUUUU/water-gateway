@@ -33,6 +33,7 @@ set(COMMON_INCLUDES
     "${COMP_DIR}/ntp_service/include"
     "${COMP_DIR}/diagnostics_service/include"
     "${COMP_DIR}/auth_service/include"
+    "${COMP_DIR}/api_handlers/include"
     "${COMP_DIR}/ota_manager/include"
     "${COMP_DIR}/health_monitor/include"
     "${COMP_DIR}/metrics_service/include"
@@ -101,6 +102,18 @@ add_host_test(test_config_store_status
     "${COMP_DIR}/config_store/src/config_store.cpp"
     "${COMP_DIR}/config_store/src/config_validation.cpp"
     "${COMP_DIR}/config_store/src/config_migration.cpp"
+)
+
+# ---- test_api_config_json ----
+add_host_test(test_api_config_json
+    test_api_config_json.cpp
+    "${COMP_DIR}/api_handlers/src/config_json_codec.cpp"
+    "${COMP_DIR}/auth_service/src/auth_service.cpp"
+    "${COMP_DIR}/config_store/src/config_store.cpp"
+    "${COMP_DIR}/config_store/src/config_validation.cpp"
+    "${COMP_DIR}/config_store/src/config_migration.cpp"
+    "${COMP_DIR}/event_bus/src/event_bus.cpp"
+    ${CJSON_SRC}
 )
 
 # ---- test_dedup ----

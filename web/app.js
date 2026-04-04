@@ -9,6 +9,31 @@
     let heavyRefreshTimer = null;
     const dashboardCache = { duplicateCount: 0, detected: 0, watchlistCount: 0 };
     let bootstrapInfo = null;
+    const radioSchedulerOptions = [
+        { value: 0, label: "Locked", help: "Stay on one enabled radio profile." },
+        { value: 1, label: "Priority", help: "Preferred profile with bounded fallback scanning." },
+        { value: 2, label: "Scan", help: "Round-robin across enabled profiles." },
+    ];
+    const radioProfileOptions = [
+        {
+            bit: 0x02,
+            id: "WMbusT868",
+            label: "Wireless M-Bus T-mode",
+            help: "Current production receive path.",
+        },
+        {
+            bit: 0x04,
+            id: "WMbusPriosR3",
+            label: "PRIOS R3",
+            help: "Capture-only experimental profile used by the PRIOS campaign.",
+        },
+        {
+            bit: 0x08,
+            id: "WMbusPriosR4",
+            label: "PRIOS R4",
+            help: "Reserved experimental profile. No decode path is implemented.",
+        },
+    ];
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -66,6 +91,11 @@
 
     function toBool(value) {
         return !!value;
+    }
+
+    function toNumberOr(value, fallback) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
     }
 
     function isFirstBootProvisioning() {
@@ -953,6 +983,145 @@
         container.appendChild(card);
     }
 
+    function appendFieldHint(parent, message) {
+        const hint = document.createElement("p");
+        hint.className = "hint";
+        hint.textContent = message;
+        parent.appendChild(hint);
+    }
+
+    function renderRadioConfigSection(container, radioCfg) {
+        const radio = radioCfg || {};
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const title = document.createElement("h3");
+        title.textContent = "Radio";
+        card.appendChild(title);
+
+        appendFieldHint(
+            card,
+            "PRIOS support is currently capture-only. Enabling PRIOS capture campaign locks the radio to PRIOS R3 and suspends T-mode after save and reboot."
+        );
+
+        const freqLabel = document.createElement("label");
+        freqLabel.setAttribute("for", "cfg-radio-frequency_khz");
+        freqLabel.textContent = "Frequency (kHz)";
+        const freqInput = document.createElement("input");
+        freqInput.id = "cfg-radio-frequency_khz";
+        freqInput.type = "number";
+        freqInput.value = String(toNumberOr(radio.frequency_khz, 868950));
+        freqLabel.appendChild(freqInput);
+        card.appendChild(freqLabel);
+
+        const rateLabel = document.createElement("label");
+        rateLabel.setAttribute("for", "cfg-radio-data_rate");
+        rateLabel.textContent = "Data Rate Selector";
+        const rateInput = document.createElement("input");
+        rateInput.id = "cfg-radio-data_rate";
+        rateInput.type = "number";
+        rateInput.value = String(toNumberOr(radio.data_rate, 0));
+        rateLabel.appendChild(rateInput);
+        card.appendChild(rateLabel);
+        appendFieldHint(card, "Reserved field. Leave at 0 unless a specific radio profile requires otherwise.");
+
+        const recoveryRow = document.createElement("label");
+        recoveryRow.className = "checkbox-row";
+        const recoveryInput = document.createElement("input");
+        recoveryInput.id = "cfg-radio-auto_recovery";
+        recoveryInput.type = "checkbox";
+        recoveryInput.checked = !!radio.auto_recovery;
+        const recoveryText = document.createElement("span");
+        recoveryText.textContent = "Enable automatic radio recovery";
+        recoveryRow.appendChild(recoveryInput);
+        recoveryRow.appendChild(recoveryText);
+        card.appendChild(recoveryRow);
+
+        const schedulerLabel = document.createElement("label");
+        schedulerLabel.setAttribute("for", "cfg-radio-scheduler_mode");
+        schedulerLabel.textContent = "Scheduler Mode";
+        const schedulerSelect = document.createElement("select");
+        schedulerSelect.id = "cfg-radio-scheduler_mode";
+        radioSchedulerOptions.forEach((option) => {
+            const opt = document.createElement("option");
+            opt.value = String(option.value);
+            opt.textContent = option.label;
+            schedulerSelect.appendChild(opt);
+        });
+        schedulerSelect.value = String(toNumberOr(radio.scheduler_mode, 0));
+        schedulerLabel.appendChild(schedulerSelect);
+        card.appendChild(schedulerLabel);
+        appendFieldHint(card, "Scheduler mode is saved normally, but PRIOS campaign mode overrides it until the campaign is turned off.");
+
+        const profilesBlock = document.createElement("div");
+        profilesBlock.className = "config-subsection";
+        const profilesTitle = document.createElement("div");
+        profilesTitle.className = "subsection-title";
+        profilesTitle.textContent = "Enabled Profiles";
+        profilesBlock.appendChild(profilesTitle);
+        const enabledProfilesMask = toNumberOr(radio.enabled_profiles, 0x02);
+        radioProfileOptions.forEach((profile) => {
+            const row = document.createElement("label");
+            row.className = "checkbox-row";
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.id = "cfg-radio-enabled-profile-" + profile.id;
+            input.checked = (enabledProfilesMask & profile.bit) !== 0;
+            const textWrap = document.createElement("span");
+            textWrap.textContent = profile.label;
+            row.appendChild(input);
+            row.appendChild(textWrap);
+            profilesBlock.appendChild(row);
+            appendFieldHint(profilesBlock, profile.help);
+        });
+        card.appendChild(profilesBlock);
+
+        const campaignRow = document.createElement("label");
+        campaignRow.className = "checkbox-row";
+        const campaignInput = document.createElement("input");
+        campaignInput.id = "cfg-radio-prios_capture_campaign";
+        campaignInput.type = "checkbox";
+        campaignInput.checked = !!radio.prios_capture_campaign;
+        const campaignText = document.createElement("span");
+        campaignText.textContent = "Enable PRIOS capture campaign";
+        campaignRow.appendChild(campaignInput);
+        campaignRow.appendChild(campaignText);
+        card.appendChild(campaignRow);
+
+        const manchesterRow = document.createElement("label");
+        manchesterRow.className = "checkbox-row";
+        const manchesterInput = document.createElement("input");
+        manchesterInput.id = "cfg-radio-prios_manchester_enabled";
+        manchesterInput.type = "checkbox";
+        manchesterInput.checked = !!radio.prios_manchester_enabled;
+        const manchesterText = document.createElement("span");
+        manchesterText.textContent = "Use Manchester variant for PRIOS campaign";
+        manchesterRow.appendChild(manchesterInput);
+        manchesterRow.appendChild(manchesterText);
+        card.appendChild(manchesterRow);
+
+        appendFieldHint(card, "Manchester off = Variant A. Manchester on = Variant B. This setting only affects PRIOS campaign mode.");
+
+        const summary = document.createElement("p");
+        summary.id = "cfg-radio-campaign-summary";
+        summary.className = "hint config-summary";
+        card.appendChild(summary);
+
+        function updateRadioCampaignSummary() {
+            if (campaignInput.checked) {
+                summary.textContent =
+                    "Capture-only campaign will lock the radio to PRIOS R3, suspend T-mode, and use the selected Manchester variant after reboot.";
+            } else {
+                summary.textContent =
+                    "Normal mode uses the saved scheduler mode and enabled profiles after reboot. PRIOS decode is not available yet.";
+            }
+        }
+
+        campaignInput.addEventListener("change", updateRadioCampaignSummary);
+        updateRadioCampaignSummary();
+        container.appendChild(card);
+    }
+
     function loadConfig() {
         api("GET", "/api/config")
             .then((cfg) => {
@@ -977,7 +1146,7 @@
                 renderConfigSection(c, "Device", cfg.device || {});
                 renderConfigSection(c, "WiFi", cfg.wifi || {});
                 renderConfigSection(c, "MQTT", cfg.mqtt || {});
-                renderConfigSection(c, "Radio", cfg.radio || {});
+                renderRadioConfigSection(c, cfg.radio || {});
                 renderConfigSection(c, "Auth", cfg.auth || {});
                 renderConfigSection(c, "Logging", cfg.logging || {});
             })
@@ -985,7 +1154,7 @@
     }
 
     function collectConfigValues(cfg) {
-        ["device", "wifi", "mqtt", "radio", "auth", "logging"].forEach((section) => {
+        ["device", "wifi", "mqtt", "auth", "logging"].forEach((section) => {
             if (!cfg[section]) {
                 return;
             }
@@ -1006,6 +1175,24 @@
                 }
             });
         });
+
+        if (cfg.radio) {
+            cfg.radio.frequency_khz = toNumberOr($("#cfg-radio-frequency_khz").value, cfg.radio.frequency_khz);
+            cfg.radio.data_rate = toNumberOr($("#cfg-radio-data_rate").value, cfg.radio.data_rate);
+            cfg.radio.auto_recovery = $("#cfg-radio-auto_recovery").checked;
+            cfg.radio.scheduler_mode = toNumberOr($("#cfg-radio-scheduler_mode").value, cfg.radio.scheduler_mode);
+
+            let enabledProfiles = 0;
+            radioProfileOptions.forEach((profile) => {
+                const checkbox = $("#cfg-radio-enabled-profile-" + profile.id);
+                if (checkbox && checkbox.checked) {
+                    enabledProfiles |= profile.bit;
+                }
+            });
+            cfg.radio.enabled_profiles = enabledProfiles;
+            cfg.radio.prios_capture_campaign = $("#cfg-radio-prios_capture_campaign").checked;
+            cfg.radio.prios_manchester_enabled = $("#cfg-radio-prios_manchester_enabled").checked;
+        }
     }
 
     function loadOtaStatus() {
