@@ -111,7 +111,7 @@ class RadioCc1101 {
     common::Result<void> owner_abort_and_restart_rx(void* owner_token);
 
     // Apply PRIOS R3 register profile while holding radio ownership.
-    // Transitions: idle → configure registers → idle (caller must call start_rx).
+    // Transitions: idle → configure registers → flush FIFO → RX-ready.
     // manchester_enabled=false → Variant A; manchester_enabled=true → Variant B.
     // Both variants are EXPERIMENTAL. Call only when prios_capture_campaign is
     // active; otherwise the radio remains in T-mode configuration.

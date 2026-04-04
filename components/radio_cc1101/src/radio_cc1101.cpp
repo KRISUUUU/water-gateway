@@ -22,7 +22,21 @@ namespace radio_cc1101 {
 
 namespace {
 
-
+#ifndef HOST_TEST_BUILD
+const char* radio_state_str(RadioState state) {
+    switch (state) {
+    case RadioState::Uninitialized:
+        return "Uninitialized";
+    case RadioState::Idle:
+        return "Idle";
+    case RadioState::Receiving:
+        return "Receiving";
+    case RadioState::Error:
+        return "Error";
+    }
+    return "Unknown";
+}
+#endif
 
 #ifndef HOST_TEST_BUILD
 
@@ -498,6 +512,9 @@ common::Result<void> RadioCc1101::owner_apply_prios_r3_profile(void* owner_token
     }
 
 #ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "PRIOS R3 apply: begin variant_%s",
+             manchester_enabled ? "manchester_on" : "manchester_off");
+
     // Transition to idle before touching modem registers.
     if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
         state_ = RadioState::Error;
@@ -512,12 +529,38 @@ common::Result<void> RadioCc1101::owner_apply_prios_r3_profile(void* owner_token
         return result;
     }
 
-    ESP_LOGI(TAG, "PRIOS R3 profile applied: variant_%s (%zu registers)",
+    ESP_LOGI(TAG, "PRIOS R3 apply: profile_ok variant_%s regs=%zu",
              manchester_enabled ? "manchester_on" : "manchester_off", count);
-    state_ = RadioState::Idle;
 #else
     (void)manchester_enabled;
 #endif
+
+    auto flush_result = flush_rx_fifo();
+    if (flush_result.is_error()) {
+        state_ = RadioState::Error;
+        return flush_result;
+    }
+
+    auto rx_result = start_rx();
+    if (rx_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "PRIOS R3 apply: start_rx failed (%d)", static_cast<int>(rx_result.error()));
+#endif
+        state_ = RadioState::Error;
+        return rx_result;
+    }
+
+#ifndef HOST_TEST_BUILD
+    auto marc_result = device::read_marcstate(spi_handle_, counters_);
+    if (marc_result.is_ok()) {
+        ESP_LOGI(TAG, "PRIOS R3 apply: rx_started state=%s marc=0x%02X",
+                 radio_state_str(state_), marc_result.value());
+    } else {
+        ESP_LOGW(TAG, "PRIOS R3 apply: rx_started state=%s marc=read_error(%d)",
+                 radio_state_str(state_), static_cast<int>(marc_result.error()));
+    }
+#endif
+
     return common::Result<void>::ok();
 }
 

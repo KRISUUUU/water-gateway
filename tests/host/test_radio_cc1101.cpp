@@ -122,6 +122,21 @@ static void test_owner_only_rx_helpers_require_claim_and_return_status() {
     printf("  PASS: owner-only RX helpers exposed for session engine\n");
 }
 
+static void test_prios_profile_apply_rearms_rx() {
+    auto& radio = RadioCc1101::instance();
+    void* owner = reinterpret_cast<void*>(0xD00D);
+    const SpiPins pins{23, 19, 18, 5, -1, -1};
+
+    const auto init = radio.initialize(pins);
+    assert(init.is_ok() || init.error() == common::ErrorCode::AlreadyInitialized);
+    assert(radio.claim_owner(owner).is_ok());
+    const auto apply = radio.owner_apply_prios_r3_profile(owner, false);
+    assert(apply.is_ok());
+    assert(radio.state() == RadioState::Receiving);
+    radio.release_owner(owner);
+    printf("  PASS: PRIOS profile apply leaves radio RX-ready\n");
+}
+
 int main() {
     printf("=== test_radio_cc1101 ===\n");
 
@@ -131,6 +146,7 @@ int main() {
     test_owner_claim_state_is_singular();
 
     test_owner_only_rx_helpers_require_claim_and_return_status();
+    test_prios_profile_apply_rearms_rx();
     printf("All radio_cc1101 tests passed.\n");
     return 0;
 }
