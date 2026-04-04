@@ -166,6 +166,13 @@ void test_service_empty_snapshot() {
     std::printf("  PASS: empty snapshot is valid\n");
 }
 
+void test_service_capacity_is_64_records() {
+    static_assert(PriosCaptureSnapshot::kMaxRecords == 64,
+                  "PRIOS capture retention depth must remain 64 for offline analysis");
+    assert(PriosCaptureSnapshot::kMaxRecords == 64);
+    std::printf("  PASS: capture retention depth is 64 records\n");
+}
+
 void test_service_insert_and_retrieve() {
     PriosCaptureService::instance().clear();
 
@@ -271,6 +278,25 @@ void test_service_ring_eviction() {
     std::printf("  PASS: ring buffer evicts oldest on overflow\n");
 }
 
+void test_service_snapshot_count_reaches_full_capacity() {
+    PriosCaptureService::instance().clear();
+    const size_t cap = PriosCaptureSnapshot::kMaxRecords;
+
+    for (uint32_t i = 1; i <= cap; ++i) {
+        PriosCaptureRecord r{};
+        r.sequence = i;
+        PriosCaptureService::instance().insert(r);
+    }
+
+    const auto snap = PriosCaptureService::instance().snapshot();
+    assert(snap.count == cap);
+    assert(snap.total_inserted == cap);
+    assert(snap.total_evicted == 0);
+    assert(snap.records[0].sequence == 1);
+    assert(snap.records[cap - 1].sequence == cap);
+    std::printf("  PASS: snapshot retains the full configured capacity\n");
+}
+
 void test_service_clear_resets() {
     PriosCaptureService::instance().clear();
     PriosCaptureRecord r{};
@@ -300,10 +326,12 @@ int main() {
     test_driver_reset_allows_fresh_session();
 
     test_service_empty_snapshot();
+    test_service_capacity_is_64_records();
     test_service_insert_and_retrieve();
     test_service_preserves_full_bounded_capture();
     test_service_manchester_variant_stored();
     test_service_insertion_order();
+    test_service_snapshot_count_reaches_full_capacity();
     test_service_ring_eviction();
     test_service_clear_resets();
 

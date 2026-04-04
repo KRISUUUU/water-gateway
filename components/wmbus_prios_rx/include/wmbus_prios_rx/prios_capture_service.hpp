@@ -42,7 +42,7 @@ struct PriosCaptureRecord {
 };
 
 struct PriosCaptureSnapshot {
-    static constexpr size_t kMaxRecords = 8;
+    static constexpr size_t kMaxRecords = 64;
 
     std::array<PriosCaptureRecord, kMaxRecords> records{};
     size_t   count         = 0;
