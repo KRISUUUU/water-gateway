@@ -8,23 +8,23 @@
 // PriosCaptureService: bounded ring buffer for raw PRIOS bring-up captures.
 //
 // Captures are stored here by the radio task whenever the PRIOS bring-up
-// session collects a bounded prefix. The HTTP handler reads them for
+// session collects a bounded raw capture. The HTTP handler reads them for
 // diagnostics visibility.
 //
 // Thread safety: the ring buffer is mutex-protected. The radio task writes;
 // the HTTP handler task reads via snapshot(). Pattern mirrors RfDiagnosticsService.
 //
-// Each record stores only the first kMaxPrefixBytes of the captured data —
-// not the full FIFO dump. This is intentional: the prefix is sufficient for
-// bring-up analysis, and storing full dumps for every noise burst would be
-// wasteful. Once the sync word and frame structure are known, this limit can
-// be revisited.
+// Each record stores the full bounded capture window produced by the bring-up
+// session. The capture remains bounded so the export path stays practical for
+// embedded use while preserving enough evidence for offline analysis.
 
 namespace wmbus_prios_rx {
 
 struct PriosCaptureRecord {
-    // Bounded captured prefix — NOT the full frame.
-    static constexpr size_t kMaxPrefixBytes = 32;
+    // Bounded raw capture copied from the PRIOS bring-up session.
+    // Matches PriosBringUpSession::kMaxCaptureBytes and PriosFixtureFrame::kMaxBytes.
+    static constexpr size_t kMaxCaptureBytes = 64;
+    static constexpr size_t kDisplayPrefixBytes = 32;
 
     uint32_t sequence            = 0;
     int64_t  timestamp_ms        = 0;  // monotonic or epoch (whichever is available)
@@ -32,9 +32,8 @@ struct PriosCaptureRecord {
     uint8_t  lqi                 = 0;
     bool     radio_crc_ok        = false;
     bool     radio_crc_available = false;
-    uint16_t total_bytes_captured = 0;  // how many bytes fed before FrameComplete/timeout
-    uint8_t  prefix[kMaxPrefixBytes]{};
-    uint8_t  prefix_length       = 0;
+    uint16_t total_bytes_captured = 0;  // how many bytes were captured in this bounded record
+    uint8_t  captured_bytes[kMaxCaptureBytes]{};
 
     // Which PRIOS capture variant was active when this record was captured.
     // false = Variant A (Manchester off), true = Variant B (Manchester on).

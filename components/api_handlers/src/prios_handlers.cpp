@@ -33,7 +33,7 @@ namespace api_handlers::detail {
 //       "lqi": 90,
 //       "bytes_captured": 32,
 //       "variant": "manchester_off",
-//       "prefix_hex": "A1B2C3..."
+//       "display_prefix_hex": "A1B2C3..."
 //     }
 //   ]
 // }
@@ -78,15 +78,19 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
         cJSON_AddStringToObject(rec, "variant",
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
 
-        // Hex-encode the bounded prefix (at most 32 bytes).
-        char hex_buf[wmbus_prios_rx::PriosCaptureRecord::kMaxPrefixBytes * 2 + 1]{};
-        for (uint8_t j = 0; j < r.prefix_length; ++j) {
+        // Short dashboard preview only. Export uses the full bounded payload.
+        const uint8_t preview_len =
+            r.total_bytes_captured < wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes
+                ? static_cast<uint8_t>(r.total_bytes_captured)
+                : static_cast<uint8_t>(wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes);
+        char hex_buf[wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes * 2 + 1]{};
+        for (uint8_t j = 0; j < preview_len; ++j) {
             constexpr char kHex[] = "0123456789ABCDEF";
-            hex_buf[j * 2 + 0] = kHex[(r.prefix[j] >> 4) & 0x0F];
-            hex_buf[j * 2 + 1] = kHex[r.prefix[j] & 0x0F];
+            hex_buf[j * 2 + 0] = kHex[(r.captured_bytes[j] >> 4) & 0x0F];
+            hex_buf[j * 2 + 1] = kHex[r.captured_bytes[j] & 0x0F];
         }
-        hex_buf[r.prefix_length * 2] = '\0';
-        cJSON_AddStringToObject(rec, "prefix_hex", hex_buf);
+        hex_buf[preview_len * 2] = '\0';
+        cJSON_AddStringToObject(rec, "display_prefix_hex", hex_buf);
 
         cJSON_AddItemToArray(arr, rec);
     }
@@ -96,22 +100,24 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
 
 // GET /api/diagnostics/prios/export
 //
-// Returns all buffered captures as a JSON fixture array, ready to paste into a
-// host-test source file.  One object per record; each object mirrors the fields
-// of PriosFixtureFrame so callers can reconstruct them with minimal editing.
+// Returns all buffered captures as a JSON fixture array, ready for offline
+// analysis or to paste into a host-test source file.
 //
 // Response shape:
 // {
 //   "count": 3,
 //   "frames": [
 //     {
+//       "total_bytes_captured": 18,
 //       "length": 18,
 //       "rssi_dbm": -72,
 //       "lqi": 90,
 //       "radio_crc_ok": true,
 //       "radio_crc_available": true,
 //       "timestamp_ms": 12345678,
-//       "hex": "A1B2C3..."
+//       "variant": "manchester_off",
+//       "display_prefix_hex": "A1B2C3...",
+//       "full_hex": "A1B2C3..."
 //     }
 //   ]
 // }
@@ -140,6 +146,8 @@ esp_err_t handle_diagnostics_prios_export(httpd_req_t* req) {
             wmbus_prios_rx::PriosFixtureFrame::from_record(r);
 
         cJSON* obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(obj, "total_bytes_captured",
+                                static_cast<double>(r.total_bytes_captured));
         cJSON_AddNumberToObject(obj, "length",    static_cast<double>(frame.length));
         cJSON_AddNumberToObject(obj, "rssi_dbm",  static_cast<double>(frame.rssi_dbm));
         cJSON_AddNumberToObject(obj, "lqi",       static_cast<double>(frame.lqi));
@@ -150,15 +158,27 @@ esp_err_t handle_diagnostics_prios_export(httpd_req_t* req) {
         cJSON_AddStringToObject(obj, "variant",
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
 
-        // Full hex dump of the captured prefix.
-        char hex_buf[wmbus_prios_rx::PriosFixtureFrame::kMaxBytes * 2 + 1]{};
+        const uint8_t preview_len =
+            frame.length < wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes
+                ? frame.length
+                : static_cast<uint8_t>(wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes);
+        char preview_hex_buf[wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes * 2 + 1]{};
+        char full_hex_buf[wmbus_prios_rx::PriosFixtureFrame::kMaxBytes * 2 + 1]{};
         constexpr char kHex[] = "0123456789ABCDEF";
-        for (uint8_t j = 0; j < frame.length; ++j) {
-            hex_buf[j * 2 + 0] = kHex[(frame.bytes[j] >> 4) & 0x0F];
-            hex_buf[j * 2 + 1] = kHex[frame.bytes[j] & 0x0F];
+        for (uint8_t j = 0; j < preview_len; ++j) {
+            preview_hex_buf[j * 2 + 0] = kHex[(frame.bytes[j] >> 4) & 0x0F];
+            preview_hex_buf[j * 2 + 1] = kHex[frame.bytes[j] & 0x0F];
         }
-        hex_buf[frame.length * 2] = '\0';
-        cJSON_AddStringToObject(obj, "hex", hex_buf);
+        for (uint8_t j = 0; j < frame.length; ++j) {
+            full_hex_buf[j * 2 + 0] = kHex[(frame.bytes[j] >> 4) & 0x0F];
+            full_hex_buf[j * 2 + 1] = kHex[frame.bytes[j] & 0x0F];
+        }
+        preview_hex_buf[preview_len * 2] = '\0';
+        full_hex_buf[frame.length * 2] = '\0';
+        cJSON_AddStringToObject(obj, "display_prefix_hex", preview_hex_buf);
+        cJSON_AddStringToObject(obj, "full_hex", full_hex_buf);
+        // Backward-compatible alias; now contains the full bounded capture.
+        cJSON_AddStringToObject(obj, "hex", full_hex_buf);
 
         cJSON_AddItemToArray(arr, obj);
     }

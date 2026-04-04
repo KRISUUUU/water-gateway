@@ -17,6 +17,37 @@ namespace wmbus_prios_rx {
 using namespace wmbus_tmode_rx;
 using namespace radio_cc1101;
 
+bool PriosBringUpSession::should_emit_verbose_session_log() const {
+    return verbose_session_logs_remaining_ > 0;
+}
+
+void PriosBringUpSession::emit_periodic_summary(uint32_t now_ms) {
+#ifndef HOST_TEST_BUILD
+    if (last_summary_log_ms_ == 0) {
+        last_summary_log_ms_ = now_ms;
+        return;
+    }
+    if ((now_ms - last_summary_log_ms_) < kSummaryLogCadenceMs) {
+        return;
+    }
+    last_summary_log_ms_ = now_ms;
+
+    const auto snapshot = PriosCaptureService::instance().snapshot();
+    ESP_LOGI(TAG_PRIOS,
+             "PRIOS R3 summary: start=%lu capture=%lu timeout=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
+             static_cast<unsigned long>(counters_.sessions_started),
+             static_cast<unsigned long>(counters_.captures_completed),
+             static_cast<unsigned long>(counters_.timeout_captures),
+             static_cast<unsigned long>(counters_.fifo_overflows),
+             static_cast<unsigned long>(counters_.empty_resets),
+             static_cast<unsigned long>(counters_.fallback_wakes),
+             static_cast<unsigned long>(snapshot.total_inserted),
+             static_cast<unsigned long>(snapshot.total_evicted));
+#else
+    (void)now_ms;
+#endif
+}
+
 void PriosBringUpSession::reset() {
     len_            = 0;
     session_active_ = false;
@@ -38,10 +69,9 @@ PriosCaptureRecord PriosBringUpSession::finalise(int8_t rssi_dbm, uint8_t lqi,
     rec.total_bytes_captured  = len_;
     rec.manchester_enabled    = manchester_enabled_;  // record which variant was active
 
-    rec.prefix_length = static_cast<uint8_t>(
-        std::min(static_cast<size_t>(len_),
-                 PriosCaptureRecord::kMaxPrefixBytes));
-    std::memcpy(rec.prefix, buf_, rec.prefix_length);
+    const size_t captured_length = std::min(static_cast<size_t>(len_),
+                                            PriosCaptureRecord::kMaxCaptureBytes);
+    std::memcpy(rec.captured_bytes, buf_, captured_length);
 
     return rec;
 }
@@ -55,6 +85,10 @@ PriosBringUpSession::Result PriosBringUpSession::process(
     Result result{};
     result.is_fallback_wake = events.has(RadioOwnerEvent::FallbackPoll) &&
                               !events.has_any_irq();
+    if (result.is_fallback_wake) {
+        counters_.fallback_wakes++;
+    }
+    emit_periodic_summary(now_ms);
 
     // Skip FIFO read if there's no reason to expect work.
     if (!events.should_attempt_rx_work(session_active_)) {
@@ -79,10 +113,13 @@ PriosBringUpSession::Result PriosBringUpSession::process(
         session_active_   = true;
         session_start_ms_ = now_ms;
         last_byte_ms_     = now_ms;
-        ESP_LOGI(TAG_PRIOS,
-                 "PRIOS R3 capture session start: variant=%s fallback_wake=%d",
-                 manchester_enabled_ ? "manchester_on" : "manchester_off",
-                 static_cast<int>(result.is_fallback_wake));
+        counters_.sessions_started++;
+        if (should_emit_verbose_session_log()) {
+            ESP_LOGD(TAG_PRIOS,
+                     "PRIOS R3 session start: variant=%s fallback=%d",
+                     manchester_enabled_ ? "manchester_on" : "manchester_off",
+                     static_cast<int>(result.is_fallback_wake));
+        }
     }
 
     // Drain available FIFO bytes, up to per-call limit.
@@ -104,13 +141,12 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             const uint16_t got = read_res.value();
             const uint16_t copy = std::min<uint16_t>(got, remaining_budget);
             if (copy > 0) {
-                // Log first 2 bytes of each session at INFO level.
-                if (len_ == 0 && copy >= 1) {
+                if (len_ == 0 && copy >= 1 && should_emit_verbose_session_log()) {
                     if (copy >= 2) {
-                        ESP_LOGI(TAG_PRIOS, "PRIOS R3 first bytes: %02X %02X (rssi pending)",
+                        ESP_LOGD(TAG_PRIOS, "PRIOS R3 first bytes: %02X %02X",
                                  tmp[0], tmp[1]);
                     } else {
-                        ESP_LOGI(TAG_PRIOS, "PRIOS R3 first byte: %02X", tmp[0]);
+                        ESP_LOGD(TAG_PRIOS, "PRIOS R3 first byte: %02X", tmp[0]);
                     }
                 }
                 std::memcpy(buf_ + len_, tmp, copy);
@@ -122,7 +158,15 @@ PriosBringUpSession::Result PriosBringUpSession::process(
 
     if (status.fifo_overflow) {
         // FIFO overflowed; finalise what we have and restart.
-        ESP_LOGW(TAG_PRIOS, "PRIOS R3 FIFO overflow after %u bytes", len_);
+        counters_.fifo_overflows++;
+        if (last_overflow_log_ms_ == 0 ||
+            (now_ms - last_overflow_log_ms_) >= kOverflowLogCadenceMs) {
+            last_overflow_log_ms_ = now_ms;
+            ESP_LOGW(TAG_PRIOS, "PRIOS R3 overflow: bytes=%u sessions=%lu captures=%lu",
+                     len_,
+                     static_cast<unsigned long>(counters_.sessions_started),
+                     static_cast<unsigned long>(counters_.captures_completed));
+        }
         if (len_ > 0) {
             // Read signal quality before discarding.
             int8_t rssi = 0; uint8_t lqi = 0; bool crc_ok = false; bool crc_avail = false;
@@ -133,6 +177,10 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             }
             result.record      = finalise(rssi, lqi, crc_ok, crc_avail, timestamp_ms);
             result.has_capture = true;
+            counters_.captures_completed++;
+        }
+        if (verbose_session_logs_remaining_ > 0) {
+            verbose_session_logs_remaining_--;
         }
         radio.abort_and_restart_rx();
         reset();
@@ -147,16 +195,21 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             rssi = sq.value().rssi_dbm; lqi = sq.value().lqi;
             crc_ok = sq.value().crc_ok; crc_avail = sq.value().radio_crc_available;
         }
-        ESP_LOGI(TAG_PRIOS,
-                 "PRIOS R3 capture complete: %u bytes, rssi=%d, lqi=%u, "
-                 "prefix=%02X %02X %02X %02X",
-                 len_, rssi, lqi,
-                 len_ > 0 ? buf_[0] : 0u,
-                 len_ > 1 ? buf_[1] : 0u,
-                 len_ > 2 ? buf_[2] : 0u,
-                 len_ > 3 ? buf_[3] : 0u);
+        if (should_emit_verbose_session_log()) {
+            ESP_LOGD(TAG_PRIOS,
+                     "PRIOS R3 capture complete: %u bytes rssi=%d lqi=%u prefix=%02X %02X %02X %02X",
+                     len_, rssi, lqi,
+                     len_ > 0 ? buf_[0] : 0u,
+                     len_ > 1 ? buf_[1] : 0u,
+                     len_ > 2 ? buf_[2] : 0u,
+                     len_ > 3 ? buf_[3] : 0u);
+        }
         result.record      = finalise(rssi, lqi, crc_ok, crc_avail, timestamp_ms);
         result.has_capture = true;
+        counters_.captures_completed++;
+        if (verbose_session_logs_remaining_ > 0) {
+            verbose_session_logs_remaining_--;
+        }
         radio.abort_and_restart_rx();
         reset();
         return result;
@@ -171,14 +224,20 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             rssi = sq.value().rssi_dbm; lqi = sq.value().lqi;
             crc_ok = sq.value().crc_ok; crc_avail = sq.value().radio_crc_available;
         }
-        ESP_LOGI(TAG_PRIOS,
-                 "PRIOS R3 capture timeout: %u bytes, rssi=%d, "
-                 "prefix=%02X %02X",
-                 len_, rssi,
-                 len_ > 0 ? buf_[0] : 0u,
-                 len_ > 1 ? buf_[1] : 0u);
+        if (should_emit_verbose_session_log()) {
+            ESP_LOGD(TAG_PRIOS,
+                     "PRIOS R3 capture timeout: %u bytes rssi=%d prefix=%02X %02X",
+                     len_, rssi,
+                     len_ > 0 ? buf_[0] : 0u,
+                     len_ > 1 ? buf_[1] : 0u);
+        }
         result.record      = finalise(rssi, lqi, crc_ok, crc_avail, timestamp_ms);
         result.has_capture = true;
+        counters_.captures_completed++;
+        counters_.timeout_captures++;
+        if (verbose_session_logs_remaining_ > 0) {
+            verbose_session_logs_remaining_--;
+        }
         radio.abort_and_restart_rx();
         reset();
         return result;
@@ -187,6 +246,7 @@ PriosBringUpSession::Result PriosBringUpSession::process(
     // Session open with no progress for too long (no bytes at all).
     if (session_active_ && len_ == 0 &&
         (now_ms - session_start_ms_) >= kIdleTimeoutMs) {
+        counters_.empty_resets++;
         ESP_LOGD(TAG_PRIOS, "PRIOS R3 bringup session: no bytes in %u ms, resetting",
                  kIdleTimeoutMs);
         radio.abort_and_restart_rx();

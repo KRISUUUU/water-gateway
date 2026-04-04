@@ -1,7 +1,15 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
+
+#ifndef HOST_TEST_BUILD
+#include "esp_attr.h"
+#include "freertos/FreeRTOS.h"
+#else
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#endif
 
 namespace radio_cc1101 {
 
@@ -30,37 +38,18 @@ struct GdoIrqSnapshot {
 
 class GdoIrqTracker {
   public:
-    void clear() {
-        pending_mask_.store(0U, std::memory_order_relaxed);
-        gdo0_edges_.store(0U, std::memory_order_relaxed);
-        gdo2_edges_.store(0U, std::memory_order_relaxed);
-    }
-
-    void record_isr_edge(GdoPin pin) {
-        pending_mask_.fetch_or(GdoIrqSnapshot::bit_for(pin), std::memory_order_relaxed);
-        if (pin == GdoPin::Gdo0) {
-            gdo0_edges_.fetch_add(1U, std::memory_order_relaxed);
-        } else {
-            gdo2_edges_.fetch_add(1U, std::memory_order_relaxed);
-        }
-    }
-
-    [[nodiscard]] GdoIrqSnapshot snapshot() const {
-        return {pending_mask_.load(std::memory_order_relaxed),
-                gdo0_edges_.load(std::memory_order_relaxed),
-                gdo2_edges_.load(std::memory_order_relaxed)};
-    }
-
-    [[nodiscard]] GdoIrqSnapshot take_and_clear() {
-        return {pending_mask_.exchange(0U, std::memory_order_relaxed),
-                gdo0_edges_.exchange(0U, std::memory_order_relaxed),
-                gdo2_edges_.exchange(0U, std::memory_order_relaxed)};
-    }
+    void clear();
+    void record_isr_edge(GdoPin pin);
+    [[nodiscard]] GdoIrqSnapshot snapshot() const;
+    [[nodiscard]] GdoIrqSnapshot take_and_clear();
 
   private:
-    std::atomic<uint32_t> pending_mask_{0U};
-    std::atomic<uint32_t> gdo0_edges_{0U};
-    std::atomic<uint32_t> gdo2_edges_{0U};
+#ifndef HOST_TEST_BUILD
+    mutable portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
+#endif
+    volatile uint32_t pending_mask_ = 0U;
+    volatile uint32_t gdo0_edges_ = 0U;
+    volatile uint32_t gdo2_edges_ = 0U;
 };
 
 } // namespace radio_cc1101

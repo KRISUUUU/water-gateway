@@ -34,13 +34,12 @@ static PriosCaptureRecord make_record(uint8_t len, int8_t rssi = -70,
     r.radio_crc_available = crc_avail;
     r.timestamp_ms        = ts;
     r.total_bytes_captured = len;
-    const uint8_t copy = len < PriosCaptureRecord::kMaxPrefixBytes
+    const uint8_t copy = len < PriosCaptureRecord::kMaxCaptureBytes
                              ? len
-                             : static_cast<uint8_t>(PriosCaptureRecord::kMaxPrefixBytes);
+                             : static_cast<uint8_t>(PriosCaptureRecord::kMaxCaptureBytes);
     for (uint8_t i = 0; i < copy; ++i) {
-        r.prefix[i] = i;
+        r.captured_bytes[i] = i;
     }
-    r.prefix_length = copy;
     return r;
 }
 
@@ -72,11 +71,14 @@ static void test_from_record_no_label() {
 }
 
 static void test_from_record_truncates_to_max() {
-    // Make a record with more bytes than kMaxBytes (saturated at kMaxPrefixBytes=32
-    // by the record itself; fixture max is 64 — verify no overflow).
-    PriosCaptureRecord rec = make_record(32, -60, 70, false, false, 0);
+    PriosCaptureRecord rec = make_record(64, -60, 70, false, false, 0);
     const PriosFixtureFrame f = PriosFixtureFrame::from_record(rec);
-    CHECK("from_record_truncate_length", f.length == 32);
+    CHECK("from_record_truncate_length", f.length == 64);
+    bool bytes_ok = true;
+    for (uint8_t i = 0; i < 64; ++i) {
+        if (f.bytes[i] != i) { bytes_ok = false; }
+    }
+    CHECK("from_record_truncate_bytes", bytes_ok);
 }
 
 // ---- PriosFixtureSuite -------------------------------------------------------

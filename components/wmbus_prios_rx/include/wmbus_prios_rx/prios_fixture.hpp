@@ -65,16 +65,18 @@ struct PriosFixtureFrame {
     char     label[kMaxLabelLen]{};
 
     // Construct a fixture frame from a live PriosCaptureRecord.
-    // Truncates to kMaxBytes if total_bytes_captured > kMaxBytes (the prefix
-    // is already bounded at PriosCaptureRecord::kMaxPrefixBytes ≤ kMaxBytes).
+    // Truncates to kMaxBytes if total_bytes_captured exceeds the bounded
+    // fixture size.
     static PriosFixtureFrame from_record(const PriosCaptureRecord& rec,
                                           const char* lbl = nullptr) {
         PriosFixtureFrame f{};
-        const uint8_t src_len = rec.prefix_length;
+        const uint8_t src_len = rec.total_bytes_captured < kMaxBytes
+                                    ? static_cast<uint8_t>(rec.total_bytes_captured)
+                                    : static_cast<uint8_t>(kMaxBytes);
         const uint8_t copy = src_len < kMaxBytes
                                  ? src_len
                                  : static_cast<uint8_t>(kMaxBytes);
-        std::memcpy(f.bytes, rec.prefix, copy);
+        std::memcpy(f.bytes, rec.captured_bytes, copy);
         f.length              = copy;
         f.rssi_dbm            = rec.rssi_dbm;
         f.lqi                 = rec.lqi;

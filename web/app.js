@@ -887,7 +887,7 @@
                         left.textContent = variantTag + " #" + c.seq + " (" + c.bytes_captured + "B, " + c.rssi_dbm + "dBm, lqi=" + c.lqi + ")";
                         const right = document.createElement("span");
                         right.className = "hex";
-                        right.textContent = c.prefix_hex || "--";
+                        right.textContent = c.display_prefix_hex || c.prefix_hex || "--";
                         row.appendChild(left);
                         row.appendChild(right);
                         priosCapturesEl.appendChild(row);
@@ -1488,6 +1488,33 @@
                         return;
                     }
                     setMsg($("#factory-msg"), "error", "Support bundle download failed.");
+                });
+        });
+
+        $("#prios-export-link").addEventListener("click", (ev) => {
+            ev.preventDefault();
+            const msg = $("#prios-export-msg");
+            if (msg) {
+                msg.hidden = true;
+                msg.textContent = "";
+            }
+            apiRaw("GET", "/api/diagnostics/prios/export")
+                .then((r) => r.blob())
+                .then((blob) => {
+                    const a = document.createElement("a");
+                    const url = URL.createObjectURL(blob);
+                    a.href = url;
+                    a.download = "prios-captures.json";
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                })
+                .catch((err) => {
+                    if (err && err.message === "unauthorized") {
+                        return;
+                    }
+                    if (msg) {
+                        setMsg(msg, "error", "PRIOS export failed.");
+                    }
                 });
         });
 

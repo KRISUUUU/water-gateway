@@ -2,6 +2,66 @@
 
 #include "cc1101_hal.hpp"
 
+#ifdef HOST_TEST_BUILD
+#include "host_test_stubs.hpp"
+#endif
+
+namespace radio_cc1101 {
+
+void GdoIrqTracker::clear() {
+#ifndef HOST_TEST_BUILD
+    taskENTER_CRITICAL(&lock_);
+#endif
+    pending_mask_ = 0U;
+    gdo0_edges_ = 0U;
+    gdo2_edges_ = 0U;
+#ifndef HOST_TEST_BUILD
+    taskEXIT_CRITICAL(&lock_);
+#endif
+}
+
+void IRAM_ATTR GdoIrqTracker::record_isr_edge(GdoPin pin) {
+#ifndef HOST_TEST_BUILD
+    taskENTER_CRITICAL_ISR(&lock_);
+#endif
+    pending_mask_ |= GdoIrqSnapshot::bit_for(pin);
+    if (pin == GdoPin::Gdo0) {
+        gdo0_edges_ = gdo0_edges_ + 1U;
+    } else {
+        gdo2_edges_ = gdo2_edges_ + 1U;
+    }
+#ifndef HOST_TEST_BUILD
+    taskEXIT_CRITICAL_ISR(&lock_);
+#endif
+}
+
+GdoIrqSnapshot GdoIrqTracker::snapshot() const {
+#ifndef HOST_TEST_BUILD
+    taskENTER_CRITICAL(&lock_);
+#endif
+    const GdoIrqSnapshot snapshot{pending_mask_, gdo0_edges_, gdo2_edges_};
+#ifndef HOST_TEST_BUILD
+    taskEXIT_CRITICAL(&lock_);
+#endif
+    return snapshot;
+}
+
+GdoIrqSnapshot GdoIrqTracker::take_and_clear() {
+#ifndef HOST_TEST_BUILD
+    taskENTER_CRITICAL(&lock_);
+#endif
+    const GdoIrqSnapshot snapshot{pending_mask_, gdo0_edges_, gdo2_edges_};
+    pending_mask_ = 0U;
+    gdo0_edges_ = 0U;
+    gdo2_edges_ = 0U;
+#ifndef HOST_TEST_BUILD
+    taskEXIT_CRITICAL(&lock_);
+#endif
+    return snapshot;
+}
+
+} // namespace radio_cc1101
+
 #ifndef HOST_TEST_BUILD
 #include "driver/gpio.h"
 #include "esp_attr.h"
@@ -20,7 +80,7 @@ struct GdoRegistration {
     void* owner_task_handle = nullptr;
 };
 
-GdoRegistration g_registrations[2]{};
+DRAM_ATTR GdoRegistration g_registrations[2]{};
 bool g_isr_service_installed = false;
 
 void IRAM_ATTR gdo_isr_handler(void* arg) {

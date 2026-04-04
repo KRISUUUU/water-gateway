@@ -173,9 +173,8 @@ void test_service_insert_and_retrieve() {
     rec.sequence              = 1;
     rec.rssi_dbm              = -75;
     rec.total_bytes_captured  = 32;
-    rec.prefix[0]             = 0xAA;
-    rec.prefix[1]             = 0xBB;
-    rec.prefix_length         = 2;
+    rec.captured_bytes[0]     = 0xAA;
+    rec.captured_bytes[1]     = 0xBB;
     rec.manchester_enabled    = false;  // Variant A
 
     PriosCaptureService::instance().insert(rec);
@@ -187,11 +186,31 @@ void test_service_insert_and_retrieve() {
     assert(snap.records[0].sequence             == 1);
     assert(snap.records[0].rssi_dbm             == -75);
     assert(snap.records[0].total_bytes_captured == 32);
-    assert(snap.records[0].prefix[0]            == 0xAA);
-    assert(snap.records[0].prefix[1]            == 0xBB);
-    assert(snap.records[0].prefix_length        == 2);
+    assert(snap.records[0].captured_bytes[0]    == 0xAA);
+    assert(snap.records[0].captured_bytes[1]    == 0xBB);
     assert(snap.records[0].manchester_enabled   == false);
     std::printf("  PASS: insert and retrieve single record\n");
+}
+
+void test_service_preserves_full_bounded_capture() {
+    PriosCaptureService::instance().clear();
+
+    PriosCaptureRecord rec{};
+    rec.sequence = 7;
+    rec.total_bytes_captured = PriosCaptureRecord::kMaxCaptureBytes;
+    for (size_t i = 0; i < PriosCaptureRecord::kMaxCaptureBytes; ++i) {
+        rec.captured_bytes[i] = static_cast<uint8_t>(i);
+    }
+
+    PriosCaptureService::instance().insert(rec);
+    const auto snap = PriosCaptureService::instance().snapshot();
+
+    assert(snap.count == 1);
+    assert(snap.records[0].total_bytes_captured == PriosCaptureRecord::kMaxCaptureBytes);
+    for (size_t i = 0; i < PriosCaptureRecord::kMaxCaptureBytes; ++i) {
+        assert(snap.records[0].captured_bytes[i] == static_cast<uint8_t>(i));
+    }
+    std::printf("  PASS: full bounded capture bytes are preserved\n");
 }
 
 void test_service_manchester_variant_stored() {
@@ -282,6 +301,7 @@ int main() {
 
     test_service_empty_snapshot();
     test_service_insert_and_retrieve();
+    test_service_preserves_full_bounded_capture();
     test_service_manchester_variant_stored();
     test_service_insertion_order();
     test_service_ring_eviction();

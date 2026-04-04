@@ -40,6 +40,9 @@ class PriosBringUpSession {
 
     // If no new bytes arrive for this long, finalise the partial capture.
     static constexpr uint32_t kIdleTimeoutMs = 300;
+    static constexpr uint32_t kSummaryLogCadenceMs = 3000;
+    static constexpr uint32_t kOverflowLogCadenceMs = 2000;
+    static constexpr uint32_t kVerboseSessionLogBudget = 3;
 
     struct Result {
         bool                  has_capture  = false;
@@ -54,7 +57,13 @@ class PriosBringUpSession {
     // This must be called whenever the operator switches variants so that
     // every new PriosCaptureRecord carries the correct manchester_enabled flag.
     // Safe to call at any time; takes effect on the next capture.
-    void set_variant(bool manchester_enabled) { manchester_enabled_ = manchester_enabled; }
+    void set_variant(bool manchester_enabled) {
+        manchester_enabled_ = manchester_enabled;
+        counters_ = SummaryCounters{};
+        last_summary_log_ms_ = 0;
+        last_overflow_log_ms_ = 0;
+        verbose_session_logs_remaining_ = kVerboseSessionLogBudget;
+    }
 
     // Returns the currently active variant.
     bool manchester_enabled() const { return manchester_enabled_; }
@@ -75,6 +84,15 @@ class PriosBringUpSession {
   private:
     static constexpr size_t kBufSize = kMaxCaptureBytes;
 
+    struct SummaryCounters {
+        uint32_t sessions_started = 0;
+        uint32_t captures_completed = 0;
+        uint32_t fifo_overflows = 0;
+        uint32_t timeout_captures = 0;
+        uint32_t empty_resets = 0;
+        uint32_t fallback_wakes = 0;
+    };
+
     uint8_t  buf_[kBufSize]{};
     uint16_t len_               = 0;
     bool     session_active_    = false;
@@ -82,10 +100,16 @@ class PriosBringUpSession {
     uint32_t last_byte_ms_      = 0;
     uint32_t seq_               = 0;
     bool     manchester_enabled_ = false;  // set by set_variant(); propagated to records
+    SummaryCounters counters_{};
+    uint32_t last_summary_log_ms_ = 0;
+    uint32_t last_overflow_log_ms_ = 0;
+    uint32_t verbose_session_logs_remaining_ = kVerboseSessionLogBudget;
 
     PriosCaptureRecord finalise(int8_t rssi_dbm, uint8_t lqi,
                                 bool crc_ok, bool crc_available,
                                 int64_t timestamp_ms);
+    bool should_emit_verbose_session_log() const;
+    void emit_periodic_summary(uint32_t now_ms);
 };
 
 } // namespace wmbus_prios_rx
