@@ -166,6 +166,26 @@ void test_service_empty_snapshot() {
     std::printf("  PASS: empty snapshot is valid\n");
 }
 
+void test_service_stats_are_lightweight_and_correct() {
+    PriosCaptureService::instance().clear();
+
+    PriosCaptureRecord r1{};
+    r1.sequence = 1;
+    PriosCaptureService::instance().insert(r1);
+
+    PriosCaptureRecord r2{};
+    r2.sequence = 2;
+    PriosCaptureService::instance().insert(r2);
+
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.count == 2);
+    assert(stats.total_inserted == 2);
+    assert(stats.total_evicted == 0);
+    static_assert(sizeof(PriosCaptureStats) < sizeof(PriosCaptureSnapshot),
+                  "Stats accessor must stay lighter than full snapshot");
+    std::printf("  PASS: lightweight stats accessor reports capture counters\n");
+}
+
 void test_service_capacity_is_64_records() {
     static_assert(PriosCaptureSnapshot::kMaxRecords == 64,
                   "PRIOS capture retention depth must remain 64 for offline analysis");
@@ -326,6 +346,7 @@ int main() {
     test_driver_reset_allows_fresh_session();
 
     test_service_empty_snapshot();
+    test_service_stats_are_lightweight_and_correct();
     test_service_capacity_is_64_records();
     test_service_insert_and_retrieve();
     test_service_preserves_full_bounded_capture();

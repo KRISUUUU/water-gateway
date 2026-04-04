@@ -45,6 +45,15 @@ PriosCaptureSnapshot PriosCaptureService::snapshot() const {
     return snap;
 }
 
+PriosCaptureStats PriosCaptureService::stats() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    PriosCaptureStats stats;
+    stats.count = count_;
+    stats.total_inserted = total_inserted_;
+    stats.total_evicted = total_evicted_;
+    return stats;
+}
+
 void PriosCaptureService::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     storage_      = {};

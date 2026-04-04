@@ -52,6 +52,7 @@ static TaskHandle_t health_task_handle = nullptr;
 static constexpr uint32_t kFrameQueueDepth = 16;
 static constexpr uint32_t kMqttOutboxDepth = 32;
 static constexpr uint32_t kCriticalTaskStallMs = 5000;
+static constexpr uint32_t kBootValidationStableRuntimeMs = 15000;
 static std::atomic<uint32_t> frame_queue_max_depth{0};
 static std::atomic<uint32_t> frame_enqueue_success{0};
 static std::atomic<uint32_t> frame_enqueue_drop{0};
@@ -788,21 +789,21 @@ static void health_task(void* /*param*/) {
         if (!boot_valid_marked_) {
             const bool wifi_ready = wifi.state() == wifi_manager::WifiState::Connected;
             const bool mqtt_ready = !cfg.mqtt.enabled || mqtt.is_connected();
-            const bool timeout_elapsed = now >= 90000U;
-            if (wifi_ready && mqtt_ready) {
+            const bool runtime_stable = !any_critical_stalled && now >= kBootValidationStableRuntimeMs;
+            if (runtime_stable) {
                 boot_valid_marked_ = true;
+                if (!wifi_ready || !mqtt_ready) {
+                    ESP_LOGW(
+                        TAG,
+                        "Boot-valid after stable runtime without full connectivity (wifi=%d mqtt=%d mqtt_enabled=%d)",
+                        static_cast<int>(wifi_ready), static_cast<int>(mqtt.is_connected()),
+                        static_cast<int>(cfg.mqtt.enabled));
+                } else {
+                    ESP_LOGI(TAG, "Boot-valid after stable runtime health gate");
+                }
                 auto boot_valid = ota.mark_boot_valid();
                 if (boot_valid.is_error()) {
                     health.report_warning("mark_boot_valid failed after runtime health gate");
-                }
-            } else if (timeout_elapsed) {
-                boot_valid_marked_ = true;
-                ESP_LOGW(TAG, "Boot-valid fallback after 90s (wifi=%d mqtt=%d mqtt_enabled=%d)",
-                         static_cast<int>(wifi_ready), static_cast<int>(mqtt.is_connected()),
-                         static_cast<int>(cfg.mqtt.enabled));
-                auto boot_valid = ota.mark_boot_valid();
-                if (boot_valid.is_error()) {
-                    health.report_warning("mark_boot_valid failed after 90s fallback");
                 }
             }
         }

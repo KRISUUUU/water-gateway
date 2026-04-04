@@ -179,8 +179,7 @@ common::Result<void> OtaManager::finalize_upload() {
     reset_upload_state(false);
 #endif
 
-    set_status(OtaState::Rebooting, "OTA complete, reboot to activate");
-    status_.progress_pct = 100;
+    set_status(OtaState::Rebooting, "OTA complete, reboot to activate", 100);
 
     event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
 
@@ -260,8 +259,7 @@ common::Result<void> OtaManager::begin_url_ota(const char* url) {
 #ifndef HOST_TEST_BUILD
     return perform_url_ota(url, false);
 #else
-    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate");
-    status_.progress_pct = 100;
+    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate", 100);
     event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
     return common::Result<void>::ok();
 #endif
@@ -293,8 +291,7 @@ common::Result<void> OtaManager::perform_url_ota(const char* url, bool announce_
 
     ESP_LOGI(TAG, "HTTPS OTA successful, reboot to activate");
 
-    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate");
-    status_.progress_pct = 100;
+    set_status(OtaState::Rebooting, "URL OTA complete, reboot to activate", 100);
 
     event_bus::EventBus::instance().publish(event_bus::EventType::OtaCompleted, 0);
 

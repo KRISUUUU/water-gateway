@@ -7,6 +7,9 @@
     let cacheWatchlist = [];
     let refreshTimer = null;
     let heavyRefreshTimer = null;
+    let otaStatusPollTimer = null;
+    let otaAutoRebootTimer = null;
+    let otaAutoRebootArmed = false;
     const dashboardCache = { duplicateCount: 0, detected: 0, watchlistCount: 0 };
     let bootstrapInfo = null;
     const radioSchedulerOptions = [
@@ -118,6 +121,83 @@
             clearInterval(heavyRefreshTimer);
             heavyRefreshTimer = null;
         }
+    }
+
+    function startOtaStatusPolling() {
+        stopOtaStatusPolling();
+        loadOtaStatus();
+        otaStatusPollTimer = setInterval(() => {
+            loadOtaStatus();
+        }, 1000);
+    }
+
+    function stopOtaStatusPolling() {
+        if (otaStatusPollTimer) {
+            clearInterval(otaStatusPollTimer);
+            otaStatusPollTimer = null;
+        }
+    }
+
+    function clearOtaAutoRebootTimer() {
+        if (otaAutoRebootTimer) {
+            clearTimeout(otaAutoRebootTimer);
+            otaAutoRebootTimer = null;
+        }
+    }
+
+    function setSettingsRebootButtonProminent(prominent) {
+        const btn = $("#cfg-reboot");
+        if (!btn) {
+            return;
+        }
+        btn.classList.toggle("btn-primary", !!prominent);
+        btn.classList.toggle("btn-secondary", !prominent);
+    }
+
+    function sendRebootCommand(messageEl, successMessage, failureMessage) {
+        return api("POST", "/api/system/reboot")
+            .then(() => {
+                setSettingsRebootButtonProminent(false);
+                if (messageEl) {
+                    setMsg(messageEl, "warning", successMessage || "Reboot command sent.");
+                }
+            })
+            .catch((err) => {
+                if (messageEl) {
+                    setMsg(messageEl, "error", failureMessage || "Reboot failed.");
+                }
+                throw err;
+            });
+    }
+
+    function maybeScheduleOtaAutoReboot(status) {
+        const state = String((status && status.state) || "").toLowerCase();
+        const progress = Number(status && status.progress_pct);
+        if (state === "failed") {
+            otaAutoRebootArmed = false;
+            clearOtaAutoRebootTimer();
+            stopOtaStatusPolling();
+            return;
+        }
+        if (!otaAutoRebootArmed) {
+            return;
+        }
+        if (state !== "rebooting" && progress < 100) {
+            return;
+        }
+        otaAutoRebootArmed = false;
+        stopOtaStatusPolling();
+        if (otaAutoRebootTimer) {
+            return;
+        }
+        otaAutoRebootTimer = setTimeout(() => {
+            otaAutoRebootTimer = null;
+            sendRebootCommand(
+                $("#ota-status"),
+                "Restarting device to activate new firmware...",
+                "Automatic reboot after OTA failed."
+            ).catch(() => {});
+        }, 2000);
     }
 
     /** Sign-in only: session invalid, logout, or API 401. Never shows Initial Setup. */
@@ -1123,7 +1203,7 @@
     }
 
     function loadConfig() {
-        api("GET", "/api/config")
+        return api("GET", "/api/config")
             .then((cfg) => {
                 const c = $("#config-form-container");
                 clearChildren(c);
@@ -1149,6 +1229,7 @@
                 renderRadioConfigSection(c, cfg.radio || {});
                 renderConfigSection(c, "Auth", cfg.auth || {});
                 renderConfigSection(c, "Logging", cfg.logging || {});
+                setSettingsRebootButtonProminent(false);
             })
             .catch(() => {});
     }
@@ -1196,7 +1277,7 @@
     }
 
     function loadOtaStatus() {
-        api("GET", "/api/ota/status")
+        return api("GET", "/api/ota/status")
             .then((d) => {
                 const otaGrid = $("#ota-state-grid");
                 clearChildren(otaGrid);
@@ -1205,8 +1286,10 @@
                 otaGrid.appendChild(kvRow("Current Version", d.current_version));
                 otaGrid.appendChild(kvRow("Message", d.message));
                 $("#ota-status").textContent = "Status: " + text(d.state);
+                maybeScheduleOtaAutoReboot(d);
+                return d;
             })
-            .catch(() => {});
+            .catch(() => null);
     }
 
     function loadSupport() {
@@ -1349,8 +1432,10 @@
                         return;
                     }
                     if (resp.reboot_required) {
+                        setSettingsRebootButtonProminent(true);
                         setMsg(msg, "warning", "Saved. Reboot required to apply runtime settings.");
                     } else {
+                        setSettingsRebootButtonProminent(false);
                         setMsg(msg, "success", "Settings saved.");
                     }
                 })
@@ -1365,6 +1450,13 @@
                         setMsg(msg, "error", "Save failed.");
                     }
                 });
+        });
+
+        $("#cfg-reboot").addEventListener("click", () => {
+            if (!confirm("Reboot device now?")) {
+                return;
+            }
+            sendRebootCommand($("#cfg-msg"), "Reboot command sent.", "Reboot failed.").catch(() => {});
         });
 
         $("#cfg-export").addEventListener("click", () => {
@@ -1430,6 +1522,9 @@
                 setMsg($("#ota-status"), "warning", "Select a firmware file first.");
                 return;
             }
+            otaAutoRebootArmed = true;
+            clearOtaAutoRebootTimer();
+            startOtaStatusPolling();
             setMsg($("#ota-status"), "warning", "Uploading firmware...");
             fetch("/api/ota/upload", {
                 method: "POST",
@@ -1456,9 +1551,16 @@
                 .then((resp) => {
                     const detail = resp.detail || "Upload complete. Reboot required.";
                     setMsg($("#ota-status"), "success", detail);
-                    loadOtaStatus();
+                    return loadOtaStatus();
                 })
-                .catch((err) => setMsg($("#ota-status"), "error", "Upload failed: " + err.message));
+                .catch((err) => {
+                    otaAutoRebootArmed = false;
+                    clearOtaAutoRebootTimer();
+                    setMsg($("#ota-status"), "error", "Upload failed: " + err.message);
+                })
+                .finally(() => {
+                    stopOtaStatusPolling();
+                });
         });
 
         $("#ota-url-btn").addEventListener("click", () => {
@@ -1467,9 +1569,19 @@
                 setMsg($("#ota-status"), "warning", "Enter URL first.");
                 return;
             }
+            otaAutoRebootArmed = true;
+            clearOtaAutoRebootTimer();
             api("POST", "/api/ota/url", { url: url })
-                .then(() => setMsg($("#ota-status"), "success", "OTA URL update started."))
-                .catch((err) => setMsg($("#ota-status"), "error", "OTA URL failed: " + err.message));
+                .then(() => {
+                    setMsg($("#ota-status"), "success", "OTA URL update started.");
+                    startOtaStatusPolling();
+                })
+                .catch((err) => {
+                    otaAutoRebootArmed = false;
+                    clearOtaAutoRebootTimer();
+                    stopOtaStatusPolling();
+                    setMsg($("#ota-status"), "error", "OTA URL failed: " + err.message);
+                });
         });
 
         $("#sys-bundle").addEventListener("click", () => {
@@ -1522,9 +1634,7 @@
             if (!confirm("Reboot device now?")) {
                 return;
             }
-            api("POST", "/api/system/reboot")
-                .then(() => setMsg($("#factory-msg"), "warning", "Reboot command sent."))
-                .catch(() => setMsg($("#factory-msg"), "error", "Reboot failed."));
+            sendRebootCommand($("#factory-msg"), "Reboot command sent.", "Reboot failed.").catch(() => {});
         });
 
         $("#dash-reboot").addEventListener("click", () => {

@@ -32,7 +32,7 @@ void PriosBringUpSession::emit_periodic_summary(uint32_t now_ms) {
     }
     last_summary_log_ms_ = now_ms;
 
-    const auto snapshot = PriosCaptureService::instance().snapshot();
+    const auto stats = PriosCaptureService::instance().stats();
     ESP_LOGI(TAG_PRIOS,
              "PRIOS R3 summary: start=%lu capture=%lu timeout=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
              static_cast<unsigned long>(counters_.sessions_started),
@@ -41,8 +41,8 @@ void PriosBringUpSession::emit_periodic_summary(uint32_t now_ms) {
              static_cast<unsigned long>(counters_.fifo_overflows),
              static_cast<unsigned long>(counters_.empty_resets),
              static_cast<unsigned long>(counters_.fallback_wakes),
-             static_cast<unsigned long>(snapshot.total_inserted),
-             static_cast<unsigned long>(snapshot.total_evicted));
+             static_cast<unsigned long>(stats.total_inserted),
+             static_cast<unsigned long>(stats.total_evicted));
 #else
     (void)now_ms;
 #endif

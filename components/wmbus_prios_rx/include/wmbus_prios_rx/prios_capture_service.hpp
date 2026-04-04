@@ -50,12 +50,19 @@ struct PriosCaptureSnapshot {
     uint32_t total_evicted  = 0;
 };
 
+struct PriosCaptureStats {
+    size_t   count = 0;
+    uint32_t total_inserted = 0;
+    uint32_t total_evicted  = 0;
+};
+
 class PriosCaptureService {
   public:
     static PriosCaptureService& instance();
 
     void insert(const PriosCaptureRecord& record);
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
+    [[nodiscard]] PriosCaptureStats stats() const;
     void clear();
 
   private:

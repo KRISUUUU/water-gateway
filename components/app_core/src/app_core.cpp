@@ -226,6 +226,10 @@ void AppCore::attempt_boot_validation_early(common::SystemMode mode) {
                      common::error_code_to_string(boot_valid.error()),
                      static_cast<int>(boot_valid.error()));
 #endif
+        } else {
+#ifndef HOST_TEST_BUILD
+            ESP_LOGI(TAG, "OTA boot validated immediately for provisioning startup");
+#endif
         }
         return;
     }
