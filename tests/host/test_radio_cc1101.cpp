@@ -1,6 +1,7 @@
 #include "host_test_stubs.hpp"
 #include "radio_cc1101/cc1101_irq.hpp"
 #include "radio_cc1101/cc1101_owner_events.hpp"
+#include "radio_cc1101/cc1101_profile_prios_r3.hpp"
 #include "radio_cc1101/cc1101_profile_tmode.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include <cassert>
@@ -137,6 +138,34 @@ static void test_prios_profile_apply_rearms_rx() {
     printf("  PASS: PRIOS profile apply leaves radio RX-ready\n");
 }
 
+static void test_prios_variant_b_profile_is_stricter_than_variant_a() {
+    size_t count_a = 0;
+    size_t count_b = 0;
+    const auto* variant_a = prios_r3_profile(false, count_a);
+    const auto* variant_b = prios_r3_profile(true, count_b);
+    assert(variant_a != nullptr);
+    assert(variant_b != nullptr);
+    assert(count_a == count_b);
+
+    bool found_a = false;
+    bool found_b = false;
+    for (size_t i = 0; i < count_a; ++i) {
+        if (variant_a[i].addr == registers::MDMCFG2) {
+            assert(variant_a[i].value == 0x01);
+            found_a = true;
+        }
+    }
+    for (size_t i = 0; i < count_b; ++i) {
+        if (variant_b[i].addr == registers::MDMCFG2) {
+            assert(variant_b[i].value == 0x0B);
+            found_b = true;
+        }
+    }
+    assert(found_a);
+    assert(found_b);
+    printf("  PASS: PRIOS Variant B profile keeps Manchester ON with stricter sync gating\n");
+}
+
 int main() {
     printf("=== test_radio_cc1101 ===\n");
 
@@ -147,6 +176,7 @@ int main() {
 
     test_owner_only_rx_helpers_require_claim_and_return_status();
     test_prios_profile_apply_rearms_rx();
+    test_prios_variant_b_profile_is_stricter_than_variant_a();
     printf("All radio_cc1101 tests passed.\n");
     return 0;
 }

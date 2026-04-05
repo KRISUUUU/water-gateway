@@ -34,10 +34,12 @@ void PriosBringUpSession::emit_periodic_summary(uint32_t now_ms) {
 
     const auto stats = PriosCaptureService::instance().stats();
     ESP_LOGI(TAG_PRIOS,
-             "PRIOS R3 summary: start=%lu capture=%lu timeout=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
+             "PRIOS R3 summary: start=%lu capture=%lu timeout=%lu reject_noise=%lu reject_b_short=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
              static_cast<unsigned long>(counters_.sessions_started),
              static_cast<unsigned long>(counters_.captures_completed),
              static_cast<unsigned long>(counters_.timeout_captures),
+             static_cast<unsigned long>(counters_.noise_rejections),
+             static_cast<unsigned long>(counters_.variant_b_short_rejections),
              static_cast<unsigned long>(counters_.fifo_overflows),
              static_cast<unsigned long>(counters_.empty_resets),
              static_cast<unsigned long>(counters_.fallback_wakes),
@@ -223,6 +225,30 @@ PriosBringUpSession::Result PriosBringUpSession::process(
         if (sq.is_ok()) {
             rssi = sq.value().rssi_dbm; lqi = sq.value().lqi;
             crc_ok = sq.value().crc_ok; crc_avail = sq.value().radio_crc_available;
+        }
+        const auto decision = classify_candidate(manchester_enabled_, len_, true);
+        if (decision != CaptureDecision::Accept) {
+            counters_.noise_rejections++;
+            if (decision == CaptureDecision::RejectVariantBShortTimeout) {
+                counters_.variant_b_short_rejections++;
+                PriosCaptureService::instance().record_noise_rejection(
+                    manchester_enabled_, true);
+            } else {
+                PriosCaptureService::instance().record_noise_rejection(
+                    manchester_enabled_, false);
+            }
+            if (should_emit_verbose_session_log()) {
+                ESP_LOGD(TAG_PRIOS,
+                         "PRIOS R3 capture rejected as noise: variant=%s bytes=%u rssi=%d lqi=%u",
+                         manchester_enabled_ ? "manchester_on" : "manchester_off",
+                         len_, rssi, lqi);
+            }
+            if (verbose_session_logs_remaining_ > 0) {
+                verbose_session_logs_remaining_--;
+            }
+            radio.abort_and_restart_rx();
+            reset();
+            return result;
         }
         if (should_emit_verbose_session_log()) {
             ESP_LOGD(TAG_PRIOS,

@@ -941,8 +941,11 @@
                     ["Profile",       prios.profile],
                     ["Decoding",      prios.decoding ? "yes (active)" : "no \u2014 capture only"],
                     ["Total Captures",prios.total_captures],
+                    ["Noise Rejections", prios.noise_rejections],
+                    ["Variant B Short Rejects", prios.variant_b_short_rejections],
                     ["Total Evicted", prios.total_evicted],
                     ["Retained Captures", prios.retained_captures],
+                    ["Variant B Min Timeout Bytes", prios.variant_b_min_timeout_capture_bytes],
                 ].forEach((entry) => priosStatusEl.appendChild(kvRow(entry[0], entry[1])));
 
                 // Show export button only when there are captures

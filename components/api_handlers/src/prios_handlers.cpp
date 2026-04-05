@@ -4,6 +4,7 @@
 
 #include "config_store/config_store.hpp"
 #include "protocol_driver/protocol_ids.hpp"
+#include "wmbus_prios_rx/prios_bringup_session.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
 #include "wmbus_prios_rx/prios_export.hpp"
 
@@ -81,6 +82,13 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(stats.count));
     cJSON_AddNumberToObject(root.get(), "recent_preview_count",
                             static_cast<double>(preview.count));
+    cJSON_AddNumberToObject(root.get(), "noise_rejections",
+                            static_cast<double>(stats.total_noise_rejected));
+    cJSON_AddNumberToObject(root.get(), "variant_b_short_rejections",
+                            static_cast<double>(stats.variant_b_short_rejected));
+    cJSON_AddNumberToObject(root.get(), "variant_b_min_timeout_capture_bytes",
+                            static_cast<double>(
+                                wmbus_prios_rx::PriosBringUpSession::kVariantBMinTimeoutCaptureBytes));
 
     cJSON* arr = cJSON_AddArrayToObject(root.get(), "recent_captures");
     for (size_t i = 0; i < preview.count; ++i) {

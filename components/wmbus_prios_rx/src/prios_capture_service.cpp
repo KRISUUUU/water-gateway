@@ -24,6 +24,14 @@ void PriosCaptureService::insert(const PriosCaptureRecord& record) {
     total_inserted_++;
 }
 
+void PriosCaptureService::record_noise_rejection(bool manchester_enabled, bool short_capture) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    total_noise_rejected_++;
+    if (manchester_enabled && short_capture) {
+        variant_b_short_rejected_++;
+    }
+}
+
 PriosCaptureSnapshot PriosCaptureService::snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -75,6 +83,8 @@ PriosCaptureStats PriosCaptureService::stats() const {
     stats.count = count_;
     stats.total_inserted = total_inserted_;
     stats.total_evicted = total_evicted_;
+    stats.total_noise_rejected = total_noise_rejected_;
+    stats.variant_b_short_rejected = variant_b_short_rejected_;
     return stats;
 }
 
@@ -121,6 +131,8 @@ void PriosCaptureService::clear() {
     count_        = 0;
     total_inserted_ = 0;
     total_evicted_  = 0;
+    total_noise_rejected_ = 0;
+    variant_b_short_rejected_ = 0;
 }
 
 } // namespace wmbus_prios_rx

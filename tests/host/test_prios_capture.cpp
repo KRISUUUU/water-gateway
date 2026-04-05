@@ -24,6 +24,7 @@
 #include "protocol_driver/protocol_ids.hpp"
 #include "protocol_driver/protocol_frame.hpp"
 #include "protocol_driver/decoded_telegram.hpp"
+#include "wmbus_prios_rx/prios_bringup_session.hpp"
 #include "wmbus_prios_rx/prios_capture_driver.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
 
@@ -181,9 +182,23 @@ void test_service_stats_are_lightweight_and_correct() {
     assert(stats.count == 2);
     assert(stats.total_inserted == 2);
     assert(stats.total_evicted == 0);
+    assert(stats.total_noise_rejected == 0);
+    assert(stats.variant_b_short_rejected == 0);
     static_assert(sizeof(PriosCaptureStats) < sizeof(PriosCaptureSnapshot),
                   "Stats accessor must stay lighter than full snapshot");
     std::printf("  PASS: lightweight stats accessor reports capture counters\n");
+}
+
+void test_service_noise_rejection_stats_are_tracked() {
+    PriosCaptureService::instance().clear();
+
+    PriosCaptureService::instance().record_noise_rejection(true, true);
+    PriosCaptureService::instance().record_noise_rejection(false, false);
+
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.total_noise_rejected == 2);
+    assert(stats.variant_b_short_rejected == 1);
+    std::printf("  PASS: noise rejection stats tracked separately from retained captures\n");
 }
 
 void test_service_capacity_is_64_records() {
@@ -376,12 +391,35 @@ void test_service_clear_resets() {
     PriosCaptureRecord r{};
     r.sequence = 99;
     PriosCaptureService::instance().insert(r);
+    PriosCaptureService::instance().record_noise_rejection(true, true);
     PriosCaptureService::instance().clear();
     const auto snap = PriosCaptureService::instance().snapshot();
+    const auto stats = PriosCaptureService::instance().stats();
     assert(snap.count          == 0);
     assert(snap.total_inserted == 0);
     assert(snap.total_evicted  == 0);
+    assert(stats.total_noise_rejected == 0);
+    assert(stats.variant_b_short_rejected == 0);
     std::printf("  PASS: clear() resets ring buffer\n");
+}
+
+void test_variant_b_short_timeout_is_rejected_as_noise() {
+    const auto decision =
+        PriosBringUpSession::classify_candidate(true, 8, true);
+    assert(decision == PriosBringUpSession::CaptureDecision::RejectVariantBShortTimeout);
+    std::printf("  PASS: Variant B short timeout capture is rejected as noise\n");
+}
+
+void test_variant_a_and_longer_variant_b_captures_are_preserved() {
+    assert(PriosBringUpSession::classify_candidate(false, 8, true) ==
+           PriosBringUpSession::CaptureDecision::Accept);
+    assert(PriosBringUpSession::classify_candidate(
+               true,
+               PriosBringUpSession::kVariantBMinTimeoutCaptureBytes,
+               true) == PriosBringUpSession::CaptureDecision::Accept);
+    assert(PriosBringUpSession::classify_candidate(true, 8, false) ==
+           PriosBringUpSession::CaptureDecision::Accept);
+    std::printf("  PASS: Variant A and longer Variant B captures remain accepted\n");
 }
 
 } // namespace
@@ -401,6 +439,7 @@ int main() {
 
     test_service_empty_snapshot();
     test_service_stats_are_lightweight_and_correct();
+    test_service_noise_rejection_stats_are_tracked();
     test_service_capacity_is_64_records();
     test_service_insert_and_retrieve();
     test_service_preserves_full_bounded_capture();
@@ -411,6 +450,8 @@ int main() {
     test_service_preview_snapshot_is_bounded_and_recent();
     test_service_allocated_snapshot_preserves_capacity_and_order();
     test_service_clear_resets();
+    test_variant_b_short_timeout_is_rejected_as_noise();
+    test_variant_a_and_longer_variant_b_captures_are_preserved();
 
     std::printf("All prios capture tests passed.\n");
     return 0;

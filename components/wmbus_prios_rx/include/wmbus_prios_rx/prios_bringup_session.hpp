@@ -43,6 +43,12 @@ class PriosBringUpSession {
     static constexpr uint32_t kSummaryLogCadenceMs = 3000;
     static constexpr uint32_t kOverflowLogCadenceMs = 2000;
     static constexpr uint32_t kVerboseSessionLogBudget = 3;
+    static constexpr uint16_t kVariantBMinTimeoutCaptureBytes = 16;
+
+    enum class CaptureDecision : uint8_t {
+        Accept = 0,
+        RejectVariantBShortTimeout,
+    };
 
     struct Result {
         bool                  has_capture  = false;
@@ -67,6 +73,15 @@ class PriosBringUpSession {
 
     // Returns the currently active variant.
     bool manchester_enabled() const { return manchester_enabled_; }
+    static CaptureDecision classify_candidate(bool manchester_enabled,
+                                              uint16_t captured_bytes,
+                                              bool timed_out) {
+        if (manchester_enabled && timed_out &&
+            captured_bytes < kVariantBMinTimeoutCaptureBytes) {
+            return CaptureDecision::RejectVariantBShortTimeout;
+        }
+        return CaptureDecision::Accept;
+    }
 
     // Called from the radio owner task loop in place of RxSessionEngine::process()
     // when the active profile is WMbusPriosR3.
@@ -91,6 +106,8 @@ class PriosBringUpSession {
         uint32_t timeout_captures = 0;
         uint32_t empty_resets = 0;
         uint32_t fallback_wakes = 0;
+        uint32_t noise_rejections = 0;
+        uint32_t variant_b_short_rejections = 0;
     };
 
     uint8_t  buf_[kBufSize]{};

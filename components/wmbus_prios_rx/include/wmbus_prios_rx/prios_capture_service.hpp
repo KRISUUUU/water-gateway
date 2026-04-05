@@ -55,6 +55,8 @@ struct PriosCaptureStats {
     size_t   count = 0;
     uint32_t total_inserted = 0;
     uint32_t total_evicted  = 0;
+    uint32_t total_noise_rejected = 0;
+    uint32_t variant_b_short_rejected = 0;
 };
 
 struct PriosCapturePreviewRecord {
@@ -84,6 +86,7 @@ class PriosCaptureService {
     static PriosCaptureService& instance();
 
     void insert(const PriosCaptureRecord& record);
+    void record_noise_rejection(bool manchester_enabled, bool short_capture);
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
     [[nodiscard]] std::unique_ptr<PriosCaptureSnapshot> snapshot_allocated() const;
     [[nodiscard]] PriosCaptureStats stats() const;
@@ -101,6 +104,8 @@ class PriosCaptureService {
     size_t   count_          = 0;
     uint32_t total_inserted_ = 0;
     uint32_t total_evicted_  = 0;
+    uint32_t total_noise_rejected_ = 0;
+    uint32_t variant_b_short_rejected_ = 0;
 };
 
 } // namespace wmbus_prios_rx
