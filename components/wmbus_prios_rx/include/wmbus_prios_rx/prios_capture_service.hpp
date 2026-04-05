@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 
 // PriosCaptureService: bounded ring buffer for raw PRIOS bring-up captures.
 //
@@ -84,6 +85,7 @@ class PriosCaptureService {
 
     void insert(const PriosCaptureRecord& record);
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
+    [[nodiscard]] std::unique_ptr<PriosCaptureSnapshot> snapshot_allocated() const;
     [[nodiscard]] PriosCaptureStats stats() const;
     [[nodiscard]] PriosCapturePreviewSnapshot preview_snapshot() const;
     void clear();

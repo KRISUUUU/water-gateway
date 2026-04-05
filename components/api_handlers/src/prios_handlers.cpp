@@ -5,10 +5,22 @@
 #include "config_store/config_store.hpp"
 #include "protocol_driver/protocol_ids.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
-#include "wmbus_prios_rx/prios_fixture.hpp"
-#include "wmbus_prios_rx/prios_analyzer.hpp"
+#include "wmbus_prios_rx/prios_export.hpp"
 
 namespace api_handlers::detail {
+
+namespace {
+
+esp_err_t begin_prios_export_response(httpd_req_t* req) {
+    httpd_resp_set_type(req, "application/json");
+    apply_json_security_headers(req);
+    httpd_resp_set_status(req, "200 OK");
+    httpd_resp_set_hdr(req, "Content-Disposition",
+                       "attachment; filename=\"prios-captures.json\"");
+    return httpd_resp_send_chunk(req, "{\"count\":", HTTPD_RESP_USE_STRLEN);
+}
+
+} // namespace
 
 // GET /api/diagnostics/prios
 //
@@ -129,62 +141,46 @@ esp_err_t handle_diagnostics_prios_export(httpd_req_t* req) {
         return auth;
     }
 
-    const auto snap = wmbus_prios_rx::PriosCaptureService::instance().snapshot();
-
-    JsonPtr root = make_json_object();
-    if (!root) {
+    auto snap = wmbus_prios_rx::PriosCaptureService::instance().snapshot_allocated();
+    if (!snap) {
         return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
 
-    cJSON_AddNumberToObject(root.get(), "count", static_cast<double>(snap.count));
-
-    cJSON* arr = cJSON_AddArrayToObject(root.get(), "frames");
-    for (size_t i = 0; i < snap.count; ++i) {
-        const auto& r = snap.records[i];
-
-        // Build a PriosFixtureFrame from the live record for consistent serialisation.
-        const wmbus_prios_rx::PriosFixtureFrame frame =
-            wmbus_prios_rx::PriosFixtureFrame::from_record(r);
-
-        cJSON* obj = cJSON_CreateObject();
-        cJSON_AddNumberToObject(obj, "total_bytes_captured",
-                                static_cast<double>(r.total_bytes_captured));
-        cJSON_AddNumberToObject(obj, "length",    static_cast<double>(frame.length));
-        cJSON_AddNumberToObject(obj, "rssi_dbm",  static_cast<double>(frame.rssi_dbm));
-        cJSON_AddNumberToObject(obj, "lqi",       static_cast<double>(frame.lqi));
-        cJSON_AddBoolToObject(obj,  "radio_crc_ok",        frame.radio_crc_ok);
-        cJSON_AddBoolToObject(obj,  "radio_crc_available", frame.radio_crc_available);
-        cJSON_AddNumberToObject(obj, "timestamp_ms", static_cast<double>(frame.timestamp_ms));
-        // Record which PRIOS capture variant produced this frame.
-        cJSON_AddStringToObject(obj, "variant",
-                                r.manchester_enabled ? "manchester_on" : "manchester_off");
-
-        const uint8_t preview_len =
-            frame.length < wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes
-                ? frame.length
-                : static_cast<uint8_t>(wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes);
-        char preview_hex_buf[wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes * 2 + 1]{};
-        char full_hex_buf[wmbus_prios_rx::PriosFixtureFrame::kMaxBytes * 2 + 1]{};
-        constexpr char kHex[] = "0123456789ABCDEF";
-        for (uint8_t j = 0; j < preview_len; ++j) {
-            preview_hex_buf[j * 2 + 0] = kHex[(frame.bytes[j] >> 4) & 0x0F];
-            preview_hex_buf[j * 2 + 1] = kHex[frame.bytes[j] & 0x0F];
-        }
-        for (uint8_t j = 0; j < frame.length; ++j) {
-            full_hex_buf[j * 2 + 0] = kHex[(frame.bytes[j] >> 4) & 0x0F];
-            full_hex_buf[j * 2 + 1] = kHex[frame.bytes[j] & 0x0F];
-        }
-        preview_hex_buf[preview_len * 2] = '\0';
-        full_hex_buf[frame.length * 2] = '\0';
-        cJSON_AddStringToObject(obj, "display_prefix_hex", preview_hex_buf);
-        cJSON_AddStringToObject(obj, "full_hex", full_hex_buf);
-        // Backward-compatible alias; now contains the full bounded capture.
-        cJSON_AddStringToObject(obj, "hex", full_hex_buf);
-
-        cJSON_AddItemToArray(arr, obj);
+    esp_err_t err = begin_prios_export_response(req);
+    if (err != ESP_OK) {
+        return err;
     }
 
-    return send_json_root(req, 200, root);
+    std::string prefix = std::to_string(static_cast<unsigned long long>(snap->count));
+    prefix += ",\"frames\":[";
+    err = httpd_resp_send_chunk(req, prefix.c_str(), HTTPD_RESP_USE_STRLEN);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    std::string row;
+    bool first = true;
+    for (size_t i = 0; i < snap->count; ++i) {
+        if (!first) {
+            err = httpd_resp_send_chunk(req, ",", HTTPD_RESP_USE_STRLEN);
+            if (err != ESP_OK) {
+                return err;
+            }
+        }
+        first = false;
+
+        wmbus_prios_rx::append_export_json_object(row, snap->records[i]);
+        err = send_json_chunk_row(req, row);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+
+    err = httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 } // namespace api_handlers::detail

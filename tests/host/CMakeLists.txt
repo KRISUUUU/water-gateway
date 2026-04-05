@@ -328,6 +328,13 @@ add_host_test(test_prios_fixture_analyzer
     "${COMP_DIR}/wmbus_prios_rx/src/prios_analyzer.cpp"
 )
 
+# ---- test_prios_export ----
+add_host_test(test_prios_export
+    test_prios_export.cpp
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_export.cpp"
+    ${CJSON_SRC}
+)
+
 # ---- test_prios_framer_readiness ----
 # Documents which protocol facts are still missing before a framer can be
 # written.  Capture-mode smoke tests must always pass; framer-readiness

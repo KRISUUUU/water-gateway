@@ -1,6 +1,7 @@
 #include "wmbus_prios_rx/prios_capture_service.hpp"
 
 #include <cstring>
+#include <new>
 
 namespace wmbus_prios_rx {
 
@@ -40,6 +41,29 @@ PriosCaptureSnapshot PriosCaptureService::snapshot() const {
     for (size_t i = 0; i < count_; ++i) {
         const size_t src = (oldest + i) % kCapacity;
         snap.records[i]  = storage_[src];
+    }
+
+    return snap;
+}
+
+std::unique_ptr<PriosCaptureSnapshot> PriosCaptureService::snapshot_allocated() const {
+    auto snap = std::unique_ptr<PriosCaptureSnapshot>(new (std::nothrow) PriosCaptureSnapshot{});
+    if (!snap) {
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    snap->count          = count_;
+    snap->total_inserted = total_inserted_;
+    snap->total_evicted  = total_evicted_;
+
+    const size_t oldest = count_ < kCapacity
+                              ? 0
+                              : head_ % kCapacity;
+    for (size_t i = 0; i < count_; ++i) {
+        const size_t src = (oldest + i) % kCapacity;
+        snap->records[i] = storage_[src];
     }
 
     return snap;

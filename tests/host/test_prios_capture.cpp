@@ -329,6 +329,29 @@ void test_service_preview_snapshot_is_bounded_and_recent() {
     std::printf("  PASS: preview snapshot stays bounded to recent lightweight rows\n");
 }
 
+void test_service_allocated_snapshot_preserves_capacity_and_order() {
+    PriosCaptureService::instance().clear();
+    const size_t cap = PriosCaptureSnapshot::kMaxRecords;
+
+    for (uint32_t i = 1; i <= cap; ++i) {
+        PriosCaptureRecord r{};
+        r.sequence = i;
+        r.total_bytes_captured = PriosCaptureRecord::kMaxCaptureBytes;
+        r.captured_bytes[0] = static_cast<uint8_t>(i);
+        PriosCaptureService::instance().insert(r);
+    }
+
+    const auto snap = PriosCaptureService::instance().snapshot_allocated();
+    assert(snap);
+    assert(snap->count == cap);
+    assert(snap->total_inserted == cap);
+    assert(snap->total_evicted == 0);
+    assert(snap->records[0].sequence == 1);
+    assert(snap->records[cap - 1].sequence == cap);
+    assert(snap->records[cap - 1].captured_bytes[0] == static_cast<uint8_t>(cap));
+    std::printf("  PASS: allocated snapshot preserves full retained buffer\n");
+}
+
 void test_service_snapshot_count_reaches_full_capacity() {
     PriosCaptureService::instance().clear();
     const size_t cap = PriosCaptureSnapshot::kMaxRecords;
@@ -386,6 +409,7 @@ int main() {
     test_service_snapshot_count_reaches_full_capacity();
     test_service_ring_eviction();
     test_service_preview_snapshot_is_bounded_and_recent();
+    test_service_allocated_snapshot_preserves_capacity_and_order();
     test_service_clear_resets();
 
     std::printf("All prios capture tests passed.\n");

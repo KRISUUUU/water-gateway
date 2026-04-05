@@ -4,6 +4,7 @@ idf_component_register(
         "src/prios_capture_service.cpp"
         "src/prios_bringup_session.cpp"
         "src/prios_analyzer.cpp"
+        "src/prios_export.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         common
