@@ -8,28 +8,31 @@
 
 // PRIOS R3 CC1101 bring-up profiles — two capture variants.
 //
-// *** EXPERIMENTAL — ALL VALUES ARE UNCONFIRMED ***
+// *** EXPERIMENTAL — PARTIALLY UPDATED WITH HARDWARE EVIDENCE ***
 //
 // This profile targets the documented PRIOS R3 operating point:
 //   868.95 MHz, FSK-family, ~32.768 kbaud
 //
-// The register values below are an INITIAL HYPOTHESIS derived from the
-// T-mode profile at the same frequency and baud rate. They have NOT been
-// validated against real PRIOS hardware captures.
+// Variant A SYNC word (0x1E9B) is the first hardware-evidence candidate,
+// recovered from repeated preamble-sniffer captures (discovery mode with
+// SYNC=0xAAAA master key).  The most stable prefix after the preamble
+// bytes across several strong-signal captures was 0x1E9B.  This is a
+// hypothesis under validation, not a confirmed value.
 //
-// Known unknowns that must be resolved from hardware captures:
-//   - SYNC1/SYNC0: placeholder from T-mode (0x54/0x3D). Likely WRONG.
+// Known unknowns still to be resolved:
+//   - SYNC1/SYNC0 Variant B: still at T-mode placeholder (0x54/0x3D).
+//     Do not update until evidence arrives from manchester_on captures.
 //   - DEVIATN (FSK deviation): T-mode value kept; may differ for PRIOS.
-//   - MANCHESTER_EN (MDMCFG2 bit 3): status unknown; both variants provided.
 //   - MDMCFG4/3 (baud rate): T-mode 32.768 kbaud kept; may need adjustment.
 //
-// SYNC_MODE is set to 001 (15/16 bits) rather than T-mode's 011 (30/32 bits)
-// to be slightly more permissive during bring-up, tolerating 1 bit error in
-// the sync word. This does NOT help if the PRIOS sync word is completely
-// different from the placeholder.
+// Variant A SYNC_MODE is 010 (exact 16/16 bits) — the 0x1E9B candidate
+// came from hardware-aligned captures so bit alignment is clean.  Strict
+// matching gives a clear validation signal: captures either arrive or they
+// don't.  If the campaign produces zero captures at close range, relax to
+// 001 (15/16) and compare.
 //
 // Two variants are provided so both can be tried in the field:
-//   Variant A (kPriosR3Config):           Manchester disabled — MDMCFG2 = 0x01
+//   Variant A (kPriosR3Config):           Manchester disabled — MDMCFG2 = 0x02
 //   Variant B (kPriosR3ConfigManchesterOn): Manchester enabled — MDMCFG2 = 0x0A
 //
 // Use prios_r3_profile(manchester_enabled, out_count) for the current
@@ -53,10 +56,11 @@ static constexpr PriosR3RegisterConfig kPriosR3Config[] = {
     {registers::IOCFG2,   0x06},   // GDO2: sync word sent/received
     {registers::IOCFG0,   0x00},   // GDO0: RX FIFO threshold (same as T-mode)
     {registers::FIFOTHR,  0x47},   // RX FIFO threshold: 33 bytes
-    // SYNC word: EXPERIMENTAL placeholder from T-mode. Almost certainly wrong
-    // for PRIOS. Will be corrected after first hardware captures.
-    {registers::SYNC1,    0x54},   // EXPERIMENTAL — T-mode placeholder
-    {registers::SYNC0,    0x3D},   // EXPERIMENTAL — T-mode placeholder
+    // SYNC word: first hardware-evidence candidate recovered from preamble-sniffer
+    // captures (discovery mode, manchester_off).  Stable prefix across several
+    // strong-signal captures was 0x1E9B.  Under validation — may still be wrong.
+    {registers::SYNC1,    0x1E},   // 0x1E9B candidate — validate near-meter, update if wrong
+    {registers::SYNC0,    0x9B},   // 0x1E9B candidate — validate near-meter, update if wrong
     {registers::PKTLEN,   0xFF},   // Upper bound for FIFO protection
     {registers::PKTCTRL1, 0x00},   // No address filtering
     {registers::PKTCTRL0, 0x02},   // Infinite packet length, CRC disabled
@@ -69,11 +73,11 @@ static constexpr PriosR3RegisterConfig kPriosR3Config[] = {
     // 32.768 kbaud — EXPERIMENTAL (T-mode value; PRIOS baud may differ)
     {registers::MDMCFG4,  0x5B},   // Channel BW ~325 kHz, DRATE_E=11
     {registers::MDMCFG3,  0xF8},   // DRATE_M=248 → ~32.768 kbaud; EXPERIMENTAL
-    // MDMCFG2 = 0x01:
+    // MDMCFG2 = 0x02:
     //   MOD_FORMAT[6:4]=000 = 2-FSK
     //   MANCHESTER_EN[3]=0  = Manchester OFF  (Variant A)
-    //   SYNC_MODE[2:0]=001  = 15/16 bits (more permissive than T-mode's 30/32)
-    {registers::MDMCFG2,  0x01},   // EXPERIMENTAL — Variant A (Manchester off)
+    //   SYNC_MODE[2:0]=010  = exact 16/16 bits — strict match for 0x1E9B validation
+    {registers::MDMCFG2,  0x02},   // Variant A: Manchester off, strict 16/16 for 0x1E9B
     {registers::MDMCFG1,  0x22},   // 4 preamble bytes, FEC disabled
     {registers::MDMCFG0,  0xF8},   // Channel spacing
     // FSK deviation ~47.607 kHz — EXPERIMENTAL (T-mode value)

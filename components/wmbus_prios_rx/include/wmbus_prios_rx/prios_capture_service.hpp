@@ -56,6 +56,11 @@ struct PriosCaptureStats {
     uint32_t total_inserted = 0;
     uint32_t total_evicted  = 0;
     uint32_t total_burst_starts = 0;
+    // Sessions started specifically by the sync-word trigger in SyncCampaign mode.
+    // Complements total_burst_starts (which counts all modes).  A rising value
+    // here confirms that the current sync candidate (0x1E9B) is being recognised
+    // by the CC1101 hardware decoder.
+    uint32_t total_sync_campaign_starts = 0;
     uint32_t total_noise_rejected = 0;
     uint32_t total_quality_rejected = 0;
     uint32_t variant_b_short_rejected = 0;
@@ -102,6 +107,7 @@ class PriosCaptureService {
     [[nodiscard]] PriosCaptureInsertDecision insert_with_quality_gate(
         const PriosCaptureRecord& record);
     void record_burst_start();
+    void record_sync_campaign_start();
     void record_noise_rejection(bool manchester_enabled, bool short_capture);
     void record_quality_rejection();
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
@@ -136,6 +142,7 @@ class PriosCaptureService {
     uint32_t total_inserted_ = 0;
     uint32_t total_evicted_  = 0;
     uint32_t total_burst_starts_ = 0;
+    uint32_t total_sync_campaign_starts_ = 0;
     uint32_t total_noise_rejected_ = 0;
     uint32_t total_quality_rejected_ = 0;
     uint32_t variant_b_short_rejected_ = 0;

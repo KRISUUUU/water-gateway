@@ -53,6 +53,11 @@ void PriosCaptureService::record_burst_start() {
     total_burst_starts_++;
 }
 
+void PriosCaptureService::record_sync_campaign_start() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    total_sync_campaign_starts_++;
+}
+
 void PriosCaptureService::record_noise_rejection(bool manchester_enabled, bool short_capture) {
     std::lock_guard<std::mutex> lock(mutex_);
     total_noise_rejected_++;
@@ -180,6 +185,7 @@ PriosCaptureStats PriosCaptureService::stats() const {
     stats.total_inserted = total_inserted_;
     stats.total_evicted = total_evicted_;
     stats.total_burst_starts = total_burst_starts_;
+    stats.total_sync_campaign_starts = total_sync_campaign_starts_;
     stats.total_noise_rejected = total_noise_rejected_;
     stats.total_quality_rejected = total_quality_rejected_;
     stats.variant_b_short_rejected = variant_b_short_rejected_;
@@ -239,6 +245,7 @@ void PriosCaptureService::clear() {
     total_inserted_ = 0;
     total_evicted_  = 0;
     total_burst_starts_ = 0;
+    total_sync_campaign_starts_ = 0;
     total_noise_rejected_ = 0;
     total_quality_rejected_ = 0;
     variant_b_short_rejected_ = 0;

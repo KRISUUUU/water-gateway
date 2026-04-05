@@ -73,7 +73,7 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
     if (discovery_active) {
         mode = "discovery_sniffer";
     } else if (campaign_active) {
-        mode = "campaign_fake_sync";
+        mode = "campaign_1E9B";
     }
 
     const double retained_average_length =
@@ -99,6 +99,8 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(stats.count));
     cJSON_AddNumberToObject(root.get(), "burst_starts_seen",
                             static_cast<double>(stats.total_burst_starts));
+    cJSON_AddNumberToObject(root.get(), "sync_campaign_starts",
+                            static_cast<double>(stats.total_sync_campaign_starts));
     cJSON_AddNumberToObject(root.get(), "recent_preview_count",
                             static_cast<double>(preview.count));
     cJSON_AddNumberToObject(root.get(), "noise_rejections",

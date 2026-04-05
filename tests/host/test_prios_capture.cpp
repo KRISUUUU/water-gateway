@@ -515,6 +515,33 @@ void test_discovery_mode_uses_irq_or_fifo_instead_of_receiving_state() {
     std::printf("  PASS: discovery mode starts on burst activity, not just RX state\n");
 }
 
+void test_sync_campaign_starts_counter_is_incremented() {
+    PriosCaptureService::instance().clear();
+
+    const auto before = PriosCaptureService::instance().stats();
+    assert(before.total_sync_campaign_starts == 0);
+    assert(before.total_burst_starts == 0);
+
+    PriosCaptureService::instance().record_burst_start();
+    PriosCaptureService::instance().record_sync_campaign_start();
+    PriosCaptureService::instance().record_burst_start();
+    // Second burst is discovery-only (no sync_campaign call).
+
+    const auto after = PriosCaptureService::instance().stats();
+    assert(after.total_burst_starts == 2);
+    assert(after.total_sync_campaign_starts == 1);
+    std::printf("  PASS: sync_campaign_starts tracks only sync-triggered sessions\n");
+}
+
+void test_sync_campaign_starts_cleared_by_clear() {
+    PriosCaptureService::instance().clear();
+    PriosCaptureService::instance().record_sync_campaign_start();
+    PriosCaptureService::instance().clear();
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.total_sync_campaign_starts == 0);
+    std::printf("  PASS: clear() resets sync_campaign_starts\n");
+}
+
 void test_discovery_mode_rejects_weak_signal_candidates() {
     const auto decision = PriosBringUpSession::classify_candidate(
         PriosBringUpSession::Mode::DiscoverySniffer, true, 32, false,
@@ -558,6 +585,8 @@ int main() {
     test_variant_a_and_longer_variant_b_captures_are_preserved();
     test_discovery_mode_uses_irq_or_fifo_instead_of_receiving_state();
     test_discovery_mode_rejects_weak_signal_candidates();
+    test_sync_campaign_starts_counter_is_incremented();
+    test_sync_campaign_starts_cleared_by_clear();
 
     std::printf("All prios capture tests passed.\n");
     return 0;

@@ -124,6 +124,9 @@ PriosBringUpSession::Result PriosBringUpSession::process(
         last_byte_ms_     = now_ms;
         counters_.sessions_started++;
         PriosCaptureService::instance().record_burst_start();
+        if (mode_ == Mode::SyncCampaign) {
+            PriosCaptureService::instance().record_sync_campaign_start();
+        }
         if (should_emit_verbose_session_log()) {
             ESP_LOGD(TAG_PRIOS,
                      "PRIOS session start: mode=%s variant=%s fallback=%d",
