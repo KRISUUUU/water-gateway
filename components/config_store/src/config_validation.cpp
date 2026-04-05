@@ -91,6 +91,11 @@ ValidationResult validate_config(const AppConfig& config) {
                          "At least one radio profile must be enabled");
     }
 
+    if (config.radio.prios_capture_campaign && config.radio.prios_discovery_mode) {
+        result.add_error("radio.prios_discovery_mode",
+                         "PRIOS campaign mode and discovery mode cannot both be enabled");
+    }
+
     // --- Auth section ---
     if (config.auth.session_timeout_s < 60) {
         result.add_error("auth.session_timeout_s", "Session timeout must be at least 60 seconds");

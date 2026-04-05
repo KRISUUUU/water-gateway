@@ -23,6 +23,7 @@ void test_config_json_includes_radio_scheduler_and_prios_fields() {
     cfg.radio.enabled_profiles =
         static_cast<RadioProfileMask>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3);
     cfg.radio.prios_capture_campaign = true;
+    cfg.radio.prios_discovery_mode = false;
     cfg.radio.prios_manchester_enabled = true;
 
     const std::string json = api_handlers::detail::config_to_json_redacted(cfg);
@@ -33,6 +34,7 @@ void test_config_json_includes_radio_scheduler_and_prios_fields() {
     assert(cJSON_GetObjectItemCaseSensitive(radio, "scheduler_mode") != nullptr);
     assert(cJSON_GetObjectItemCaseSensitive(radio, "enabled_profiles") != nullptr);
     assert(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(radio, "prios_capture_campaign")));
+    assert(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(radio, "prios_discovery_mode")));
     assert(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(radio, "prios_manchester_enabled")));
     assert(static_cast<int>(cJSON_GetObjectItemCaseSensitive(radio, "scheduler_mode")->valuedouble) ==
            static_cast<int>(RadioSchedulerMode::Scan));
@@ -53,7 +55,8 @@ void test_apply_config_json_updates_radio_scheduler_and_prios_fields() {
     cJSON_AddNumberToObject(
         radio, "enabled_profiles",
         static_cast<double>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3));
-    cJSON_AddBoolToObject(radio, "prios_capture_campaign", true);
+    cJSON_AddBoolToObject(radio, "prios_capture_campaign", false);
+    cJSON_AddBoolToObject(radio, "prios_discovery_mode", true);
     cJSON_AddBoolToObject(radio, "prios_manchester_enabled", true);
 
     api_handlers::detail::apply_config_json(root, cfg);
@@ -62,7 +65,8 @@ void test_apply_config_json_updates_radio_scheduler_and_prios_fields() {
     assert(cfg.radio.scheduler_mode == RadioSchedulerMode::Priority);
     assert(cfg.radio.enabled_profiles ==
            static_cast<RadioProfileMask>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3));
-    assert(cfg.radio.prios_capture_campaign);
+    assert(!cfg.radio.prios_capture_campaign);
+    assert(cfg.radio.prios_discovery_mode);
     assert(cfg.radio.prios_manchester_enabled);
     std::printf("  PASS: apply_config_json updates scheduler and PRIOS radio fields\n");
 }

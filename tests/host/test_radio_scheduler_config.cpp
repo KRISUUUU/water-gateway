@@ -4,6 +4,7 @@
 //   - RadioSchedulerMode enum values and string labels
 //   - RadioProfileMask constants
 //   - Config v2 → v3 migration applies scheduler defaults
+//   - Config v4 → v5 migration applies PRIOS discovery defaults
 //   - validate_config passes with default config (v3)
 //   - validate_config fails with empty enabled_profiles
 //   - validate_config fails with unknown scheduler_mode
@@ -90,6 +91,7 @@ void test_migrate_v0_reaches_current() {
     assert(result.value().radio.enabled_profiles  == kRadioProfileMaskWMbusT868);
     // v4 fields must default to false on migration from old configs.
     assert(result.value().radio.prios_capture_campaign  == false);
+    assert(result.value().radio.prios_discovery_mode    == false);
     assert(result.value().radio.prios_manchester_enabled == false);
     std::printf("  PASS: v0 chain migration reaches current version with scheduler+campaign defaults\n");
 }
@@ -105,8 +107,25 @@ void test_migrate_v3_to_v4_campaign_defaults() {
     assert(result.is_ok());
     assert(result.value().version == kCurrentConfigVersion);
     assert(result.value().radio.prios_capture_campaign  == false);
+    assert(result.value().radio.prios_discovery_mode    == false);
     assert(result.value().radio.prios_manchester_enabled == false);
     std::printf("  PASS: v3→v4 migration resets campaign fields to false\n");
+}
+
+void test_migrate_v4_to_v5_discovery_defaults() {
+    AppConfig cfg = AppConfig::make_default();
+    cfg.version = 4;
+    cfg.radio.prios_capture_campaign = true;
+    cfg.radio.prios_discovery_mode = true; // garbage; should be overwritten
+    cfg.radio.prios_manchester_enabled = true;
+
+    auto result = migrate_to_current(cfg);
+    assert(result.is_ok());
+    assert(result.value().version == kCurrentConfigVersion);
+    assert(result.value().radio.prios_capture_campaign == true);
+    assert(result.value().radio.prios_discovery_mode == false);
+    assert(result.value().radio.prios_manchester_enabled == true);
+    std::printf("  PASS: v4→v5 migration adds discovery field with safe default\n");
 }
 
 // ---- Validation ----
@@ -251,6 +270,7 @@ int main() {
     test_migrate_v2_to_v3_scheduler_defaults();
     test_migrate_v0_reaches_current();
     test_migrate_v3_to_v4_campaign_defaults();
+    test_migrate_v4_to_v5_discovery_defaults();
     test_default_config_validates();
     test_empty_enabled_profiles_fails_validation();
     test_unknown_scheduler_mode_fails_validation();

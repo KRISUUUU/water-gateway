@@ -138,6 +138,21 @@ static void test_prios_profile_apply_rearms_rx() {
     printf("  PASS: PRIOS profile apply leaves radio RX-ready\n");
 }
 
+static void test_prios_discovery_profile_apply_rearms_rx() {
+    auto& radio = RadioCc1101::instance();
+    void* owner = reinterpret_cast<void*>(0xD00E);
+    const SpiPins pins{23, 19, 18, 5, -1, -1};
+
+    const auto init = radio.initialize(pins);
+    assert(init.is_ok() || init.error() == common::ErrorCode::AlreadyInitialized);
+    assert(radio.claim_owner(owner).is_ok());
+    const auto apply = radio.owner_apply_prios_r3_discovery_profile(owner, true);
+    assert(apply.is_ok());
+    assert(radio.state() == RadioState::Receiving);
+    radio.release_owner(owner);
+    printf("  PASS: PRIOS discovery profile apply leaves radio RX-ready\n");
+}
+
 static void test_prios_variant_b_profile_is_stricter_than_variant_a() {
     size_t count_a = 0;
     size_t count_b = 0;
@@ -166,6 +181,32 @@ static void test_prios_variant_b_profile_is_stricter_than_variant_a() {
     printf("  PASS: PRIOS Variant B profile keeps Manchester ON with middle-ground sync gating\n");
 }
 
+static void test_prios_discovery_profile_disables_sync_word_trigger() {
+    size_t count_a = 0;
+    size_t count_b = 0;
+    const auto* variant_a = prios_r3_discovery_profile(false, count_a);
+    const auto* variant_b = prios_r3_discovery_profile(true, count_b);
+    assert(variant_a != nullptr);
+    assert(variant_b != nullptr);
+    assert(count_a == count_b);
+
+    bool found_b_mdmcfg2 = false;
+    bool found_b_iocfg2 = false;
+    for (size_t i = 0; i < count_b; ++i) {
+        if (variant_b[i].addr == registers::MDMCFG2) {
+            assert(variant_b[i].value == 0x0C);
+            found_b_mdmcfg2 = true;
+        }
+        if (variant_b[i].addr == registers::IOCFG2) {
+            assert(variant_b[i].value == 0x0E);
+            found_b_iocfg2 = true;
+        }
+    }
+    assert(found_b_mdmcfg2);
+    assert(found_b_iocfg2);
+    printf("  PASS: PRIOS discovery profile uses carrier-gated capture instead of sync-word IRQs\n");
+}
+
 int main() {
     printf("=== test_radio_cc1101 ===\n");
 
@@ -176,7 +217,9 @@ int main() {
 
     test_owner_only_rx_helpers_require_claim_and_return_status();
     test_prios_profile_apply_rearms_rx();
+    test_prios_discovery_profile_apply_rearms_rx();
     test_prios_variant_b_profile_is_stricter_than_variant_a();
+    test_prios_discovery_profile_disables_sync_word_trigger();
     printf("All radio_cc1101 tests passed.\n");
     return 0;
 }

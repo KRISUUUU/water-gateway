@@ -5,6 +5,19 @@
 
 namespace wmbus_prios_rx {
 
+namespace {
+
+uint8_t bounded_variant_b_prefix_length(const PriosCaptureRecord& record) {
+    constexpr size_t kPrefixBytes = 6;
+    const size_t available =
+        record.total_bytes_captured < kPrefixBytes
+            ? record.total_bytes_captured
+            : kPrefixBytes;
+    return static_cast<uint8_t>(available);
+}
+
+} // namespace
+
 PriosCaptureService& PriosCaptureService::instance() {
     static PriosCaptureService s_instance;
     return s_instance;
@@ -12,7 +25,48 @@ PriosCaptureService& PriosCaptureService::instance() {
 
 void PriosCaptureService::insert(const PriosCaptureRecord& record) {
     std::lock_guard<std::mutex> lock(mutex_);
+    insert_locked(record);
+}
 
+PriosCaptureInsertDecision PriosCaptureService::insert_with_quality_gate(
+    const PriosCaptureRecord& record) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!record.manchester_enabled) {
+        insert_locked(record);
+        return PriosCaptureInsertDecision::Inserted;
+    }
+
+    const bool seen_before = variant_b_prefix_seen_locked(record);
+    remember_variant_b_prefix_locked(record);
+    if (!seen_before) {
+        total_similarity_rejected_++;
+        return PriosCaptureInsertDecision::RejectedVariantBSimilarity;
+    }
+
+    insert_locked(record);
+    return PriosCaptureInsertDecision::Inserted;
+}
+
+void PriosCaptureService::record_burst_start() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    total_burst_starts_++;
+}
+
+void PriosCaptureService::record_noise_rejection(bool manchester_enabled, bool short_capture) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    total_noise_rejected_++;
+    if (manchester_enabled && short_capture) {
+        variant_b_short_rejected_++;
+    }
+}
+
+void PriosCaptureService::record_quality_rejection() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    total_quality_rejected_++;
+}
+
+void PriosCaptureService::insert_locked(const PriosCaptureRecord& record) {
     const size_t idx = head_ % kCapacity;
     if (count_ == kCapacity) {
         total_evicted_++;
@@ -22,13 +76,55 @@ void PriosCaptureService::insert(const PriosCaptureRecord& record) {
     storage_[idx] = record;
     head_         = (head_ + 1) % kCapacity;
     total_inserted_++;
+    retained_length_total_ += record.total_bytes_captured;
+    if (total_inserted_ == 1U) {
+        retained_length_min_ = record.total_bytes_captured;
+        retained_length_max_ = record.total_bytes_captured;
+    } else {
+        if (record.total_bytes_captured < retained_length_min_) {
+            retained_length_min_ = record.total_bytes_captured;
+        }
+        if (record.total_bytes_captured > retained_length_max_) {
+            retained_length_max_ = record.total_bytes_captured;
+        }
+    }
+    if (record.manchester_enabled) {
+        retained_variant_b_total_++;
+    } else {
+        retained_variant_a_total_++;
+    }
 }
 
-void PriosCaptureService::record_noise_rejection(bool manchester_enabled, bool short_capture) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    total_noise_rejected_++;
-    if (manchester_enabled && short_capture) {
-        variant_b_short_rejected_++;
+bool PriosCaptureService::variant_b_prefix_seen_locked(const PriosCaptureRecord& record) const {
+    const uint8_t prefix_len = bounded_variant_b_prefix_length(record);
+    if (prefix_len == 0) {
+        return false;
+    }
+
+    for (size_t i = 0; i < variant_b_observation_count_; ++i) {
+        const auto& obs = variant_b_observations_[i];
+        if (obs.length != prefix_len) {
+            continue;
+        }
+        if (std::memcmp(obs.bytes, record.captured_bytes, prefix_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void PriosCaptureService::remember_variant_b_prefix_locked(const PriosCaptureRecord& record) {
+    VariantBPrefixObservation obs{};
+    obs.length = bounded_variant_b_prefix_length(record);
+    if (obs.length > 0) {
+        std::memcpy(obs.bytes, record.captured_bytes, obs.length);
+    }
+
+    const size_t idx = variant_b_observation_head_ % kVariantBObservationDepth;
+    variant_b_observations_[idx] = obs;
+    variant_b_observation_head_ = (variant_b_observation_head_ + 1) % kVariantBObservationDepth;
+    if (variant_b_observation_count_ < kVariantBObservationDepth) {
+        variant_b_observation_count_++;
     }
 }
 
@@ -83,8 +179,16 @@ PriosCaptureStats PriosCaptureService::stats() const {
     stats.count = count_;
     stats.total_inserted = total_inserted_;
     stats.total_evicted = total_evicted_;
+    stats.total_burst_starts = total_burst_starts_;
     stats.total_noise_rejected = total_noise_rejected_;
+    stats.total_quality_rejected = total_quality_rejected_;
     stats.variant_b_short_rejected = variant_b_short_rejected_;
+    stats.total_similarity_rejected = total_similarity_rejected_;
+    stats.retained_variant_a_total = retained_variant_a_total_;
+    stats.retained_variant_b_total = retained_variant_b_total_;
+    stats.retained_length_total = retained_length_total_;
+    stats.retained_length_min = retained_length_min_;
+    stats.retained_length_max = retained_length_max_;
     return stats;
 }
 
@@ -129,10 +233,21 @@ void PriosCaptureService::clear() {
     storage_      = {};
     head_         = 0;
     count_        = 0;
+    variant_b_observations_ = {};
+    variant_b_observation_head_ = 0;
+    variant_b_observation_count_ = 0;
     total_inserted_ = 0;
     total_evicted_  = 0;
+    total_burst_starts_ = 0;
     total_noise_rejected_ = 0;
+    total_quality_rejected_ = 0;
     variant_b_short_rejected_ = 0;
+    total_similarity_rejected_ = 0;
+    retained_variant_a_total_ = 0;
+    retained_variant_b_total_ = 0;
+    retained_length_total_ = 0;
+    retained_length_min_ = 0;
+    retained_length_max_ = 0;
 }
 
 } // namespace wmbus_prios_rx

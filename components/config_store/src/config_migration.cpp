@@ -58,6 +58,16 @@ static common::Result<AppConfig> migrate_v3_to_v4(const AppConfig& old) {
     return common::Result<AppConfig>::ok(migrated);
 }
 
+static common::Result<AppConfig> migrate_v4_to_v5(const AppConfig& old) {
+    AppConfig migrated = old;
+    migrated.version = 5;
+    // New in v5: explicit PRIOS discovery/sniffer mode. Existing deployments
+    // must remain in their previous campaign/normal state until the operator
+    // selects discovery mode intentionally.
+    migrated.radio.prios_discovery_mode = false;
+    return common::Result<AppConfig>::ok(migrated);
+}
+
 common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (old_config.version == kCurrentConfigVersion) {
         return common::Result<AppConfig>::ok(old_config);
@@ -96,6 +106,14 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
 
     if (current.version == 3) {
         auto result = migrate_v3_to_v4(current);
+        if (result.is_error()) {
+            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+        }
+        current = result.value();
+    }
+
+    if (current.version == 4) {
+        auto result = migrate_v4_to_v5(current);
         if (result.is_error()) {
             return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
         }

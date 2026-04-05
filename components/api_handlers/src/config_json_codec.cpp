@@ -193,6 +193,7 @@ std::string config_to_json_redacted(const config_store::AppConfig& c) {
     cJSON_AddNumberToObject(radio, "enabled_profiles",
                             static_cast<double>(c.radio.enabled_profiles));
     cJSON_AddBoolToObject(radio, "prios_capture_campaign", c.radio.prios_capture_campaign);
+    cJSON_AddBoolToObject(radio, "prios_discovery_mode", c.radio.prios_discovery_mode);
     cJSON_AddBoolToObject(radio, "prios_manchester_enabled",
                           c.radio.prios_manchester_enabled);
 
@@ -308,6 +309,10 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
         if (parse_bool_like(cJSON_GetObjectItemCaseSensitive(radio, "prios_capture_campaign"),
                             bool_value)) {
             cfg.radio.prios_capture_campaign = bool_value;
+        }
+        if (parse_bool_like(cJSON_GetObjectItemCaseSensitive(radio, "prios_discovery_mode"),
+                            bool_value)) {
+            cfg.radio.prios_discovery_mode = bool_value;
         }
         if (parse_bool_like(cJSON_GetObjectItemCaseSensitive(radio, "prios_manchester_enabled"),
                             bool_value)) {

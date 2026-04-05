@@ -31,8 +31,9 @@ esp_err_t begin_prios_export_response(httpd_req_t* req) {
 //
 // Response shape:
 // {
-//   "mode": "capture",
+//   "mode": "campaign",
 //   "campaign_active": true,
+//   "discovery_active": false,
 //   "variant": "manchester_off",
 //   "profile": "WMbusPriosR3",
 //   "decoding": false,
@@ -66,8 +67,24 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
         return send_json(req, 500, "{\"error\":\"out_of_memory\"}");
     }
 
-    cJSON_AddStringToObject(root.get(), "mode", "capture");
+    const bool discovery_active = cfg.radio.prios_discovery_mode;
+    const bool campaign_active = cfg.radio.prios_capture_campaign;
+    const char* mode = "inactive";
+    if (discovery_active) {
+        mode = "discovery_sniffer";
+    } else if (campaign_active) {
+        mode = "campaign_fake_sync";
+    }
+
+    const double retained_average_length =
+        stats.total_inserted > 0
+            ? static_cast<double>(stats.retained_length_total) /
+                  static_cast<double>(stats.total_inserted)
+            : 0.0;
+
+    cJSON_AddStringToObject(root.get(), "mode", mode);
     cJSON_AddBoolToObject(root.get(), "campaign_active", cfg.radio.prios_capture_campaign);
+    cJSON_AddBoolToObject(root.get(), "discovery_active", cfg.radio.prios_discovery_mode);
     cJSON_AddStringToObject(root.get(), "variant",
                             cfg.radio.prios_manchester_enabled ? "manchester_on" : "manchester_off");
     cJSON_AddStringToObject(root.get(), "profile",
@@ -80,12 +97,28 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(stats.total_evicted));
     cJSON_AddNumberToObject(root.get(), "retained_captures",
                             static_cast<double>(stats.count));
+    cJSON_AddNumberToObject(root.get(), "burst_starts_seen",
+                            static_cast<double>(stats.total_burst_starts));
     cJSON_AddNumberToObject(root.get(), "recent_preview_count",
                             static_cast<double>(preview.count));
     cJSON_AddNumberToObject(root.get(), "noise_rejections",
                             static_cast<double>(stats.total_noise_rejected));
+    cJSON_AddNumberToObject(root.get(), "quality_rejections",
+                            static_cast<double>(stats.total_quality_rejected));
     cJSON_AddNumberToObject(root.get(), "variant_b_short_rejections",
                             static_cast<double>(stats.variant_b_short_rejected));
+    cJSON_AddNumberToObject(root.get(), "similarity_rejections",
+                            static_cast<double>(stats.total_similarity_rejected));
+    cJSON_AddNumberToObject(root.get(), "retained_variant_a_total",
+                            static_cast<double>(stats.retained_variant_a_total));
+    cJSON_AddNumberToObject(root.get(), "retained_variant_b_total",
+                            static_cast<double>(stats.retained_variant_b_total));
+    cJSON_AddNumberToObject(root.get(), "retained_length_avg",
+                            retained_average_length);
+    cJSON_AddNumberToObject(root.get(), "retained_length_min",
+                            static_cast<double>(stats.retained_length_min));
+    cJSON_AddNumberToObject(root.get(), "retained_length_max",
+                            static_cast<double>(stats.retained_length_max));
     cJSON_AddNumberToObject(root.get(), "variant_b_min_timeout_capture_bytes",
                             static_cast<double>(
                                 wmbus_prios_rx::PriosBringUpSession::kVariantBMinTimeoutCaptureBytes));

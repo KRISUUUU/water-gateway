@@ -182,8 +182,11 @@ void test_service_stats_are_lightweight_and_correct() {
     assert(stats.count == 2);
     assert(stats.total_inserted == 2);
     assert(stats.total_evicted == 0);
+    assert(stats.total_burst_starts == 0);
     assert(stats.total_noise_rejected == 0);
+    assert(stats.total_quality_rejected == 0);
     assert(stats.variant_b_short_rejected == 0);
+    assert(stats.total_similarity_rejected == 0);
     static_assert(sizeof(PriosCaptureStats) < sizeof(PriosCaptureSnapshot),
                   "Stats accessor must stay lighter than full snapshot");
     std::printf("  PASS: lightweight stats accessor reports capture counters\n");
@@ -194,10 +197,15 @@ void test_service_noise_rejection_stats_are_tracked() {
 
     PriosCaptureService::instance().record_noise_rejection(true, true);
     PriosCaptureService::instance().record_noise_rejection(false, false);
+    PriosCaptureService::instance().record_quality_rejection();
+    PriosCaptureService::instance().record_burst_start();
 
     const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.total_burst_starts == 1);
     assert(stats.total_noise_rejected == 2);
+    assert(stats.total_quality_rejected == 1);
     assert(stats.variant_b_short_rejected == 1);
+    assert(stats.total_similarity_rejected == 0);
     std::printf("  PASS: noise rejection stats tracked separately from retained captures\n");
 }
 
@@ -399,30 +407,121 @@ void test_service_clear_resets() {
     assert(snap.total_inserted == 0);
     assert(snap.total_evicted  == 0);
     assert(stats.total_noise_rejected == 0);
+    assert(stats.total_burst_starts == 0);
+    assert(stats.total_quality_rejected == 0);
     assert(stats.variant_b_short_rejected == 0);
+    assert(stats.total_similarity_rejected == 0);
     std::printf("  PASS: clear() resets ring buffer\n");
+}
+
+void test_variant_b_similarity_gate_requires_a_repeat_before_retention() {
+    PriosCaptureService::instance().clear();
+
+    PriosCaptureRecord rec{};
+    rec.sequence = 1;
+    rec.manchester_enabled = true;
+    rec.total_bytes_captured = PriosCaptureRecord::kMaxCaptureBytes;
+    const uint8_t prefix[] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+    std::memcpy(rec.captured_bytes, prefix, sizeof(prefix));
+
+    const auto first = PriosCaptureService::instance().insert_with_quality_gate(rec);
+    const auto after_first = PriosCaptureService::instance().stats();
+    assert(first == PriosCaptureInsertDecision::RejectedVariantBSimilarity);
+    assert(after_first.count == 0);
+    assert(after_first.total_inserted == 0);
+    assert(after_first.total_similarity_rejected == 1);
+
+    rec.sequence = 2;
+    const auto second = PriosCaptureService::instance().insert_with_quality_gate(rec);
+    const auto snap = PriosCaptureService::instance().snapshot();
+    const auto after_second = PriosCaptureService::instance().stats();
+    assert(second == PriosCaptureInsertDecision::Inserted);
+    assert(snap.count == 1);
+    assert(after_second.total_inserted == 1);
+    assert(after_second.total_similarity_rejected == 1);
+    std::printf("  PASS: Variant B retention requires a repeated prefix\n");
+}
+
+void test_variant_a_bypasses_similarity_gate() {
+    PriosCaptureService::instance().clear();
+
+    PriosCaptureRecord rec{};
+    rec.sequence = 1;
+    rec.manchester_enabled = false;
+    rec.total_bytes_captured = 16;
+    rec.captured_bytes[0] = 0xAA;
+    rec.captured_bytes[1] = 0xBB;
+
+    const auto decision = PriosCaptureService::instance().insert_with_quality_gate(rec);
+    const auto snap = PriosCaptureService::instance().snapshot();
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(decision == PriosCaptureInsertDecision::Inserted);
+    assert(snap.count == 1);
+    assert(stats.total_inserted == 1);
+    assert(stats.total_similarity_rejected == 0);
+    std::printf("  PASS: Variant A remains unchanged by Variant B similarity gating\n");
 }
 
 void test_variant_b_short_timeout_is_rejected_as_noise() {
     const auto decision =
         PriosBringUpSession::classify_candidate(
+            PriosBringUpSession::Mode::SyncCampaign,
             true,
             PriosBringUpSession::kVariantBMinTimeoutCaptureBytes - 1,
-            true);
+            true,
+            -70,
+            64);
     assert(decision == PriosBringUpSession::CaptureDecision::RejectVariantBShortTimeout);
     std::printf("  PASS: Variant B short timeout capture is rejected as noise\n");
 }
 
 void test_variant_a_and_longer_variant_b_captures_are_preserved() {
-    assert(PriosBringUpSession::classify_candidate(false, 8, true) ==
+    assert(PriosBringUpSession::classify_candidate(
+               PriosBringUpSession::Mode::SyncCampaign, false, 8, true, -70, 64) ==
            PriosBringUpSession::CaptureDecision::Accept);
     assert(PriosBringUpSession::classify_candidate(
+               PriosBringUpSession::Mode::SyncCampaign,
                true,
                PriosBringUpSession::kVariantBMinTimeoutCaptureBytes,
-               true) == PriosBringUpSession::CaptureDecision::Accept);
-    assert(PriosBringUpSession::classify_candidate(true, 8, false) ==
+               true,
+               -70,
+               64) == PriosBringUpSession::CaptureDecision::Accept);
+    assert(PriosBringUpSession::classify_candidate(
+               PriosBringUpSession::Mode::SyncCampaign, true, 8, false, -70, 64) ==
            PriosBringUpSession::CaptureDecision::Accept);
     std::printf("  PASS: Variant A and longer Variant B captures remain accepted\n");
+}
+
+void test_discovery_mode_uses_irq_or_fifo_instead_of_receiving_state() {
+    radio_cc1101::RadioOwnerEventSet no_events{};
+    wmbus_tmode_rx::SessionRadioStatus status{};
+    status.receiving = true;
+    status.fifo_bytes = 0;
+    assert(!PriosBringUpSession::should_start_capture(
+        PriosBringUpSession::Mode::DiscoverySniffer, no_events, status));
+
+    auto irq_events = radio_cc1101::make_fallback_poll_event();
+    assert(!PriosBringUpSession::should_start_capture(
+        PriosBringUpSession::Mode::DiscoverySniffer, irq_events, status));
+
+    irq_events = radio_cc1101::make_owner_events_from_irq(
+        {radio_cc1101::GdoIrqSnapshot::bit_for(radio_cc1101::GdoPin::Gdo2), 0, 1});
+    assert(PriosBringUpSession::should_start_capture(
+        PriosBringUpSession::Mode::DiscoverySniffer, irq_events, status));
+
+    status.fifo_bytes = 4;
+    assert(PriosBringUpSession::should_start_capture(
+        PriosBringUpSession::Mode::DiscoverySniffer, no_events, status));
+    std::printf("  PASS: discovery mode starts on burst activity, not just RX state\n");
+}
+
+void test_discovery_mode_rejects_weak_signal_candidates() {
+    const auto decision = PriosBringUpSession::classify_candidate(
+        PriosBringUpSession::Mode::DiscoverySniffer, true, 32, false,
+        PriosBringUpSession::kDiscoveryMinRssiDbm - 1,
+        PriosBringUpSession::kDiscoveryMinLqi - 1);
+    assert(decision == PriosBringUpSession::CaptureDecision::RejectDiscoveryWeakSignal);
+    std::printf("  PASS: discovery mode rejects weak-signal candidates\n");
 }
 
 } // namespace
@@ -453,8 +552,12 @@ int main() {
     test_service_preview_snapshot_is_bounded_and_recent();
     test_service_allocated_snapshot_preserves_capacity_and_order();
     test_service_clear_resets();
+    test_variant_b_similarity_gate_requires_a_repeat_before_retention();
+    test_variant_a_bypasses_similarity_gate();
     test_variant_b_short_timeout_is_rejected_as_noise();
     test_variant_a_and_longer_variant_b_captures_are_preserved();
+    test_discovery_mode_uses_irq_or_fifo_instead_of_receiving_state();
+    test_discovery_mode_rejects_weak_signal_candidates();
 
     std::printf("All prios capture tests passed.\n");
     return 0;

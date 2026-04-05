@@ -32,6 +32,11 @@ namespace wmbus_prios_rx {
 
 class PriosBringUpSession {
   public:
+    enum class Mode : uint8_t {
+        SyncCampaign = 0,
+        DiscoverySniffer,
+    };
+
     // Maximum raw bytes accumulated per capture attempt.
     static constexpr uint16_t kMaxCaptureBytes = 64;
 
@@ -44,10 +49,13 @@ class PriosBringUpSession {
     static constexpr uint32_t kOverflowLogCadenceMs = 2000;
     static constexpr uint32_t kVerboseSessionLogBudget = 3;
     static constexpr uint16_t kVariantBMinTimeoutCaptureBytes = 12;
+    static constexpr int8_t kDiscoveryMinRssiDbm = -96;
+    static constexpr uint8_t kDiscoveryMinLqi = 16;
 
     enum class CaptureDecision : uint8_t {
         Accept = 0,
         RejectVariantBShortTimeout,
+        RejectDiscoveryWeakSignal,
     };
 
     struct Result {
@@ -59,11 +67,8 @@ class PriosBringUpSession {
 
     void reset();
 
-    // Set the capture variant before starting a campaign session.
-    // This must be called whenever the operator switches variants so that
-    // every new PriosCaptureRecord carries the correct manchester_enabled flag.
-    // Safe to call at any time; takes effect on the next capture.
-    void set_variant(bool manchester_enabled) {
+    void configure(Mode mode, bool manchester_enabled) {
+        mode_ = mode;
         manchester_enabled_ = manchester_enabled;
         counters_ = SummaryCounters{};
         last_summary_log_ms_ = 0;
@@ -71,16 +76,39 @@ class PriosBringUpSession {
         verbose_session_logs_remaining_ = kVerboseSessionLogBudget;
     }
 
+    void set_variant(bool manchester_enabled) {
+        configure(mode_, manchester_enabled);
+    }
+
+    Mode mode() const { return mode_; }
+
     // Returns the currently active variant.
     bool manchester_enabled() const { return manchester_enabled_; }
-    static CaptureDecision classify_candidate(bool manchester_enabled,
+    static CaptureDecision classify_candidate(Mode mode,
+                                              bool manchester_enabled,
                                               uint16_t captured_bytes,
-                                              bool timed_out) {
-        if (manchester_enabled && timed_out &&
+                                              bool timed_out,
+                                              int8_t rssi_dbm,
+                                              uint8_t lqi) {
+        if (mode == Mode::SyncCampaign &&
+            manchester_enabled && timed_out &&
             captured_bytes < kVariantBMinTimeoutCaptureBytes) {
             return CaptureDecision::RejectVariantBShortTimeout;
         }
+        if (mode == Mode::DiscoverySniffer &&
+            (rssi_dbm < kDiscoveryMinRssiDbm || lqi < kDiscoveryMinLqi)) {
+            return CaptureDecision::RejectDiscoveryWeakSignal;
+        }
         return CaptureDecision::Accept;
+    }
+
+    static bool should_start_capture(Mode mode,
+                                     const radio_cc1101::RadioOwnerEventSet& events,
+                                     const wmbus_tmode_rx::SessionRadioStatus& status) {
+        if (mode == Mode::DiscoverySniffer) {
+            return events.has_any_irq() || status.fifo_bytes > 0;
+        }
+        return status.fifo_bytes > 0 || status.receiving;
     }
 
     // Called from the radio owner task loop in place of RxSessionEngine::process()
@@ -107,6 +135,7 @@ class PriosBringUpSession {
         uint32_t empty_resets = 0;
         uint32_t fallback_wakes = 0;
         uint32_t noise_rejections = 0;
+        uint32_t quality_rejections = 0;
         uint32_t variant_b_short_rejections = 0;
     };
 
@@ -116,6 +145,7 @@ class PriosBringUpSession {
     uint32_t session_start_ms_  = 0;
     uint32_t last_byte_ms_      = 0;
     uint32_t seq_               = 0;
+    Mode     mode_              = Mode::SyncCampaign;
     bool     manchester_enabled_ = false;  // set by set_variant(); propagated to records
     SummaryCounters counters_{};
     uint32_t last_summary_log_ms_ = 0;

@@ -930,21 +930,31 @@
                 // PRIOS capture campaign section
                 const prios = priosData || {};
                 const priosCampaign = prios.campaign_active === true;
+                const priosDiscovery = prios.discovery_active === true;
                 const priosVariant  = prios.variant || "manchester_off";
+                const priosMode = prios.mode || "inactive";
                 [
-                    ["Campaign Mode", priosCampaign
-                        ? "\u25CF ACTIVE \u2014 T-mode suspended"
-                        : "\u25CB inactive"],
+                    ["PRIOS Mode", priosMode === "discovery_sniffer"
+                        ? "\u25CF Discovery / Sniffer ACTIVE \u2014 T-mode suspended"
+                        : (priosMode === "campaign_fake_sync"
+                            ? "\u25CF Experimental campaign ACTIVE \u2014 T-mode suspended"
+                            : "\u25CB inactive")],
                     ["Variant",       priosVariant === "manchester_on"
                         ? "Variant B (Manchester ON)"
                         : "Variant A (Manchester OFF)"],
                     ["Profile",       prios.profile],
                     ["Decoding",      prios.decoding ? "yes (active)" : "no \u2014 capture only"],
+                    ["Burst Starts Seen", prios.burst_starts_seen],
                     ["Total Captures",prios.total_captures],
                     ["Noise Rejections", prios.noise_rejections],
+                    ["Quality Rejections", prios.quality_rejections],
                     ["Variant B Short Rejects", prios.variant_b_short_rejections],
+                    ["Similarity Rejects", prios.similarity_rejections],
                     ["Total Evicted", prios.total_evicted],
                     ["Retained Captures", prios.retained_captures],
+                    ["Retained A/B Totals", text(prios.retained_variant_a_total, "0") + " / " + text(prios.retained_variant_b_total, "0")],
+                    ["Retained Length Avg", prios.retained_length_avg],
+                    ["Retained Length Min/Max", text(prios.retained_length_min, "0") + " / " + text(prios.retained_length_max, "0")],
                     ["Variant B Min Timeout Bytes", prios.variant_b_min_timeout_capture_bytes],
                 ].forEach((entry) => priosStatusEl.appendChild(kvRow(entry[0], entry[1])));
 
@@ -958,9 +968,9 @@
                 if (recentCaptures.length === 0) {
                     const note = document.createElement("p");
                     note.className = "empty-state";
-                    note.textContent = priosCampaign
-                        ? "Campaign active. No captures yet \u2014 move near the meter."
-                        : "No PRIOS captures. Enable campaign mode in Settings to start.";
+                    note.textContent = (priosCampaign || priosDiscovery)
+                        ? "PRIOS mode active. No captures yet \u2014 move near the meter."
+                        : "No PRIOS captures. Enable PRIOS discovery or campaign mode in Settings to start.";
                     priosCapturesEl.appendChild(note);
                 } else {
                     const previewNote = document.createElement("p");
@@ -1139,7 +1149,7 @@
         schedulerSelect.value = String(toNumberOr(radio.scheduler_mode, 0));
         schedulerLabel.appendChild(schedulerSelect);
         card.appendChild(schedulerLabel);
-        appendFieldHint(card, "Scheduler mode is saved normally, but PRIOS campaign mode overrides it until the campaign is turned off.");
+        appendFieldHint(card, "Scheduler mode is saved normally, but active PRIOS experimental modes override it until they are turned off.");
 
         const profilesBlock = document.createElement("div");
         profilesBlock.className = "config-subsection";
@@ -1164,17 +1174,26 @@
         });
         card.appendChild(profilesBlock);
 
-        const campaignRow = document.createElement("label");
-        campaignRow.className = "checkbox-row";
-        const campaignInput = document.createElement("input");
-        campaignInput.id = "cfg-radio-prios_capture_campaign";
-        campaignInput.type = "checkbox";
-        campaignInput.checked = !!radio.prios_capture_campaign;
-        const campaignText = document.createElement("span");
-        campaignText.textContent = "Enable PRIOS capture campaign";
-        campaignRow.appendChild(campaignInput);
-        campaignRow.appendChild(campaignText);
-        card.appendChild(campaignRow);
+        const priosModeLabel = document.createElement("label");
+        priosModeLabel.setAttribute("for", "cfg-radio-prios_mode");
+        priosModeLabel.textContent = "PRIOS Experimental Mode";
+        const priosModeSelect = document.createElement("select");
+        priosModeSelect.id = "cfg-radio-prios_mode";
+        [
+            { value: "off", label: "Off" },
+            { value: "campaign", label: "Experimental campaign (sync-based)" },
+            { value: "discovery", label: "Discovery / sniffer (no sync assumption)" },
+        ].forEach((option) => {
+            const opt = document.createElement("option");
+            opt.value = option.value;
+            opt.textContent = option.label;
+            priosModeSelect.appendChild(opt);
+        });
+        priosModeSelect.value = radio.prios_discovery_mode
+            ? "discovery"
+            : (radio.prios_capture_campaign ? "campaign" : "off");
+        priosModeLabel.appendChild(priosModeSelect);
+        card.appendChild(priosModeLabel);
 
         const manchesterRow = document.createElement("label");
         manchesterRow.className = "checkbox-row";
@@ -1183,12 +1202,12 @@
         manchesterInput.type = "checkbox";
         manchesterInput.checked = !!radio.prios_manchester_enabled;
         const manchesterText = document.createElement("span");
-        manchesterText.textContent = "Use Manchester variant for PRIOS campaign";
+        manchesterText.textContent = "Use Manchester variant for PRIOS experimental modes";
         manchesterRow.appendChild(manchesterInput);
         manchesterRow.appendChild(manchesterText);
         card.appendChild(manchesterRow);
 
-        appendFieldHint(card, "Manchester off = Variant A. Manchester on = Variant B. This setting only affects PRIOS campaign mode.");
+        appendFieldHint(card, "Manchester off = Variant A. Manchester on = Variant B. The selected variant applies to both the sync-based campaign and the discovery/sniffer mode.");
 
         const summary = document.createElement("p");
         summary.id = "cfg-radio-campaign-summary";
@@ -1196,16 +1215,19 @@
         card.appendChild(summary);
 
         function updateRadioCampaignSummary() {
-            if (campaignInput.checked) {
+            if (priosModeSelect.value === "campaign") {
                 summary.textContent =
-                    "Capture-only campaign will lock the radio to PRIOS R3, suspend T-mode, and use the selected Manchester variant after reboot.";
+                    "Experimental campaign mode keeps the current sync-based PRIOS path. It locks the radio to PRIOS R3, suspends T-mode, and uses the selected variant after reboot.";
+            } else if (priosModeSelect.value === "discovery") {
+                summary.textContent =
+                    "Discovery / sniffer mode locks the radio to PRIOS R3, suspends T-mode, and captures bounded bursts using discovery-oriented radio activity gating instead of the placeholder sync word.";
             } else {
                 summary.textContent =
                     "Normal mode uses the saved scheduler mode and enabled profiles after reboot. PRIOS decode is not available yet.";
             }
         }
 
-        campaignInput.addEventListener("change", updateRadioCampaignSummary);
+        priosModeSelect.addEventListener("change", updateRadioCampaignSummary);
         updateRadioCampaignSummary();
         container.appendChild(card);
     }
@@ -1279,7 +1301,9 @@
                 }
             });
             cfg.radio.enabled_profiles = enabledProfiles;
-            cfg.radio.prios_capture_campaign = $("#cfg-radio-prios_capture_campaign").checked;
+            const priosMode = $("#cfg-radio-prios_mode").value;
+            cfg.radio.prios_capture_campaign = priosMode === "campaign";
+            cfg.radio.prios_discovery_mode = priosMode === "discovery";
             cfg.radio.prios_manchester_enabled = $("#cfg-radio-prios_manchester_enabled").checked;
         }
     }

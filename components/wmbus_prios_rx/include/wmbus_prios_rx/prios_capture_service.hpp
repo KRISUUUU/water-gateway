@@ -55,8 +55,21 @@ struct PriosCaptureStats {
     size_t   count = 0;
     uint32_t total_inserted = 0;
     uint32_t total_evicted  = 0;
+    uint32_t total_burst_starts = 0;
     uint32_t total_noise_rejected = 0;
+    uint32_t total_quality_rejected = 0;
     uint32_t variant_b_short_rejected = 0;
+    uint32_t total_similarity_rejected = 0;
+    uint32_t retained_variant_a_total = 0;
+    uint32_t retained_variant_b_total = 0;
+    uint32_t retained_length_total = 0;
+    uint16_t retained_length_min = 0;
+    uint16_t retained_length_max = 0;
+};
+
+enum class PriosCaptureInsertDecision : uint8_t {
+    Inserted = 0,
+    RejectedVariantBSimilarity,
 };
 
 struct PriosCapturePreviewRecord {
@@ -86,7 +99,11 @@ class PriosCaptureService {
     static PriosCaptureService& instance();
 
     void insert(const PriosCaptureRecord& record);
+    [[nodiscard]] PriosCaptureInsertDecision insert_with_quality_gate(
+        const PriosCaptureRecord& record);
+    void record_burst_start();
     void record_noise_rejection(bool manchester_enabled, bool short_capture);
+    void record_quality_rejection();
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
     [[nodiscard]] std::unique_ptr<PriosCaptureSnapshot> snapshot_allocated() const;
     [[nodiscard]] PriosCaptureStats stats() const;
@@ -97,15 +114,37 @@ class PriosCaptureService {
     PriosCaptureService() = default;
 
     static constexpr size_t kCapacity = PriosCaptureSnapshot::kMaxRecords;
+    static constexpr size_t kVariantBSimilarityPrefixBytes = 6;
+    static constexpr size_t kVariantBObservationDepth = 16;
+
+    struct VariantBPrefixObservation {
+        uint8_t length = 0;
+        uint8_t bytes[kVariantBSimilarityPrefixBytes]{};
+    };
+
+    void insert_locked(const PriosCaptureRecord& record);
+    [[nodiscard]] bool variant_b_prefix_seen_locked(const PriosCaptureRecord& record) const;
+    void remember_variant_b_prefix_locked(const PriosCaptureRecord& record);
 
     mutable std::mutex mutex_{};
     std::array<PriosCaptureRecord, kCapacity> storage_{};
+    std::array<VariantBPrefixObservation, kVariantBObservationDepth> variant_b_observations_{};
     size_t   head_           = 0;
     size_t   count_          = 0;
+    size_t   variant_b_observation_head_ = 0;
+    size_t   variant_b_observation_count_ = 0;
     uint32_t total_inserted_ = 0;
     uint32_t total_evicted_  = 0;
+    uint32_t total_burst_starts_ = 0;
     uint32_t total_noise_rejected_ = 0;
+    uint32_t total_quality_rejected_ = 0;
     uint32_t variant_b_short_rejected_ = 0;
+    uint32_t total_similarity_rejected_ = 0;
+    uint32_t retained_variant_a_total_ = 0;
+    uint32_t retained_variant_b_total_ = 0;
+    uint32_t retained_length_total_ = 0;
+    uint16_t retained_length_min_ = 0;
+    uint16_t retained_length_max_ = 0;
 };
 
 } // namespace wmbus_prios_rx

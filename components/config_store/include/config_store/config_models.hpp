@@ -7,7 +7,7 @@
 
 namespace config_store {
 
-static constexpr uint32_t kCurrentConfigVersion = 4;
+static constexpr uint32_t kCurrentConfigVersion = 5;
 static constexpr const char* kNvsNamespace = "wg_config";
 static constexpr const char* kNvsKey = "config";
 static constexpr const char* kNvsBackupKey = "config_bak";
@@ -83,7 +83,7 @@ struct RadioConfig {
     // Must not be zero; use kRadioProfileMaskWMbusT868 as the minimum.
     protocol_driver::RadioProfileMask enabled_profiles;
 
-    // --- PRIOS capture campaign mode (v4+) ---
+    // --- PRIOS experimental receive modes (v4+) ---
     //
     // When prios_capture_campaign is true:
     //   - The radio scheduler is locked to WMbusPriosR3 regardless of
@@ -92,11 +92,20 @@ struct RadioConfig {
     //   - The CC1101 is reconfigured with the PRIOS R3 experimental profile.
     //   - All bounded captures are stored in PriosCaptureService.
     //
+    // When prios_discovery_mode is true:
+    //   - The radio scheduler is locked to WMbusPriosR3 as well.
+    //   - T-mode reception is suspended for the duration of discovery.
+    //   - The CC1101 uses a PRIOS sniffer/discovery profile that does not
+    //     depend on the placeholder sync word.
+    //   - Bounded captures are still exported through the same diagnostics
+    //     and export pipeline.
+    //
     // When prios_manchester_enabled is true, Variant B (Manchester ON) is
     // applied. When false, Variant A (Manchester OFF) is applied.
     // Both variants are experimental until hardware captures confirm the
     // correct modulation setting.
     bool prios_capture_campaign  = false;  // false = normal T-mode operation
+    bool prios_discovery_mode    = false;  // false = use saved scheduler/profile config
     bool prios_manchester_enabled = false; // false = Variant A (Manchester off)
 
     static RadioConfig make_default() {
@@ -107,6 +116,7 @@ struct RadioConfig {
         c.scheduler_mode          = protocol_driver::RadioSchedulerMode::Locked;
         c.enabled_profiles        = protocol_driver::kRadioProfileMaskWMbusT868;
         c.prios_capture_campaign  = false;
+        c.prios_discovery_mode    = false;
         c.prios_manchester_enabled = false;
         return c;
     }

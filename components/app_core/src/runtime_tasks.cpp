@@ -189,6 +189,7 @@ static void populate_rf_diagnostic_timestamps(rf_diagnostics::RfDiagnosticRecord
 
 struct RadioStartupConfigSnapshot {
     bool campaign_active = false;
+    bool discovery_active = false;
     bool campaign_manchester = false;
     protocol_driver::RadioSchedulerMode scheduler_mode =
         protocol_driver::RadioSchedulerMode::Locked;
@@ -200,6 +201,7 @@ static RadioStartupConfigSnapshot load_radio_startup_config() {
     const auto cfg = config_store::ConfigStore::instance().config();
     return {
         .campaign_active = cfg.radio.prios_capture_campaign,
+        .discovery_active = cfg.radio.prios_discovery_mode,
         .campaign_manchester = cfg.radio.prios_manchester_enabled,
         .scheduler_mode = cfg.radio.scheduler_mode,
         .enabled_profiles = cfg.radio.enabled_profiles,
@@ -386,16 +388,24 @@ static void radio_rx_task(void* /*param*/) {
     // radio_rx task lifetime.
     const auto startup_radio_cfg = load_radio_startup_config();
     const bool campaign_active = startup_radio_cfg.campaign_active;
+    const bool discovery_active = startup_radio_cfg.discovery_active;
     const bool campaign_manchester = startup_radio_cfg.campaign_manchester;
+    const bool experimental_prios_active = campaign_active || discovery_active;
+    const auto prios_mode =
+        discovery_active
+            ? wmbus_prios_rx::PriosBringUpSession::Mode::DiscoverySniffer
+            : wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign;
 
-    if (campaign_active) {
-        // Campaign mode: lock the scheduler to PRIOS R3 only, regardless of
+    if (experimental_prios_active) {
+        // Experimental PRIOS modes lock the scheduler to PRIOS R3 only, regardless of
         // whatever scheduler_mode and enabled_profiles are set in config.
-        // T-mode reception is suspended for the duration of the campaign.
+        // T-mode reception is suspended for the duration of the session.
         profile_mgr.configure(protocol_driver::RadioSchedulerMode::Locked,
                               protocol_driver::kRadioProfileMaskWMbusPriosR3);
-        ESP_LOGI(TAG, "PRIOS capture campaign ACTIVE — radio locked to WMbusPriosR3 "
+        ESP_LOGI(TAG, "PRIOS %s ACTIVE — radio locked to WMbusPriosR3 "
                       "(variant=%s, T-mode suspended)",
+                 discovery_active ? "discovery/sniffer mode"
+                                  : "capture campaign",
                  campaign_manchester ? "manchester_on" : "manchester_off");
     } else {
         // Normal operation: apply scheduler mode and enabled profiles from config.
@@ -409,18 +419,24 @@ static void radio_rx_task(void* /*param*/) {
         return;
     }
 
-    // If campaign mode is active, overwrite the T-mode CC1101 registers with
-    // the PRIOS R3 experimental profile (Variant A or B) before starting RX.
-    if (campaign_active) {
-        auto profile_result = radio.owner_apply_prios_r3_profile(current_task, campaign_manchester);
+    // If an experimental PRIOS mode is active, overwrite the T-mode CC1101
+    // registers with either the sync-driven campaign profile or the separate
+    // discovery/sniffer profile before starting RX.
+    if (experimental_prios_active) {
+        auto profile_result =
+            discovery_active
+                ? radio.owner_apply_prios_r3_discovery_profile(current_task,
+                                                               campaign_manchester)
+                : radio.owner_apply_prios_r3_profile(current_task, campaign_manchester);
         if (profile_result.is_error()) {
-            ESP_LOGE(TAG, "Failed to apply PRIOS R3 profile for campaign (%d)",
+            ESP_LOGE(TAG, "Failed to apply PRIOS R3 %s profile (%d)",
+                     discovery_active ? "discovery" : "campaign",
                      static_cast<int>(profile_result.error()));
-            // Non-fatal: the radio will run with T-mode registers but the sync
-            // word will be wrong for PRIOS.  Log prominently so the operator can
-            // diagnose why no captures arrive.
+            // Non-fatal: the radio will keep the previous profile. Log
+            // prominently so the operator can diagnose why captures do not
+            // match the selected PRIOS mode.
         }
-        prios_session.set_variant(campaign_manchester);
+        prios_session.configure(prios_mode, campaign_manchester);
     }
 
     auto irq_enable = radio.enable_gdo_interrupts(current_task, current_task);
@@ -461,7 +477,8 @@ static void radio_rx_task(void* /*param*/) {
             const auto prios_result = prios_session.process(
                 session_device, owner_events, now_ms(), ts > 0 ? ts : 0);
             if (prios_result.has_capture) {
-                wmbus_prios_rx::PriosCaptureService::instance().insert(prios_result.record);
+                (void)wmbus_prios_rx::PriosCaptureService::instance().insert_with_quality_gate(
+                    prios_result.record);
             }
             if (prios_result.radio_error != common::ErrorCode::OK) {
                 rsm.on_read_failure(prios_result.radio_error);

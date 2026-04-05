@@ -33,13 +33,19 @@ void PriosBringUpSession::emit_periodic_summary(uint32_t now_ms) {
     last_summary_log_ms_ = now_ms;
 
     const auto stats = PriosCaptureService::instance().stats();
+    const char* mode_label =
+        mode_ == Mode::DiscoverySniffer ? "PRIOS discovery summary"
+                                        : "PRIOS R3 summary";
     ESP_LOGI(TAG_PRIOS,
-             "PRIOS R3 summary: start=%lu capture=%lu timeout=%lu reject_noise=%lu reject_b_short=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
+             "%s: start=%lu capture=%lu timeout=%lu reject_noise=%lu reject_quality=%lu reject_b_short=%lu reject_sim=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
+             mode_label,
              static_cast<unsigned long>(counters_.sessions_started),
              static_cast<unsigned long>(counters_.captures_completed),
              static_cast<unsigned long>(counters_.timeout_captures),
              static_cast<unsigned long>(counters_.noise_rejections),
+             static_cast<unsigned long>(counters_.quality_rejections),
              static_cast<unsigned long>(counters_.variant_b_short_rejections),
+             static_cast<unsigned long>(stats.total_similarity_rejected),
              static_cast<unsigned long>(counters_.fifo_overflows),
              static_cast<unsigned long>(counters_.empty_resets),
              static_cast<unsigned long>(counters_.fallback_wakes),
@@ -106,19 +112,22 @@ PriosBringUpSession::Result PriosBringUpSession::process(
     }
     const auto& status = status_res.value();
 
-    if (!session_active_ && status.fifo_bytes == 0 && !status.receiving) {
+    if (!session_active_ && status.fifo_bytes == 0 && !status.receiving &&
+        !events.has_any_irq()) {
         return result; // Nothing to capture yet.
     }
 
-    // Begin a new session on first byte arrival.
-    if (!session_active_ && (status.fifo_bytes > 0 || status.receiving)) {
+    // Begin a new session once the current mode's trigger conditions are met.
+    if (!session_active_ && should_start_capture(mode_, events, status)) {
         session_active_   = true;
         session_start_ms_ = now_ms;
         last_byte_ms_     = now_ms;
         counters_.sessions_started++;
+        PriosCaptureService::instance().record_burst_start();
         if (should_emit_verbose_session_log()) {
             ESP_LOGD(TAG_PRIOS,
-                     "PRIOS R3 session start: variant=%s fallback=%d",
+                     "PRIOS session start: mode=%s variant=%s fallback=%d",
+                     mode_ == Mode::DiscoverySniffer ? "discovery" : "campaign",
                      manchester_enabled_ ? "manchester_on" : "manchester_off",
                      static_cast<int>(result.is_fallback_wake));
         }
@@ -197,6 +206,19 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             rssi = sq.value().rssi_dbm; lqi = sq.value().lqi;
             crc_ok = sq.value().crc_ok; crc_avail = sq.value().radio_crc_available;
         }
+        const auto decision = classify_candidate(mode_, manchester_enabled_, len_, false, rssi, lqi);
+        if (decision == CaptureDecision::RejectDiscoveryWeakSignal) {
+            counters_.noise_rejections++;
+            counters_.quality_rejections++;
+            PriosCaptureService::instance().record_quality_rejection();
+            PriosCaptureService::instance().record_noise_rejection(manchester_enabled_, false);
+            if (verbose_session_logs_remaining_ > 0) {
+                verbose_session_logs_remaining_--;
+            }
+            radio.abort_and_restart_rx();
+            reset();
+            return result;
+        }
         if (should_emit_verbose_session_log()) {
             ESP_LOGD(TAG_PRIOS,
                      "PRIOS R3 capture complete: %u bytes rssi=%d lqi=%u prefix=%02X %02X %02X %02X",
@@ -226,20 +248,26 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             rssi = sq.value().rssi_dbm; lqi = sq.value().lqi;
             crc_ok = sq.value().crc_ok; crc_avail = sq.value().radio_crc_available;
         }
-        const auto decision = classify_candidate(manchester_enabled_, len_, true);
+        const auto decision = classify_candidate(mode_, manchester_enabled_, len_, true, rssi, lqi);
         if (decision != CaptureDecision::Accept) {
             counters_.noise_rejections++;
             if (decision == CaptureDecision::RejectVariantBShortTimeout) {
                 counters_.variant_b_short_rejections++;
                 PriosCaptureService::instance().record_noise_rejection(
                     manchester_enabled_, true);
+            } else if (decision == CaptureDecision::RejectDiscoveryWeakSignal) {
+                counters_.quality_rejections++;
+                PriosCaptureService::instance().record_quality_rejection();
+                PriosCaptureService::instance().record_noise_rejection(
+                    manchester_enabled_, false);
             } else {
                 PriosCaptureService::instance().record_noise_rejection(
                     manchester_enabled_, false);
             }
             if (should_emit_verbose_session_log()) {
                 ESP_LOGD(TAG_PRIOS,
-                         "PRIOS R3 capture rejected as noise: variant=%s bytes=%u rssi=%d lqi=%u",
+                         "PRIOS capture rejected as noise: mode=%s variant=%s bytes=%u rssi=%d lqi=%u",
+                         mode_ == Mode::DiscoverySniffer ? "discovery" : "campaign",
                          manchester_enabled_ ? "manchester_on" : "manchester_off",
                          len_, rssi, lqi);
             }

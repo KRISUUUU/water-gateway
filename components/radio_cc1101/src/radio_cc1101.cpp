@@ -564,4 +564,57 @@ common::Result<void> RadioCc1101::owner_apply_prios_r3_profile(void* owner_token
     return common::Result<void>::ok();
 }
 
+common::Result<void> RadioCc1101::owner_apply_prios_r3_discovery_profile(
+    void* owner_token, bool manchester_enabled) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "PRIOS R3 discovery apply: begin variant_%s",
+             manchester_enabled ? "manchester_on" : "manchester_off");
+
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
+        state_ = RadioState::Error;
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+
+    size_t count = 0;
+    const PriosR3RegisterConfig* profile =
+        prios_r3_discovery_profile(manchester_enabled, count);
+    auto result = device::apply_register_profile(spi_handle_, counters_, profile, count);
+    if (result.is_error()) {
+        state_ = RadioState::Error;
+        return result;
+    }
+
+    ESP_LOGI(TAG, "PRIOS R3 discovery apply: profile_ok variant_%s regs=%zu",
+             manchester_enabled ? "manchester_on" : "manchester_off", count);
+#else
+    (void)manchester_enabled;
+#endif
+
+    auto flush_result = flush_rx_fifo();
+    if (flush_result.is_error()) {
+        state_ = RadioState::Error;
+        return flush_result;
+    }
+
+    auto rx_result = start_rx();
+    if (rx_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "PRIOS R3 discovery apply: start_rx failed (%d)",
+                 static_cast<int>(rx_result.error()));
+#endif
+        state_ = RadioState::Error;
+        return rx_result;
+    }
+
+    state_ = RadioState::Receiving;
+    return common::Result<void>::ok();
+}
+
 } // namespace radio_cc1101

@@ -32,7 +32,9 @@
 //   Variant A (kPriosR3Config):           Manchester disabled — MDMCFG2 = 0x01
 //   Variant B (kPriosR3ConfigManchesterOn): Manchester enabled — MDMCFG2 = 0x0A
 //
-// Use prios_r3_profile(manchester_enabled, out_count) to select at runtime.
+// Use prios_r3_profile(manchester_enabled, out_count) for the current
+// sync-driven campaign path, or prios_r3_discovery_profile(...) for the
+// discovery/sniffer path that avoids relying on the placeholder sync word.
 //
 // Update procedure once evidence is available:
 //   1. Capture raw PRIOS frames using the bring-up driver for both variants.
@@ -148,6 +150,101 @@ static constexpr PriosR3RegisterConfig kPriosR3ConfigManchesterOn[] = {
 static constexpr size_t kPriosR3ConfigManchesterOnSize =
     sizeof(kPriosR3ConfigManchesterOn) / sizeof(kPriosR3ConfigManchesterOn[0]);
 
+// ---- Discovery/sniffer variants --------------------------------------------
+//
+// Discovery mode intentionally disables sync-word dependence:
+//   - SYNC_MODE=100: no preamble/sync requirement, but carrier sense must be
+//     asserted before packet activity is accepted.
+//   - GDO2 reports carrier sense edges so the owner task can start a bounded
+//     burst-capture session on radio activity instead of on the fake 0x543D
+//     sync placeholder.
+//
+// The SYNC registers remain populated only because the register block is shared
+// with the campaign profile. They are not used by the discovery trigger path.
+
+static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfig[] = {
+    {registers::IOCFG2,   0x0E},   // GDO2: carrier sense
+    {registers::IOCFG0,   0x00},   // GDO0: RX FIFO threshold
+    {registers::FIFOTHR,  0x47},
+    {registers::SYNC1,    0x54},   // Placeholder only; ignored by SYNC_MODE=100
+    {registers::SYNC0,    0x3D},   // Placeholder only; ignored by SYNC_MODE=100
+    {registers::PKTLEN,   0xFF},
+    {registers::PKTCTRL1, 0x00},
+    {registers::PKTCTRL0, 0x02},
+    {registers::FSCTRL1,  0x08},
+    {registers::FSCTRL0,  0x00},
+    {registers::FREQ2,    0x21},
+    {registers::FREQ1,    0x6B},
+    {registers::FREQ0,    0xD1},
+    {registers::MDMCFG4,  0x5B},
+    {registers::MDMCFG3,  0xF8},
+    {registers::MDMCFG2,  0x04},   // Variant A discovery: no sync, carrier-sense gated
+    {registers::MDMCFG1,  0x22},
+    {registers::MDMCFG0,  0xF8},
+    {registers::DEVIATN,  0x47},
+    {registers::MCSM1,    0x3F},
+    {registers::MCSM0,    0x18},
+    {registers::FOCCFG,   0x1D},
+    {registers::BSCFG,    0x1C},
+    {registers::AGCCTRL2, 0xC7},
+    {registers::AGCCTRL1, 0x00},
+    {registers::AGCCTRL0, 0xB2},
+    {registers::FREND1,   0xB6},
+    {registers::FREND0,   0x10},
+    {registers::FSCAL3,   0xEA},
+    {registers::FSCAL2,   0x2A},
+    {registers::FSCAL1,   0x00},
+    {registers::FSCAL0,   0x1F},
+    {registers::TEST2,    0x81},
+    {registers::TEST1,    0x35},
+    {registers::TEST0,    0x09},
+};
+
+static constexpr size_t kPriosR3DiscoveryConfigSize =
+    sizeof(kPriosR3DiscoveryConfig) / sizeof(kPriosR3DiscoveryConfig[0]);
+
+static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfigManchesterOn[] = {
+    {registers::IOCFG2,   0x0E},
+    {registers::IOCFG0,   0x00},
+    {registers::FIFOTHR,  0x47},
+    {registers::SYNC1,    0x54},
+    {registers::SYNC0,    0x3D},
+    {registers::PKTLEN,   0xFF},
+    {registers::PKTCTRL1, 0x00},
+    {registers::PKTCTRL0, 0x02},
+    {registers::FSCTRL1,  0x08},
+    {registers::FSCTRL0,  0x00},
+    {registers::FREQ2,    0x21},
+    {registers::FREQ1,    0x6B},
+    {registers::FREQ0,    0xD1},
+    {registers::MDMCFG4,  0x5B},
+    {registers::MDMCFG3,  0xF8},
+    {registers::MDMCFG2,  0x0C},   // Variant B discovery: Manchester on, no sync, carrier gated
+    {registers::MDMCFG1,  0x22},
+    {registers::MDMCFG0,  0xF8},
+    {registers::DEVIATN,  0x47},
+    {registers::MCSM1,    0x3F},
+    {registers::MCSM0,    0x18},
+    {registers::FOCCFG,   0x1D},
+    {registers::BSCFG,    0x1C},
+    {registers::AGCCTRL2, 0xC7},
+    {registers::AGCCTRL1, 0x00},
+    {registers::AGCCTRL0, 0xB2},
+    {registers::FREND1,   0xB6},
+    {registers::FREND0,   0x10},
+    {registers::FSCAL3,   0xEA},
+    {registers::FSCAL2,   0x2A},
+    {registers::FSCAL1,   0x00},
+    {registers::FSCAL0,   0x1F},
+    {registers::TEST2,    0x81},
+    {registers::TEST1,    0x35},
+    {registers::TEST0,    0x09},
+};
+
+static constexpr size_t kPriosR3DiscoveryConfigManchesterOnSize =
+    sizeof(kPriosR3DiscoveryConfigManchesterOn) /
+    sizeof(kPriosR3DiscoveryConfigManchesterOn[0]);
+
 // ---- Variant selector -------------------------------------------------------
 
 // Returns the register config array and count for the requested variant.
@@ -160,6 +257,16 @@ inline const PriosR3RegisterConfig* prios_r3_profile(bool manchester_enabled,
     }
     out_count = kPriosR3ConfigSize;
     return kPriosR3Config;
+}
+
+inline const PriosR3RegisterConfig* prios_r3_discovery_profile(bool manchester_enabled,
+                                                               size_t& out_count) {
+    if (manchester_enabled) {
+        out_count = kPriosR3DiscoveryConfigManchesterOnSize;
+        return kPriosR3DiscoveryConfigManchesterOn;
+    }
+    out_count = kPriosR3DiscoveryConfigSize;
+    return kPriosR3DiscoveryConfig;
 }
 
 } // namespace radio_cc1101

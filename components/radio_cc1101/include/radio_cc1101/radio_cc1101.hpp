@@ -113,10 +113,15 @@ class RadioCc1101 {
     // Apply PRIOS R3 register profile while holding radio ownership.
     // Transitions: idle → configure registers → flush FIFO → RX-ready.
     // manchester_enabled=false → Variant A; manchester_enabled=true → Variant B.
-    // Both variants are EXPERIMENTAL. Call only when prios_capture_campaign is
-    // active; otherwise the radio remains in T-mode configuration.
+    // Both variants are EXPERIMENTAL. Call only when the sync-based PRIOS
+    // campaign mode is active; otherwise the radio remains in T-mode
+    // configuration.
     common::Result<void> owner_apply_prios_r3_profile(void* owner_token,
                                                        bool  manchester_enabled);
+    // Discovery/sniffer profile for PRIOS evidence gathering without the
+    // placeholder sync-word assumption.
+    common::Result<void> owner_apply_prios_r3_discovery_profile(void* owner_token,
+                                                                 bool  manchester_enabled);
 
   private:
     RadioCc1101() = default;
