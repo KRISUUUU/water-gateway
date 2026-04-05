@@ -268,7 +268,7 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
 #endif
         runtime_status_.migration_attempts++;
     }
-    auto migrated = migrate_to_current(candidate);
+    auto migrated = migrate_to_current_in_place(candidate);
     if (migrated.is_error()) {
         {
 #ifndef HOST_TEST_BUILD
@@ -287,11 +287,10 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
         runtime_status_.last_migration_error = common::ErrorCode::OK;
     }
 
-    AppConfig migrated_cfg = migrated.value();
-    normalize_config_strings(migrated_cfg);
+    normalize_config_strings(candidate);
 
     // Defensive: ensure migration output is still valid before persistence.
-    auto migrated_validation = validate_config(migrated_cfg);
+    auto migrated_validation = validate_config(candidate);
     if (!migrated_validation.valid) {
         {
 #ifndef HOST_TEST_BUILD
@@ -302,7 +301,7 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
         return common::Result<ValidationResult>::ok(migrated_validation);
     }
 
-    auto persist_result = persist_to_nvs(migrated_cfg);
+    auto persist_result = persist_to_nvs(candidate);
     if (persist_result.is_error()) {
         {
 #ifndef HOST_TEST_BUILD
@@ -317,7 +316,7 @@ common::Result<ValidationResult> ConfigStore::save(const AppConfig& new_config) 
 #ifndef HOST_TEST_BUILD
         ConfigStoreMutexGuard guard(mutex_);
 #endif
-        config_ = migrated_cfg;
+        config_ = candidate;
         runtime_status_.save_successes++;
     }
 
@@ -373,11 +372,11 @@ common::Result<void> ConfigStore::load_from_nvs() {
             ESP_LOGI(TAG, "Config version %lu, current %lu - migrating",
                      static_cast<unsigned long>(current.version),
                      static_cast<unsigned long>(kCurrentConfigVersion));
-            auto migrated = migrate_to_current(current);
+            auto migrated = migrate_to_current_in_place(current);
             if (migrated.is_error()) {
                 {
 #ifndef HOST_TEST_BUILD
-                    ConfigStoreMutexGuard guard(mutex_);
+                ConfigStoreMutexGuard guard(mutex_);
 #endif
                     runtime_status_.migration_failures++;
                     runtime_status_.last_migration_error = migrated.error();
@@ -393,7 +392,6 @@ common::Result<void> ConfigStore::load_from_nvs() {
 #endif
                 runtime_status_.last_migration_error = common::ErrorCode::OK;
             }
-            current = migrated.value();
             normalize_config_strings(current);
 
             auto persist_result = persist_to_nvs(current);
@@ -435,8 +433,8 @@ common::Result<void> ConfigStore::load_from_nvs() {
         return common::Result<void>::error(common::ErrorCode::NvsOpenFailed);
     }
 
-    AppConfig primary{};
-    const common::ErrorCode primary_read = read_blob_from_nvs(handle, kNvsKey, primary);
+    AppConfig loaded_cfg{};
+    const common::ErrorCode primary_read = read_blob_from_nvs(handle, kNvsKey, loaded_cfg);
     const bool primary_ok = (primary_read == common::ErrorCode::OK);
     if (!primary_ok) {
         {
@@ -449,8 +447,24 @@ common::Result<void> ConfigStore::load_from_nvs() {
                  common::error_code_to_string(primary_read), static_cast<int>(primary_read));
     }
 
-    AppConfig backup{};
-    const common::ErrorCode backup_read = read_blob_from_nvs(handle, kNvsBackupKey, backup);
+    if (primary_ok) {
+        auto r = apply_loaded_config(loaded_cfg, ConfigLoadSource::PrimaryNvs);
+        if (r.is_ok()) {
+            nvs_close(handle);
+            return r;
+        }
+        {
+#ifndef HOST_TEST_BUILD
+            ConfigStoreMutexGuard guard(mutex_);
+#endif
+            runtime_status_.last_load_error = r.error();
+        }
+        ESP_LOGW(TAG, "Primary config rejected (%s/%d), trying backup",
+                 common::error_code_to_string(r.error()), static_cast<int>(r.error()));
+    }
+
+    loaded_cfg = AppConfig{};
+    const common::ErrorCode backup_read = read_blob_from_nvs(handle, kNvsBackupKey, loaded_cfg);
     const bool backup_ok = (backup_read == common::ErrorCode::OK);
     if (!backup_ok) {
         {
@@ -465,26 +479,8 @@ common::Result<void> ConfigStore::load_from_nvs() {
 
     nvs_close(handle);
 
-    if (primary_ok) {
-        auto r = apply_loaded_config(primary, ConfigLoadSource::PrimaryNvs);
-        if (r.is_ok()) {
-            return r;
-        }
-        {
-#ifndef HOST_TEST_BUILD
-            ConfigStoreMutexGuard guard(mutex_);
-#endif
-            runtime_status_.last_load_error = r.error();
-        }
-        if (!backup_ok) {
-            return r;
-        }
-        ESP_LOGW(TAG, "Primary config rejected (%s/%d), trying backup",
-                 common::error_code_to_string(r.error()), static_cast<int>(r.error()));
-    }
-
     if (backup_ok) {
-        auto r = apply_loaded_config(backup, ConfigLoadSource::BackupNvs);
+        auto r = apply_loaded_config(loaded_cfg, ConfigLoadSource::BackupNvs);
         if (r.is_ok()) {
             ESP_LOGW(TAG, "Loaded config from backup key");
             return r;

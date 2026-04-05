@@ -69,21 +69,28 @@ static common::Result<AppConfig> migrate_v4_to_v5(const AppConfig& old) {
 }
 
 common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
-    if (old_config.version == kCurrentConfigVersion) {
-        return common::Result<AppConfig>::ok(old_config);
+    AppConfig migrated = old_config;
+    auto result = migrate_to_current_in_place(migrated);
+    if (result.is_error()) {
+        return common::Result<AppConfig>::error(result.error());
+    }
+    return common::Result<AppConfig>::ok(migrated);
+}
+
+common::Result<void> migrate_to_current_in_place(AppConfig& current) {
+    if (current.version == kCurrentConfigVersion) {
+        return common::Result<void>::ok();
     }
 
-    if (old_config.version > kCurrentConfigVersion) {
-        return common::Result<AppConfig>::error(common::ErrorCode::ConfigVersionMismatch);
+    if (current.version > kCurrentConfigVersion) {
+        return common::Result<void>::error(common::ErrorCode::ConfigVersionMismatch);
     }
-
-    AppConfig current = old_config;
 
     // Chain migrations sequentially
     if (current.version == 0) {
         auto result = migrate_v0_to_v1(current);
         if (result.is_error()) {
-            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+            return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
         }
         current = result.value();
     }
@@ -91,7 +98,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (current.version == 1) {
         auto result = migrate_v1_to_v2(current);
         if (result.is_error()) {
-            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+            return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
         }
         current = result.value();
     }
@@ -99,7 +106,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (current.version == 2) {
         auto result = migrate_v2_to_v3(current);
         if (result.is_error()) {
-            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+            return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
         }
         current = result.value();
     }
@@ -107,7 +114,7 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (current.version == 3) {
         auto result = migrate_v3_to_v4(current);
         if (result.is_error()) {
-            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+            return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
         }
         current = result.value();
     }
@@ -115,16 +122,16 @@ common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     if (current.version == 4) {
         auto result = migrate_v4_to_v5(current);
         if (result.is_error()) {
-            return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+            return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
         }
         current = result.value();
     }
 
     if (current.version != kCurrentConfigVersion) {
-        return common::Result<AppConfig>::error(common::ErrorCode::ConfigMigrationFailed);
+        return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
     }
 
-    return common::Result<AppConfig>::ok(current);
+    return common::Result<void>::ok();
 }
 
 } // namespace config_store

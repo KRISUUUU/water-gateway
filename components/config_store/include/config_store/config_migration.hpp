@@ -12,5 +12,6 @@ namespace config_store {
 // Migration is a chain: v0→v1, v1→v2, etc. Each step applies defaults for
 // new fields and removes obsolete fields.
 common::Result<AppConfig> migrate_to_current(const AppConfig& old_config);
+common::Result<void> migrate_to_current_in_place(AppConfig& config);
 
 } // namespace config_store
