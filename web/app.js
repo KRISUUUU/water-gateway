@@ -1556,7 +1556,7 @@
             }
             otaAutoRebootArmed = true;
             clearOtaAutoRebootTimer();
-            startOtaStatusPolling();
+            stopOtaStatusPolling();
             setMsg($("#ota-status"), "warning", "Uploading firmware...");
             fetch("/api/ota/upload", {
                 method: "POST",

@@ -1,4 +1,5 @@
 #include "api_handlers/api_handlers_common.hpp"
+#include <vector>
 
 #ifndef HOST_TEST_BUILD
 
@@ -59,18 +60,18 @@ esp_err_t handle_ota_upload(httpd_req_t* req) {
     }
 
     constexpr size_t kChunkSize = 4096;
-    char chunk[kChunkSize];
+    std::vector<char> chunk(kChunkSize);
     int remaining = req->content_len;
     while (remaining > 0) {
         const int to_read =
             remaining > static_cast<int>(kChunkSize) ? static_cast<int>(kChunkSize) : remaining;
-        const int received = httpd_req_recv(req, chunk, to_read);
+        const int received = httpd_req_recv(req, chunk.data(), to_read);
         if (received <= 0) {
             ota_manager::OtaManager::instance().abort_upload();
             return send_json(req, 500, "{\"error\":\"upload_read_failed\"}");
         }
         auto wr = ota_manager::OtaManager::instance().write_chunk(
-            reinterpret_cast<const uint8_t*>(chunk), static_cast<size_t>(received));
+            reinterpret_cast<const uint8_t*>(chunk.data()), static_cast<size_t>(received));
         if (wr.is_error()) {
             return send_json(req, 500, "{\"error\":\"ota_write_failed\"}");
         }

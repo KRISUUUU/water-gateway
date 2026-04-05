@@ -177,14 +177,11 @@ static constexpr size_t kPriosR3ConfigManchesterOnSize =
 //     confirmed PRIOS sync word.  Remove once the real word is found. ***
 
 static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfig[] = {
-    {registers::IOCFG2,   0x06},   // GDO2: sync-word match (was 0x0E carrier sense)
+    {registers::IOCFG2,   0x06},   // GDO2: sync word sent/received (WYZWALANIE NA 0xAAAA)
     {registers::IOCFG0,   0x00},   // GDO0: RX FIFO threshold
     {registers::FIFOTHR,  0x47},
-    // SYNC = 0xAAAA — preamble master key; triggers on any FSK transmitter.
-    // *** TEMPORARY reverse-engineering "wytrych" — replace with real PRIOS ***
-    // *** sync word once it is recovered from hardware captures.            ***
-    {registers::SYNC1,    0xAA},   // MASTER KEY — preamble pattern, NOT PRIOS sync
-    {registers::SYNC0,    0xAA},   // MASTER KEY — preamble pattern, NOT PRIOS sync
+    {registers::SYNC1,    0xAA},   // Wytrych preambuły FSK
+    {registers::SYNC0,    0xAA},   // Wytrych preambuły FSK
     {registers::PKTLEN,   0xFF},
     {registers::PKTCTRL1, 0x00},
     {registers::PKTCTRL0, 0x02},
@@ -195,11 +192,7 @@ static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfig[] = {
     {registers::FREQ0,    0xD1},
     {registers::MDMCFG4,  0x5B},
     {registers::MDMCFG3,  0xF8},
-    // MDMCFG2 = 0x02:
-    //   MOD_FORMAT[6:4]=000 = 2-FSK
-    //   MANCHESTER_EN[3]=0  = Manchester OFF
-    //   SYNC_MODE[2:0]=010  = exact 16/16 bits → matches 0xAAAA preamble key
-    {registers::MDMCFG2,  0x02},   // Preamble sniffer: 2-FSK, Manchester off, 16/16 sync
+    {registers::MDMCFG2,  0x02},   // Variant A: Manchester OFF, sprzętowe filtrowanie 16/16 bitów 0xAAAA
     {registers::MDMCFG1,  0x22},
     {registers::MDMCFG0,  0xF8},
     {registers::DEVIATN,  0x47},
