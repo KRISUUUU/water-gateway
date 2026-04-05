@@ -152,22 +152,39 @@ static constexpr size_t kPriosR3ConfigManchesterOnSize =
 
 // ---- Discovery/sniffer variants --------------------------------------------
 //
-// Discovery mode intentionally disables sync-word dependence:
-//   - SYNC_MODE=100: no preamble/sync requirement, but carrier sense must be
-//     asserted before packet activity is accepted.
-//   - GDO2 reports carrier sense edges so the owner task can start a bounded
-//     burst-capture session on radio activity instead of on the fake 0x543D
-//     sync placeholder.
+// "Preamble Sniffer" mode: the hardware sync engine is repurposed as a
+// preamble detector by loading the FSK idle pattern (0xAA/0xAA) as the sync
+// word.  This gives us hardware bit-alignment and a clean capture window
+// instead of the carrier-sense approach (IOCFG2=0x0E / SYNC_MODE=100) that
+// was producing 100 % quality rejections because:
+//   a) bit alignment was arbitrary, and
+//   b) RSSI was sampled at end-of-burst, already in the noise floor.
 //
-// The SYNC registers remain populated only because the register block is shared
-// with the campaign profile. They are not used by the discovery trigger path.
+// How it works:
+//   - SYNC1=0xAA, SYNC0=0xAA → the CC1101 locks on the standard 2-FSK
+//     preamble that every wM-Bus transmitter emits before its real payload.
+//   - MDMCFG2=0x02 → 2-FSK, Manchester OFF, SYNC_MODE=010 (exact 16/16 bits).
+//     The 0xAAAA pattern is a "master key" — it matches any transmitter on
+//     this channel regardless of its actual sync word.
+//   - IOCFG2=0x06 → GDO2 pulses on sync-word match, giving us a well-aligned
+//     capture start with a valid RSSI reading.
+//
+// The bytes captured immediately after the preamble are the real PRIOS sync
+// word.  Collect several captures and look for the stable prefix — that is
+// the value to promote to SYNC1/SYNC0 in the campaign profiles.
+//
+// *** TEMPORARY — 0xAAAA is a reverse-engineering master key, NOT a
+//     confirmed PRIOS sync word.  Remove once the real word is found. ***
 
 static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfig[] = {
-    {registers::IOCFG2,   0x0E},   // GDO2: carrier sense
+    {registers::IOCFG2,   0x06},   // GDO2: sync-word match (was 0x0E carrier sense)
     {registers::IOCFG0,   0x00},   // GDO0: RX FIFO threshold
     {registers::FIFOTHR,  0x47},
-    {registers::SYNC1,    0x54},   // Placeholder only; ignored by SYNC_MODE=100
-    {registers::SYNC0,    0x3D},   // Placeholder only; ignored by SYNC_MODE=100
+    // SYNC = 0xAAAA — preamble master key; triggers on any FSK transmitter.
+    // *** TEMPORARY reverse-engineering "wytrych" — replace with real PRIOS ***
+    // *** sync word once it is recovered from hardware captures.            ***
+    {registers::SYNC1,    0xAA},   // MASTER KEY — preamble pattern, NOT PRIOS sync
+    {registers::SYNC0,    0xAA},   // MASTER KEY — preamble pattern, NOT PRIOS sync
     {registers::PKTLEN,   0xFF},
     {registers::PKTCTRL1, 0x00},
     {registers::PKTCTRL0, 0x02},
@@ -178,7 +195,11 @@ static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfig[] = {
     {registers::FREQ0,    0xD1},
     {registers::MDMCFG4,  0x5B},
     {registers::MDMCFG3,  0xF8},
-    {registers::MDMCFG2,  0x04},   // Variant A discovery: no sync, carrier-sense gated
+    // MDMCFG2 = 0x02:
+    //   MOD_FORMAT[6:4]=000 = 2-FSK
+    //   MANCHESTER_EN[3]=0  = Manchester OFF
+    //   SYNC_MODE[2:0]=010  = exact 16/16 bits → matches 0xAAAA preamble key
+    {registers::MDMCFG2,  0x02},   // Preamble sniffer: 2-FSK, Manchester off, 16/16 sync
     {registers::MDMCFG1,  0x22},
     {registers::MDMCFG0,  0xF8},
     {registers::DEVIATN,  0x47},
