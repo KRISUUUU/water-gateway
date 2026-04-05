@@ -405,7 +405,10 @@ void test_service_clear_resets() {
 
 void test_variant_b_short_timeout_is_rejected_as_noise() {
     const auto decision =
-        PriosBringUpSession::classify_candidate(true, 8, true);
+        PriosBringUpSession::classify_candidate(
+            true,
+            PriosBringUpSession::kVariantBMinTimeoutCaptureBytes - 1,
+            true);
     assert(decision == PriosBringUpSession::CaptureDecision::RejectVariantBShortTimeout);
     std::printf("  PASS: Variant B short timeout capture is rejected as noise\n");
 }

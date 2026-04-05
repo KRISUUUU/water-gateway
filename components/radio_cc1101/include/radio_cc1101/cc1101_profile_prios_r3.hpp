@@ -30,7 +30,7 @@
 //
 // Two variants are provided so both can be tried in the field:
 //   Variant A (kPriosR3Config):           Manchester disabled — MDMCFG2 = 0x01
-//   Variant B (kPriosR3ConfigManchesterOn): Manchester enabled — MDMCFG2 = 0x0B
+//   Variant B (kPriosR3ConfigManchesterOn): Manchester enabled — MDMCFG2 = 0x0A
 //
 // Use prios_r3_profile(manchester_enabled, out_count) to select at runtime.
 //
@@ -98,11 +98,10 @@ static constexpr size_t kPriosR3ConfigSize =
     sizeof(kPriosR3Config) / sizeof(kPriosR3Config[0]);
 
 // ---- Variant B: Manchester enabled (MDMCFG2 bit 3 = 1) ---------------------
-// Variant B is intentionally stricter than Variant A: it keeps Manchester ON
-// but now requires a full 30/32-bit sync match. Current field evidence says
-// Variant B is the better PRIOS candidate, but the stream is still too noisy
-// for framing work. Tightening sync gating here reduces false-positive starts
-// without removing Variant A from the architecture.
+// Variant B remains stricter than Variant A, but is intentionally set to a
+// middle-ground sync gate after 30/32 proved too selective near the meter.
+// It keeps Manchester ON and now uses exact 16/16-bit sync matching so the
+// operator can gather a larger candidate set without reopening the old flood.
 
 static constexpr PriosR3RegisterConfig kPriosR3ConfigManchesterOn[] = {
     {registers::IOCFG2,   0x06},
@@ -120,11 +119,11 @@ static constexpr PriosR3RegisterConfig kPriosR3ConfigManchesterOn[] = {
     {registers::FREQ0,    0xD1},
     {registers::MDMCFG4,  0x5B},
     {registers::MDMCFG3,  0xF8},
-    // MDMCFG2 = 0x0B:
+    // MDMCFG2 = 0x0A:
     //   MOD_FORMAT[6:4]=000 = 2-FSK
     //   MANCHESTER_EN[3]=1  = Manchester ON   (Variant B)
-    //   SYNC_MODE[2:0]=011  = 30/32 bits (stricter than Variant A on purpose)
-    {registers::MDMCFG2,  0x0B},   // EXPERIMENTAL — Variant B (Manchester on, stricter sync)
+    //   SYNC_MODE[2:0]=010  = exact 16/16 bits (between Variant A and prior 30/32 tuning)
+    {registers::MDMCFG2,  0x0A},   // EXPERIMENTAL — Variant B (Manchester on, middle-ground sync)
     {registers::MDMCFG1,  0x22},
     {registers::MDMCFG0,  0xF8},
     {registers::DEVIATN,  0x47},

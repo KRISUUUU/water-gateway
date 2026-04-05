@@ -43,7 +43,7 @@ class PriosBringUpSession {
     static constexpr uint32_t kSummaryLogCadenceMs = 3000;
     static constexpr uint32_t kOverflowLogCadenceMs = 2000;
     static constexpr uint32_t kVerboseSessionLogBudget = 3;
-    static constexpr uint16_t kVariantBMinTimeoutCaptureBytes = 16;
+    static constexpr uint16_t kVariantBMinTimeoutCaptureBytes = 12;
 
     enum class CaptureDecision : uint8_t {
         Accept = 0,

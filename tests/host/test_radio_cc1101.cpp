@@ -157,13 +157,13 @@ static void test_prios_variant_b_profile_is_stricter_than_variant_a() {
     }
     for (size_t i = 0; i < count_b; ++i) {
         if (variant_b[i].addr == registers::MDMCFG2) {
-            assert(variant_b[i].value == 0x0B);
+            assert(variant_b[i].value == 0x0A);
             found_b = true;
         }
     }
     assert(found_a);
     assert(found_b);
-    printf("  PASS: PRIOS Variant B profile keeps Manchester ON with stricter sync gating\n");
+    printf("  PASS: PRIOS Variant B profile keeps Manchester ON with middle-ground sync gating\n");
 }
 
 int main() {
