@@ -596,8 +596,9 @@ static void radio_rx_task(void* /*param*/) {
                              "device limit reached (kMaxTrackedDevices=%zu), new fingerprint ignored",
                              wmbus_prios_rx::PriosCaptureService::kMaxTrackedDevices);
                 } else if (dedup_result ==
-                           wmbus_prios_rx::PriosCaptureInsertDecision::Inserted) {
-                    // New unique capture: decode identity and route to normalized pipeline.
+                           wmbus_prios_rx::PriosCaptureInsertDecision::Inserted ||
+                           dedup_result ==
+                           wmbus_prios_rx::PriosCaptureInsertDecision::RejectedDuplicate) {
                     const auto decoded =
                         wmbus_prios_rx::PriosDecoder::decode(prios_result.record);
                     if (decoded.valid) {

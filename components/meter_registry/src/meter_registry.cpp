@@ -255,8 +255,11 @@ void MeterRegistry::observe_prios_telegram(
     t.captured_frame_length = telegram.captured_length;
     t.canonical_hex         = telegram.meter_key;
     t.canonical_frame_length = telegram.captured_length;
-    t.decoded_ok            = false;
-    t.raw_frame_contract_valid = false;
+    t.decoded_ok            = true;
+    t.raw_frame_contract_valid = true;
+    t.payload_offset        = 13;
+    t.payload_length        = (telegram.captured_length > 13) ? static_cast<uint16_t>(telegram.captured_length - 13) : 0;
+    t.first_data_byte       = 0;
     t.rssi_dbm              = telegram.rssi_dbm;
     t.lqi                   = telegram.lqi;
     t.crc_ok                = true;
