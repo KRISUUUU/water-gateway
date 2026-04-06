@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <mutex>
@@ -28,7 +29,9 @@ static constexpr size_t kMaxDetectedMeters = 100;
 
 struct RegistryState {
     std::vector<DetectedMeter> detected;
-    std::vector<RecentTelegram> recent;
+    std::array<RecentTelegram, kMaxRecentTelegrams> recent;
+    size_t recent_head = 0;
+    size_t recent_count = 0;
     std::vector<WatchlistEntry> watchlist;
     std::mutex mutex;
 };
@@ -176,11 +179,14 @@ void MeterRegistry::observe_telegram(const wmbus_link::ValidatedTelegram& telegr
     t.meter_key = key;
     t.watched = watched;
     t.protocol_name = "WMBUS_T";
-    s.recent.push_back(std::move(t));
-    if (s.recent.size() > kMaxRecentTelegrams) {
-        s.recent.erase(s.recent.begin(),
-                       s.recent.begin() + (s.recent.size() - kMaxRecentTelegrams));
+
+    const size_t insert_idx = (s.recent_head + s.recent_count) % kMaxRecentTelegrams;
+    if (s.recent_count < kMaxRecentTelegrams) {
+        s.recent_count++;
+    } else {
+        s.recent_head = (s.recent_head + 1) % kMaxRecentTelegrams;
     }
+    s.recent[insert_idx] = std::move(t);
 }
 
 void MeterRegistry::observe_prios_telegram(
@@ -261,11 +267,13 @@ void MeterRegistry::observe_prios_telegram(
     t.protocol_name         = wmbus_prios_rx::PriosDecodedTelegram::kProtocolName;
     t.vendor                = telegram.manufacturer;
 
-    s.recent.push_back(std::move(t));
-    if (s.recent.size() > kMaxRecentTelegrams) {
-        s.recent.erase(s.recent.begin(),
-                       s.recent.begin() + (s.recent.size() - kMaxRecentTelegrams));
+    const size_t insert_idx = (s.recent_head + s.recent_count) % kMaxRecentTelegrams;
+    if (s.recent_count < kMaxRecentTelegrams) {
+        s.recent_count++;
+    } else {
+        s.recent_head = (s.recent_head + 1) % kMaxRecentTelegrams;
     }
+    s.recent[insert_idx] = std::move(t);
 }
 
 std::vector<DetectedMeter> MeterRegistry::detected_meters() const {
@@ -288,9 +296,11 @@ std::vector<RecentTelegram> MeterRegistry::recent_telegrams(TelegramFilter filte
     RegistryState& s = state();
     std::lock_guard<std::mutex> lock(s.mutex);
     std::vector<RecentTelegram> out;
-    out.reserve(s.recent.size());
-    for (auto it = s.recent.rbegin(); it != s.recent.rend(); ++it) {
-        const RecentTelegram& t = *it;
+    out.reserve(s.recent_count);
+    
+    for (size_t i = 0; i < s.recent_count; ++i) {
+        const size_t idx = (s.recent_head + s.recent_count - 1 - i) % kMaxRecentTelegrams;
+        const RecentTelegram& t = s.recent[idx];
         bool include = false;
         switch (filter) {
         case TelegramFilter::All:
