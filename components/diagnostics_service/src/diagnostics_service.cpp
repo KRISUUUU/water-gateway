@@ -425,6 +425,50 @@ common::Result<DiagnosticsSnapshot> DiagnosticsService::snapshot() const {
     return common::Result<DiagnosticsSnapshot>::ok(s);
 }
 
+common::Result<std::unique_ptr<DiagnosticsSnapshot>> DiagnosticsService::snapshot_allocated() const {
+    auto s = std::unique_ptr<DiagnosticsSnapshot>(new (std::nothrow) DiagnosticsSnapshot{});
+    if (!s) {
+        return common::Result<std::unique_ptr<DiagnosticsSnapshot>>::error(common::ErrorCode::BufferFull);
+    }
+
+    const auto& rsm = radio_state_machine::RadioStateMachine::instance();
+    s->radio_state = radio_cc1101::RadioCc1101::instance().state();
+    s->radio = radio_cc1101::RadioCc1101::instance().counters();
+    s->radio_rx_polling_mode = false;
+    s->radio_rx_interrupt_path_active = true;
+    s->radio_recovery_attempts = rsm.recovery_attempts();
+    s->radio_recovery_failures = rsm.recovery_failures();
+    s->radio_soft_failure_streak = rsm.soft_failure_streak();
+    s->radio_consecutive_errors = rsm.consecutive_errors();
+    s->radio_last_recovery_reason_code = static_cast<std::int32_t>(rsm.last_recovery_reason());
+    s->mqtt = mqtt_service::MqttService::instance().status();
+    s->wifi = wifi_manager::WifiManager::instance().status();
+    s->ntp = ntp_service::NtpService::instance().status();
+    s->now_epoch_ms = ntp_service::NtpService::instance().now_epoch_ms();
+    s->monotonic_ms = ntp_service::NtpService::instance().monotonic_now_ms();
+    s->timestamp_uses_monotonic_fallback = (s->now_epoch_ms <= 0);
+
+    auto metrics_res = metrics_service::MetricsService::instance().snapshot();
+    if (metrics_res.is_error()) {
+        return common::Result<std::unique_ptr<DiagnosticsSnapshot>>::error(metrics_res.error());
+    }
+    s->metrics = metrics_res.value();
+
+    auto health_res = health_monitor::HealthMonitor::instance().snapshot();
+    if (health_res.is_error()) {
+        return common::Result<std::unique_ptr<DiagnosticsSnapshot>>::error(health_res.error());
+    }
+    s->health = health_res.value();
+
+    auto rf_snap = rf_diagnostics::RfDiagnosticsService::instance().snapshot_allocated();
+    if (!rf_snap) {
+        return common::Result<std::unique_ptr<DiagnosticsSnapshot>>::error(common::ErrorCode::BufferFull);
+    }
+    s->rf_diagnostics = *rf_snap;
+
+    return common::Result<std::unique_ptr<DiagnosticsSnapshot>>::ok(std::move(s));
+}
+
 std::string DiagnosticsService::to_json(const DiagnosticsSnapshot& snap) {
     JsonPtr root = make_object();
     if (!root) {

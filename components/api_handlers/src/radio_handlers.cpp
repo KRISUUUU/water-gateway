@@ -55,11 +55,11 @@ ProtocolRecentSummary summarize_recent_protocol(
 }
 
 const rf_diagnostics::RfDiagnosticRecord* newest_rf_reject(
-    const rf_diagnostics::RfDiagnosticsSnapshot& snapshot) {
-    if (snapshot.count == 0) {
+    const rf_diagnostics::RfDiagnosticsSnapshot* snapshot) {
+    if (!snapshot || snapshot->count == 0) {
         return nullptr;
     }
-    return &snapshot.records[snapshot.count - 1];
+    return &snapshot->records[snapshot->count - 1];
 }
 
 } // namespace
@@ -70,10 +70,11 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
         return auth;
     }
     const auto& rsm = radio_state_machine::RadioStateMachine::instance();
-    auto snap_res = diagnostics_service::DiagnosticsService::instance().snapshot();
+    auto snap_res = diagnostics_service::DiagnosticsService::instance().snapshot_allocated();
     if (snap_res.is_error()) {
         return send_json(req, 500, "{\"error\":\"diagnostics_snapshot_failed\"}");
     }
+    const auto& diag_snapshot = snap_res.value();
 
     JsonPtr root = make_json_object();
     if (!root) {
@@ -93,7 +94,7 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
                             common::error_code_to_string(rsm.last_recovery_reason()));
     cJSON_AddNumberToObject(rsm_obj, "last_recovery_reason_code",
                             static_cast<double>(static_cast<int>(rsm.last_recovery_reason())));
-    JsonPtr diag(cJSON_Parse(diagnostics_service::DiagnosticsService::to_json(snap_res.value()).c_str()),
+    JsonPtr diag(cJSON_Parse(diagnostics_service::DiagnosticsService::to_json(*diag_snapshot).c_str()),
                  cJSON_Delete);
     if (!diag) {
         return send_json(req, 500, "{\"error\":\"diagnostics_json_invalid\"}");
@@ -109,8 +110,8 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
             meter_registry::TelegramFilter::All);
     const auto tmode_recent = summarize_recent_protocol(recent_telegrams, "WMBUS_T");
     const auto prios_recent = summarize_recent_protocol(recent_telegrams, "PRIOS_R3");
-    const auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot();
-    const auto* last_tmode_reject = newest_rf_reject(rf_snapshot);
+    auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot_allocated();
+    const auto* last_tmode_reject = newest_rf_reject(rf_snapshot.get());
     const auto prios_stats = wmbus_prios_rx::PriosCaptureService::instance().stats();
     const std::string last_tmode_reject_reason =
         last_tmode_reject

@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -101,6 +102,7 @@ class RfDiagnosticsService {
     void clear();
     void insert(const RfDiagnosticRecord& record);
     [[nodiscard]] RfDiagnosticsSnapshot snapshot() const;
+    [[nodiscard]] std::unique_ptr<RfDiagnosticsSnapshot> snapshot_allocated() const;
 
     [[nodiscard]] static std::string to_json(const RfDiagnosticsSnapshot& snapshot);
     [[nodiscard]] static std::string reject_reason_to_string(RejectReason reason);

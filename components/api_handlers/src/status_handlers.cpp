@@ -66,13 +66,13 @@ void add_protocol_runtime_json(cJSON* root) {
             meter_registry::TelegramFilter::All);
     const auto tmode_recent = summarize_recent_protocol(recent, "WMBUS_T");
     const auto prios_recent = summarize_recent_protocol(recent, "PRIOS_R3");
-    const auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot();
+    auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot_allocated();
     const auto prios_stats = wmbus_prios_rx::PriosCaptureService::instance().stats();
 
     std::string last_tmode_reject = "none";
-    if (rf_snapshot.count > 0) {
+    if (rf_snapshot && rf_snapshot->count > 0) {
         last_tmode_reject = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(
-            rf_snapshot.records[rf_snapshot.count - 1].reject_reason);
+            rf_snapshot->records[rf_snapshot->count - 1].reject_reason);
     }
 
     cJSON* runtime = cJSON_AddObjectToObject(root, "radio_runtime");

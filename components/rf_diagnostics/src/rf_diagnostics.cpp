@@ -151,6 +151,17 @@ RfDiagnosticsSnapshot RfDiagnosticsService::snapshot() const {
     return ring_.snapshot();
 }
 
+std::unique_ptr<RfDiagnosticsSnapshot> RfDiagnosticsService::snapshot_allocated() const {
+    auto snap = std::unique_ptr<RfDiagnosticsSnapshot>(new (std::nothrow) RfDiagnosticsSnapshot{});
+    if (!snap) {
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    *snap = ring_.snapshot();
+    return snap;
+}
+
 std::string RfDiagnosticsService::to_json(const RfDiagnosticsSnapshot& snapshot) {
     JsonPtr root = make_object();
     if (!root) {

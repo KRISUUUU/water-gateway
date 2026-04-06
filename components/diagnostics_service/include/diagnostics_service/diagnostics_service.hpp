@@ -8,6 +8,7 @@
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "rf_diagnostics/rf_diagnostics.hpp"
 #include "wifi_manager/wifi_manager.hpp"
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -40,6 +41,7 @@ class DiagnosticsService {
     static DiagnosticsService& instance();
 
     [[nodiscard]] common::Result<DiagnosticsSnapshot> snapshot() const;
+    [[nodiscard]] common::Result<std::unique_ptr<DiagnosticsSnapshot>> snapshot_allocated() const;
 
     [[nodiscard]] static std::string to_json(const DiagnosticsSnapshot& snap);
 
