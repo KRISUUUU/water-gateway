@@ -87,6 +87,11 @@ struct PriosCaptureStats {
     // Multi-device deduplication counters (populated by insert_with_dedup_gate).
     uint32_t total_dedup_rejected = 0;
     uint32_t total_device_quota_rejected = 0;
+    // How many captures were dropped because the global device table was full.
+    // When this climbs, kMaxTrackedDevices may need raising or the buffer needs clearing.
+    uint32_t total_new_device_limit_rejected = 0;
+    // How many unique device fingerprints are currently present in the ring buffer.
+    size_t   unique_devices_tracked = 0;
     uint32_t total_quality_rejected = 0;
     uint32_t variant_b_short_rejected = 0;
     uint32_t total_similarity_rejected = 0;
@@ -100,8 +105,9 @@ struct PriosCaptureStats {
 enum class PriosCaptureInsertDecision : uint8_t {
     Inserted = 0,
     RejectedVariantBSimilarity,
-    RejectedDuplicate,    // exact payload already stored in buffer for this device
-    RejectedDeviceQuota,  // device already has kMaxRecordsPerDevice unique records retained
+    RejectedDuplicate,         // exact payload already stored in buffer for this device
+    RejectedDeviceQuota,       // known device already has kMaxRecordsPerDevice records retained
+    RejectedNewDeviceLimit,    // new device would exceed kMaxTrackedDevices; ignored to protect RAM
 };
 
 struct PriosCapturePreviewRecord {
@@ -145,6 +151,9 @@ class PriosCaptureService {
 
     // Maximum unique records retained per device. Exposed for test assertions.
     static constexpr size_t kMaxRecordsPerDevice = 5;
+    // Maximum number of distinct device fingerprints tracked globally.
+    // New devices seen beyond this limit are silently dropped to protect RAM.
+    static constexpr size_t kMaxTrackedDevices = 16;
 
     void record_burst_start();
     void record_sync_campaign_start();
@@ -178,6 +187,8 @@ class PriosCaptureService {
     // Returns true if an exact payload duplicate for fp is already in the buffer.
     [[nodiscard]] bool is_exact_duplicate_locked(const PriosDeviceFingerprint& fp,
                                                   const PriosCaptureRecord& incoming) const;
+    // Returns number of distinct device fingerprints currently in the ring buffer.
+    [[nodiscard]] size_t count_unique_devices_locked() const;
 
     mutable std::mutex mutex_{};
     std::array<PriosCaptureRecord, kCapacity> storage_{};
@@ -193,6 +204,7 @@ class PriosCaptureService {
     uint32_t total_noise_rejected_ = 0;
     uint32_t total_dedup_rejected_ = 0;
     uint32_t total_device_quota_rejected_ = 0;
+    uint32_t total_new_device_limit_rejected_ = 0;
     uint32_t total_quality_rejected_ = 0;
     uint32_t variant_b_short_rejected_ = 0;
     uint32_t total_similarity_rejected_ = 0;

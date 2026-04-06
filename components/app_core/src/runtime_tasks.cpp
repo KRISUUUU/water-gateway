@@ -477,8 +477,15 @@ static void radio_rx_task(void* /*param*/) {
             const auto prios_result = prios_session.process(
                 session_device, owner_events, now_ms(), ts > 0 ? ts : 0);
             if (prios_result.has_capture) {
-                (void)wmbus_prios_rx::PriosCaptureService::instance().insert_with_dedup_gate(
-                    prios_result.record);
+                const auto dedup_result =
+                    wmbus_prios_rx::PriosCaptureService::instance().insert_with_dedup_gate(
+                        prios_result.record);
+                if (dedup_result ==
+                    wmbus_prios_rx::PriosCaptureInsertDecision::RejectedNewDeviceLimit) {
+                    ESP_LOGW(TAG,
+                             "device limit reached (kMaxTrackedDevices=%zu), new fingerprint ignored",
+                             wmbus_prios_rx::PriosCaptureService::kMaxTrackedDevices);
+                }
             }
             if (prios_result.radio_error != common::ErrorCode::OK) {
                 rsm.on_read_failure(prios_result.radio_error);

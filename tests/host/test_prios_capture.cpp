@@ -646,6 +646,78 @@ void test_dedup_gate_stats_cleared_by_clear() {
     std::printf("  PASS: clear() resets dedup counters\n");
 }
 
+void test_new_device_limit_rejects_17th_fingerprint() {
+    PriosCaptureService::instance().clear();
+
+    // Insert kMaxTrackedDevices unique devices, each with one record.
+    for (size_t i = 0; i < PriosCaptureService::kMaxTrackedDevices; ++i) {
+        const uint8_t fp[6] = {
+            static_cast<uint8_t>(i), 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        const auto rec = make_record_with_fp(fp, 0);
+        const auto d = PriosCaptureService::instance().insert_with_dedup_gate(rec);
+        assert(d == PriosCaptureInsertDecision::Inserted);
+    }
+    assert(PriosCaptureService::instance().stats().unique_devices_tracked ==
+           PriosCaptureService::kMaxTrackedDevices);
+
+    // 17th unique device must be rejected.
+    const uint8_t fp_new[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    const auto rec_new = make_record_with_fp(fp_new, 0);
+    const auto d = PriosCaptureService::instance().insert_with_dedup_gate(rec_new);
+    assert(d == PriosCaptureInsertDecision::RejectedNewDeviceLimit);
+    assert(PriosCaptureService::instance().stats().total_new_device_limit_rejected == 1);
+    // Total inserted must not have grown for the rejected device.
+    assert(PriosCaptureService::instance().stats().total_inserted ==
+           PriosCaptureService::kMaxTrackedDevices);
+    std::printf("  PASS: new device limit rejects 17th unique fingerprint\n");
+}
+
+void test_new_device_limit_allows_existing_device_extra_records() {
+    // After the global table is full, existing devices may still insert
+    // records up to their per-device quota (they're not "new").
+    PriosCaptureService::instance().clear();
+
+    for (size_t i = 0; i < PriosCaptureService::kMaxTrackedDevices; ++i) {
+        const uint8_t fp[6] = {
+            static_cast<uint8_t>(i), 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        const auto rec = make_record_with_fp(fp, 0);
+        assert(PriosCaptureService::instance().insert_with_dedup_gate(rec) ==
+               PriosCaptureInsertDecision::Inserted);
+    }
+
+    // Device 0 already in table — second unique payload should still be accepted.
+    const uint8_t fp_known[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const auto rec_known = make_record_with_fp(fp_known, 0x42);  // different payload byte
+    const auto d = PriosCaptureService::instance().insert_with_dedup_gate(rec_known);
+    assert(d == PriosCaptureInsertDecision::Inserted);
+    assert(PriosCaptureService::instance().stats().total_new_device_limit_rejected == 0);
+    std::printf("  PASS: known device is accepted even when global table is full\n");
+}
+
+void test_new_device_limit_cleared_by_clear() {
+    PriosCaptureService::instance().clear();
+
+    // Fill table then trigger a rejection.
+    for (size_t i = 0; i < PriosCaptureService::kMaxTrackedDevices; ++i) {
+        const uint8_t fp[6] = {
+            static_cast<uint8_t>(i), 0x01, 0x00, 0x00, 0x00, 0x00
+        };
+        const auto rec = make_record_with_fp(fp, 0);
+        (void)PriosCaptureService::instance().insert_with_dedup_gate(rec);
+    }
+    const uint8_t fp_over[6] = {0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA};
+    (void)PriosCaptureService::instance().insert_with_dedup_gate(make_record_with_fp(fp_over, 0));
+    assert(PriosCaptureService::instance().stats().total_new_device_limit_rejected == 1);
+
+    PriosCaptureService::instance().clear();
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.total_new_device_limit_rejected == 0);
+    assert(stats.unique_devices_tracked == 0);
+    std::printf("  PASS: clear() resets new_device_limit counter and unique_devices_tracked\n");
+}
+
 void test_sync_campaign_starts_counter_is_incremented() {
     PriosCaptureService::instance().clear();
 
@@ -723,6 +795,10 @@ int main() {
     test_dedup_gate_different_devices_have_independent_quotas();
     test_dedup_gate_short_capture_bypasses_fingerprint_check();
     test_dedup_gate_stats_cleared_by_clear();
+
+    test_new_device_limit_rejects_17th_fingerprint();
+    test_new_device_limit_allows_existing_device_extra_records();
+    test_new_device_limit_cleared_by_clear();
 
     test_sync_campaign_starts_counter_is_incremented();
     test_sync_campaign_starts_cleared_by_clear();

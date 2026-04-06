@@ -109,6 +109,13 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(stats.total_dedup_rejected));
     cJSON_AddNumberToObject(root.get(), "total_device_quota_rejected",
                             static_cast<double>(stats.total_device_quota_rejected));
+    cJSON_AddNumberToObject(root.get(), "total_new_device_limit_rejected",
+                            static_cast<double>(stats.total_new_device_limit_rejected));
+    cJSON_AddNumberToObject(root.get(), "unique_devices_tracked",
+                            static_cast<double>(stats.unique_devices_tracked));
+    cJSON_AddNumberToObject(root.get(), "max_tracked_devices",
+                            static_cast<double>(
+                                wmbus_prios_rx::PriosCaptureService::kMaxTrackedDevices));
     cJSON_AddNumberToObject(root.get(), "recent_preview_count",
                             static_cast<double>(preview.count));
     cJSON_AddNumberToObject(root.get(), "noise_rejections",
