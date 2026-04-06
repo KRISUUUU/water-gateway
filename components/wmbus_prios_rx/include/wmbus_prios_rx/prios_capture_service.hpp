@@ -184,11 +184,17 @@ class PriosCaptureService {
     // Fingerprint-based dedup helpers (all called with mutex_ held).
     // Counts how many records in the ring buffer match fp.
     [[nodiscard]] size_t count_for_fingerprint_locked(const PriosDeviceFingerprint& fp) const;
-    // Returns true if an exact payload duplicate for fp is already in the buffer.
-    [[nodiscard]] bool is_exact_duplicate_locked(const PriosDeviceFingerprint& fp,
-                                                  const PriosCaptureRecord& incoming) const;
-    // Returns number of distinct device fingerprints currently in the ring buffer.
-    [[nodiscard]] size_t count_unique_devices_locked() const;
+    // Finds the most recently inserted record in the ring buffer that matches fp.
+    // Returns a pointer into storage_ (valid while mutex_ is held), or nullptr.
+    [[nodiscard]] const PriosCaptureRecord*
+        find_last_record_for_fp_locked(const PriosDeviceFingerprint& fp) const;
+
+    // Per-device tracking table: fingerprints of all distinct devices seen since
+    // the last clear().  Entries are never removed mid-session — once a device is
+    // registered it keeps its slot even if its ring-buffer records are evicted.
+    // This gives O(kMaxTrackedDevices) device-existence checks with no heap alloc.
+    std::array<PriosDeviceFingerprint, kMaxTrackedDevices> tracked_devices_{};
+    size_t tracked_device_count_ = 0;
 
     mutable std::mutex mutex_{};
     std::array<PriosCaptureRecord, kCapacity> storage_{};

@@ -191,7 +191,7 @@ PriosCaptureStats PriosCaptureService::stats() const {
     stats.total_dedup_rejected = total_dedup_rejected_;
     stats.total_device_quota_rejected = total_device_quota_rejected_;
     stats.total_new_device_limit_rejected = total_new_device_limit_rejected_;
-    stats.unique_devices_tracked = count_unique_devices_locked();
+    stats.unique_devices_tracked = tracked_device_count_;
     stats.total_quality_rejected = total_quality_rejected_;
     stats.variant_b_short_rejected = variant_b_short_rejected_;
     stats.total_similarity_rejected = total_similarity_rejected_;
@@ -258,62 +258,22 @@ size_t PriosCaptureService::count_for_fingerprint_locked(const PriosDeviceFinger
     return n;
 }
 
-bool PriosCaptureService::is_exact_duplicate_locked(const PriosDeviceFingerprint& fp,
-                                                     const PriosCaptureRecord& incoming) const {
+const PriosCaptureRecord*
+PriosCaptureService::find_last_record_for_fp_locked(const PriosDeviceFingerprint& fp) const {
+    // Scan newest-first: head_-1 is the slot just written.
     constexpr size_t kRequired = PriosDeviceFingerprint::kOffset + PriosDeviceFingerprint::kLength;
     const size_t oldest = count_ < kCapacity ? 0 : head_ % kCapacity;
-    for (size_t i = 0; i < count_; ++i) {
-        const auto& rec = storage_[(oldest + i) % kCapacity];
+    for (size_t i = count_; i > 0; --i) {
+        const auto& rec = storage_[(oldest + i - 1) % kCapacity];
         if (rec.total_bytes_captured < kRequired) {
             continue;
         }
-        // Quick fingerprint check via raw byte comparison.
         if (std::memcmp(rec.captured_bytes + PriosDeviceFingerprint::kOffset,
-                        fp.bytes, PriosDeviceFingerprint::kLength) != 0) {
-            continue;
-        }
-        // Same device: compare full payload.
-        if (rec.total_bytes_captured == incoming.total_bytes_captured &&
-            std::memcmp(rec.captured_bytes, incoming.captured_bytes,
-                        rec.total_bytes_captured) == 0) {
-            return true;
+                        fp.bytes, PriosDeviceFingerprint::kLength) == 0) {
+            return &rec;
         }
     }
-    return false;
-}
-
-size_t PriosCaptureService::count_unique_devices_locked() const {
-    // Stack-local fingerprint table: bounded by kMaxTrackedDevices so no heap
-    // allocation is needed here.
-    constexpr size_t kRequired = PriosDeviceFingerprint::kOffset + PriosDeviceFingerprint::kLength;
-    uint8_t seen[kMaxTrackedDevices][PriosDeviceFingerprint::kLength]{};
-    size_t  seen_count = 0;
-
-    const size_t oldest = count_ < kCapacity ? 0 : head_ % kCapacity;
-    for (size_t i = 0; i < count_; ++i) {
-        const auto& rec = storage_[(oldest + i) % kCapacity];
-        if (rec.total_bytes_captured < kRequired) {
-            continue;
-        }
-        const uint8_t* fp_bytes = rec.captured_bytes + PriosDeviceFingerprint::kOffset;
-        bool found = false;
-        for (size_t j = 0; j < seen_count; ++j) {
-            if (std::memcmp(seen[j], fp_bytes, PriosDeviceFingerprint::kLength) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            if (seen_count < kMaxTrackedDevices) {
-                std::memcpy(seen[seen_count++], fp_bytes, PriosDeviceFingerprint::kLength);
-            }
-            // If we've already filled the table we know we're at the limit — stop early.
-            if (seen_count == kMaxTrackedDevices) {
-                break;
-            }
-        }
-    }
-    return seen_count;
+    return nullptr;
 }
 
 // ---- insert_with_dedup_gate --------------------------------------------------
@@ -324,31 +284,61 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
 
     const auto fp = PriosAnalyzer::extract_fingerprint(record.captured_bytes,
                                                         record.total_bytes_captured);
-    if (fp.valid) {
-        // Reject exact payload duplicates (same meter, same reading already stored).
-        if (is_exact_duplicate_locked(fp, record)) {
-            total_dedup_rejected_++;
-            return PriosCaptureInsertDecision::RejectedDuplicate;
+
+    // (b) No fingerprint (frame too short) — insert without any dedup checks.
+    if (!fp.valid) {
+        insert_locked(record);
+        return PriosCaptureInsertDecision::Inserted;
+    }
+
+    // Is this fingerprint already in the device table?
+    bool is_known = false;
+    for (size_t i = 0; i < tracked_device_count_; ++i) {
+        if (tracked_devices_[i].matches(fp)) {
+            is_known = true;
+            break;
         }
-        const size_t existing = count_for_fingerprint_locked(fp);
-        // Enforce per-device retention cap so no single meter floods the buffer.
-        if (existing >= kMaxRecordsPerDevice) {
-            total_device_quota_rejected_++;
-            return PriosCaptureInsertDecision::RejectedDeviceQuota;
-        }
-        // Protect global RAM: if this is a brand-new device and the global table is full, drop it.
-        if (existing == 0 && count_unique_devices_locked() >= kMaxTrackedDevices) {
+    }
+
+    if (!is_known) {
+        // (c) New device: reject if the global device table is full.
+        if (tracked_device_count_ >= kMaxTrackedDevices) {
             total_new_device_limit_rejected_++;
             return PriosCaptureInsertDecision::RejectedNewDeviceLimit;
         }
+        // Register new device — falls through to insert below.
+        tracked_devices_[tracked_device_count_++] = fp;
+    } else {
+        // (d) Known device: compare incoming payload against the most recently
+        //     retained record for this fingerprint.  Meters repeat the same
+        //     reading every broadcast interval; catching the last payload
+        //     eliminates the vast majority of on-air duplicates with one compare.
+        const auto* last = find_last_record_for_fp_locked(fp);
+        if (last != nullptr &&
+            last->total_bytes_captured == record.total_bytes_captured &&
+            std::memcmp(last->captured_bytes, record.captured_bytes,
+                        record.total_bytes_captured) == 0) {
+            total_dedup_rejected_++;
+            return PriosCaptureInsertDecision::RejectedDuplicate;
+        }
+
+        // (e) Different payload — enforce per-device retention cap so no single
+        //     meter floods the ring buffer with distinct readings.
+        if (count_for_fingerprint_locked(fp) >= kMaxRecordsPerDevice) {
+            total_device_quota_rejected_++;
+            return PriosCaptureInsertDecision::RejectedDeviceQuota;
+        }
     }
-    // Fingerprint absent (capture too short) or passes all checks: insert.
+
+    // (f) All checks passed — insert.
     insert_locked(record);
     return PriosCaptureInsertDecision::Inserted;
 }
 
 void PriosCaptureService::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
+    tracked_devices_      = {};
+    tracked_device_count_ = 0;
     storage_      = {};
     head_         = 0;
     count_        = 0;
