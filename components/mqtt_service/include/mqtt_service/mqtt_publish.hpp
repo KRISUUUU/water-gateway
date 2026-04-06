@@ -74,6 +74,7 @@ struct MqttPublishCommand {
     static constexpr size_t kPublishDisplayHexCapacity = 65;  // 32 raw bytes → 64 hex + null
     char prios_display_hex[kPublishDisplayHexCapacity]{};
     bool prios_manchester_enabled = false;
+    bool prios_encrypted = false;
 };
 
 struct SerializedPublishMessage {
@@ -103,7 +104,7 @@ common::Result<MqttPublishCommand> make_event_command(const char* topic_prefix,
 common::Result<MqttPublishCommand> make_prios_frame_command(
     const char* topic_prefix, const char* device_id, const char* meter_key,
     const char* display_prefix_hex, uint16_t captured_length, int8_t rssi_dbm, uint8_t lqi,
-    bool manchester_enabled, const char* timestamp);
+    bool manchester_enabled, const char* timestamp, const char* vendor, bool encrypted);
 
 common::Result<MqttPublishCommand> make_raw_frame_command(
     const char* topic_prefix, const char* device_id, const uint8_t* raw_bytes, uint16_t raw_length,

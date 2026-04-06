@@ -1630,42 +1630,46 @@
             otaAutoRebootArmed = true;
             clearOtaAutoRebootTimer();
             stopOtaStatusPolling();
-            setMsg($("#ota-status"), "warning", "Uploading firmware...");
-            fetch("/api/ota/upload", {
-                method: "POST",
-                headers: {
-                    Authorization: token ? "Bearer " + token : "",
-                    "Content-Type": "application/octet-stream",
-                },
-                body: file,
-            })
-                .then((r) =>
-                    r.text().then((txt) => {
-                        let data = {};
-                        try {
-                            data = txt ? JSON.parse(txt) : {};
-                        } catch (_) {
-                            data = {};
-                        }
-                        if (!r.ok) {
-                            throw new Error(data.error || "upload_failed");
-                        }
-                        return data;
-                    })
-                )
-                .then((resp) => {
+            setMsg($("#ota-status"), "warning", "Uploading firmware... 0%");
+            const xhr = new XMLHttpRequest();
+            xhr.upload.addEventListener("progress", (e) => {
+                if (e.lengthComputable) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    setMsg($("#ota-status"), "warning", "Uploading firmware... " + pct + "%");
+                }
+            });
+            xhr.addEventListener("load", () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    let resp = {};
+                    try {
+                        resp = JSON.parse(xhr.responseText);
+                    } catch (_) {}
                     const detail = resp.detail || "Upload complete. Reboot required.";
                     setMsg($("#ota-status"), "success", detail);
-                    return loadOtaStatus();
-                })
-                .catch((err) => {
+                    loadOtaStatus();
+                } else {
                     otaAutoRebootArmed = false;
                     clearOtaAutoRebootTimer();
-                    setMsg($("#ota-status"), "error", "Upload failed: " + err.message);
-                })
-                .finally(() => {
-                    stopOtaStatusPolling();
-                });
+                    let resp = {};
+                    try {
+                        resp = JSON.parse(xhr.responseText);
+                    } catch (_) {}
+                    setMsg($("#ota-status"), "error", "Upload failed: " + (resp.error || "http_" + xhr.status));
+                }
+                stopOtaStatusPolling();
+            });
+            xhr.addEventListener("error", () => {
+                otaAutoRebootArmed = false;
+                clearOtaAutoRebootTimer();
+                setMsg($("#ota-status"), "error", "Upload failed: network error");
+                stopOtaStatusPolling();
+            });
+            xhr.open("POST", "/api/ota/upload");
+            if (token) {
+                xhr.setRequestHeader("Authorization", "Bearer " + token);
+            }
+            xhr.setRequestHeader("Content-Type", "application/octet-stream");
+            xhr.send(file);
         });
 
         $("#ota-url-btn").addEventListener("click", () => {

@@ -96,8 +96,8 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
     cJSON_AddStringToObject(root.get(), "profile",
                             protocol_driver::radio_profile_id_to_string(
                                 protocol_driver::RadioProfileId::WMbusPriosR3));
-    cJSON_AddStringToObject(root.get(), "support_level", "identity_only_capture");
-    cJSON_AddBoolToObject(root.get(), "identity_extract_active",
+    cJSON_AddStringToObject(root.get(), "support_level", "header_decoded");
+    cJSON_AddBoolToObject(root.get(), "header_decoded_active",
                           campaign_active || discovery_active);
     cJSON_AddBoolToObject(root.get(), "reading_decode_available", false);
     cJSON_AddNumberToObject(root.get(), "total_captures",
@@ -172,17 +172,11 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
         cJSON_AddStringToObject(rec, "variant",
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
 
-        // Device fingerprint (bytes 9–14 of the frame). Usable as a stable
-        // per-device identity during bring-up before a full decoder is available.
-        const auto fp = wmbus_prios_rx::PriosAnalyzer::extract_fingerprint(
-            r.preview_bytes, r.preview_length);
-        if (fp.valid) {
-            char fp_hex[wmbus_prios_rx::PriosDeviceFingerprint::kLength * 2 + 1]{};
-            for (uint8_t bi = 0; bi < wmbus_prios_rx::PriosDeviceFingerprint::kLength; ++bi) {
-                fp_hex[bi * 2 + 0] = kHex[(fp.bytes[bi] >> 4) & 0x0F];
-                fp_hex[bi * 2 + 1] = kHex[fp.bytes[bi] & 0x0F];
-            }
-            fp_hex[wmbus_prios_rx::PriosDeviceFingerprint::kLength * 2] = '\0';
+        // Device fingerprint (meter ID is bytes 4-7 in wM-Bus Format A header)
+        if (r.preview_length >= 11 && r.preview_bytes[1] == 0x44 && r.preview_bytes[10] == 0xA2) {
+            char fp_hex[16]{};
+            std::snprintf(fp_hex, sizeof(fp_hex), "%02X%02X%02X%02X",
+                          r.preview_bytes[7], r.preview_bytes[6], r.preview_bytes[5], r.preview_bytes[4]);
             cJSON_AddStringToObject(rec, "device_fingerprint", fp_hex);
 
             // Alias from watchlist (if user has already named this device).

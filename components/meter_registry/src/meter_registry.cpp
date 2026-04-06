@@ -208,8 +208,8 @@ void MeterRegistry::observe_prios_telegram(
         }
         DetectedMeter m{};
         m.key             = key;
-        m.manufacturer_id = wmbus_prios_rx::PriosDecodedTelegram::kManufacturerId;
-        m.device_id       = 0;
+        m.manufacturer_id = telegram.manufacturer_id;
+        m.device_id       = telegram.meter_id;
         m.first_seen_ms   = telegram.timestamp_ms;
         m.last_seen_ms    = telegram.timestamp_ms;
         m.seen_count      = 1;
@@ -259,7 +259,7 @@ void MeterRegistry::observe_prios_telegram(
     t.meter_key             = key;
     t.watched               = watched;
     t.protocol_name         = wmbus_prios_rx::PriosDecodedTelegram::kProtocolName;
-    t.vendor                = wmbus_prios_rx::PriosDecodedTelegram::kVendor;
+    t.vendor                = telegram.manufacturer;
 
     s.recent.push_back(std::move(t));
     if (s.recent.size() > kMaxRecentTelegrams) {

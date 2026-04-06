@@ -245,7 +245,15 @@ common::Result<SerializedPublishMessage> build_prios_frame_message(
 
     size_t used = 0;
     if (!append_literal(message.payload, sizeof(message.payload), used,
-                        "{\"protocol_name\":\"PRIOS_R3\",\"vendor\":\"Techem\",\"support_level\":\"identity_only_capture\",\"decoded_ok\":false,\"reading_decode_available\":false,\"meter_key\":") ||
+                        "{\"protocol_name\":") ||
+        !append_json_string(message.payload, sizeof(message.payload), used, command.protocol_name) ||
+        !append_literal(message.payload, sizeof(message.payload), used,
+                        ",\"vendor\":") ||
+        !append_json_string(message.payload, sizeof(message.payload), used, command.vendor) ||
+        !append_literal(message.payload, sizeof(message.payload), used,
+                        ",\"support_level\":\"header_decoded\",\"decoded_ok\":false,\"reading_decode_available\":false,\"encrypted\":") ||
+        !append_literal(message.payload, sizeof(message.payload), used, command.prios_encrypted ? "true" : "false") ||
+        !append_literal(message.payload, sizeof(message.payload), used, ",\"meter_key\":") ||
         !append_json_string(message.payload, sizeof(message.payload), used, command.meter_key) ||
         !append_literal(message.payload, sizeof(message.payload), used,
                         ",\"display_prefix_hex\":") ||
@@ -357,7 +365,7 @@ common::Result<MqttPublishCommand> make_raw_frame_command(
 common::Result<MqttPublishCommand> make_prios_frame_command(
     const char* topic_prefix, const char* device_id, const char* meter_key,
     const char* display_prefix_hex, uint16_t captured_length, int8_t rssi_dbm, uint8_t lqi,
-    bool manchester_enabled, const char* timestamp) {
+    bool manchester_enabled, const char* timestamp, const char* vendor, bool encrypted) {
     MqttPublishCommand command{};
     command.type = PublishCommandType::PriosFrame;
     if (!copy_cstr(command.topic_prefix, topic_prefix) ||
@@ -365,8 +373,8 @@ common::Result<MqttPublishCommand> make_prios_frame_command(
         !copy_cstr(command.meter_key, meter_key)        ||
         !copy_cstr(command.prios_display_hex, display_prefix_hex) ||
         !copy_cstr(command.timestamp, timestamp)        ||
-        !copy_cstr(command.protocol_name, "PRIOS_R3")  ||
-        !copy_cstr(command.vendor, "Techem")) {
+        !copy_cstr(command.protocol_name, "PRIOS_IZAR")  ||
+        !copy_cstr(command.vendor, vendor)) {
         return common::Result<MqttPublishCommand>::error(overflow_code());
     }
     // raw_length is re-used as captured_length for PRIOS (no raw bytes stored).
@@ -374,6 +382,7 @@ common::Result<MqttPublishCommand> make_prios_frame_command(
     command.rssi_dbm              = rssi_dbm;
     command.lqi                   = lqi;
     command.prios_manchester_enabled = manchester_enabled;
+    command.prios_encrypted       = encrypted;
     return common::Result<MqttPublishCommand>::ok(command);
 }
 

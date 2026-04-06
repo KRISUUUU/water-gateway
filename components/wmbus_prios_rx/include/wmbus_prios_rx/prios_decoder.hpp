@@ -21,18 +21,21 @@
 namespace wmbus_prios_rx {
 
 struct PriosDecodedTelegram {
-    // Fixed protocol constants for PRIOS R3 (Techem proprietary wM-Bus variant).
-    static constexpr uint16_t    kManufacturerId = 0x5068u;  // "TCH" packed 5-bit
-    static constexpr const char* kProtocolName   = "PRIOS_R3";
-    static constexpr const char* kVendor         = "Techem";
+    static constexpr const char* kProtocolName   = "PRIOS_IZAR";
 
     // Max raw bytes shown as hex in display_prefix_hex (matches kDisplayPrefixBytes).
     static constexpr size_t kDisplayPrefixRawBytes = PriosCaptureRecord::kDisplayPrefixBytes;
 
-    bool valid = false;  // false when capture is too short to fingerprint
+    bool valid = false;  // false when capture is too short or not PRIOS
 
-    // Identity: fingerprint bytes 9–14 formatted as 12 uppercase hex chars.
-    char meter_key[PriosDeviceFingerprint::kLength * 2u + 1u]{};
+    // Identity: meter ID as 8-char hex string, e.g. "12345678"
+    char meter_key[16]{};
+
+    uint32_t meter_id = 0;
+    uint16_t manufacturer_id = 0;
+    char manufacturer[4]{}; // e.g. "SAP"
+
+    bool encrypted = false;
 
     // Display prefix: up to kDisplayPrefixRawBytes raw captured bytes as hex.
     // Used as the "raw_hex" representation in the recent-telegrams list.

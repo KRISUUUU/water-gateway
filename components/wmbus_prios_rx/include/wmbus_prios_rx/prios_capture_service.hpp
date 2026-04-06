@@ -31,8 +31,8 @@ namespace wmbus_prios_rx {
 // Used for per-device deduplication and per-device retention limiting in
 // PriosCaptureService.
 struct PriosDeviceFingerprint {
-    static constexpr uint8_t kOffset = 9;
-    static constexpr uint8_t kLength = 6;
+    static constexpr uint8_t kOffset = 4;
+    static constexpr uint8_t kLength = 4;
 
     uint8_t bytes[kLength]{};
     bool    valid = false;  // false when capture is too short to contain the field

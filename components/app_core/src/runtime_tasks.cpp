@@ -592,7 +592,7 @@ static void radio_rx_task(void* /*param*/) {
                         prios_result.record);
                 if (dedup_result ==
                     wmbus_prios_rx::PriosCaptureInsertDecision::RejectedNewDeviceLimit) {
-                    ESP_LOGW(TAG,
+                    ESP_LOGD(TAG,
                              "device limit reached (kMaxTrackedDevices=%zu), new fingerprint ignored",
                              wmbus_prios_rx::PriosCaptureService::kMaxTrackedDevices);
                 } else if (dedup_result ==
@@ -612,7 +612,7 @@ static void radio_rx_task(void* /*param*/) {
                             cfg.mqtt.prefix, cfg.device.hostname,
                             decoded.meter_key, decoded.display_prefix_hex,
                             decoded.captured_length, decoded.rssi_dbm, decoded.lqi,
-                            decoded.manchester_enabled, ts_str);
+                            decoded.manchester_enabled, ts_str, decoded.manufacturer, decoded.encrypted);
                         if (cmd.is_ok()) {
                             enqueue_mqtt(cmd.value());
                         }
