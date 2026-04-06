@@ -368,3 +368,11 @@ add_host_test(test_wmbus_link
     "${COMP_DIR}/rf_diagnostics/src/rf_diagnostics.cpp"
     ${CJSON_SRC}
 )
+
+# ---- test_prios_decoder ----
+add_host_test(test_prios_decoder
+    test_prios_decoder.cpp
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_decoder.cpp"
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_analyzer.cpp"
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_service.cpp"
+)

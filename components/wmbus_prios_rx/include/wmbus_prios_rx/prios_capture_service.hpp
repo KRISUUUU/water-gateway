@@ -100,6 +100,7 @@ struct PriosCaptureStats {
     uint32_t retained_length_total = 0;
     uint16_t retained_length_min = 0;
     uint16_t retained_length_max = 0;
+    const char* last_reject_reason = "none";
 };
 
 enum class PriosCaptureInsertDecision : uint8_t {
@@ -109,6 +110,19 @@ enum class PriosCaptureInsertDecision : uint8_t {
     RejectedDeviceQuota,       // known device already has kMaxRecordsPerDevice records retained
     RejectedNewDeviceLimit,    // new device would exceed kMaxTrackedDevices; ignored to protect RAM
 };
+
+enum class PriosCaptureRejectReason : uint8_t {
+    None = 0,
+    Noise,
+    Quality,
+    VariantBShortTimeout,
+    VariantBSimilarity,
+    Duplicate,
+    DeviceQuota,
+    NewDeviceLimit,
+};
+
+const char* prios_capture_reject_reason_to_string(PriosCaptureRejectReason reason);
 
 struct PriosCapturePreviewRecord {
     static constexpr size_t kPreviewBytes = PriosCaptureRecord::kDisplayPrefixBytes;
@@ -178,6 +192,7 @@ class PriosCaptureService {
     };
 
     void insert_locked(const PriosCaptureRecord& record);
+    void record_reject_locked(PriosCaptureRejectReason reason);
     [[nodiscard]] bool variant_b_prefix_seen_locked(const PriosCaptureRecord& record) const;
     void remember_variant_b_prefix_locked(const PriosCaptureRecord& record);
 
@@ -219,6 +234,7 @@ class PriosCaptureService {
     uint32_t retained_length_total_ = 0;
     uint16_t retained_length_min_ = 0;
     uint16_t retained_length_max_ = 0;
+    PriosCaptureRejectReason last_reject_reason_ = PriosCaptureRejectReason::None;
 };
 
 } // namespace wmbus_prios_rx

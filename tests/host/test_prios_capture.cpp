@@ -187,6 +187,7 @@ void test_service_stats_are_lightweight_and_correct() {
     assert(stats.total_quality_rejected == 0);
     assert(stats.variant_b_short_rejected == 0);
     assert(stats.total_similarity_rejected == 0);
+    assert(std::strcmp(stats.last_reject_reason, "none") == 0);
     static_assert(sizeof(PriosCaptureStats) < sizeof(PriosCaptureSnapshot),
                   "Stats accessor must stay lighter than full snapshot");
     std::printf("  PASS: lightweight stats accessor reports capture counters\n");
@@ -206,7 +207,25 @@ void test_service_noise_rejection_stats_are_tracked() {
     assert(stats.total_quality_rejected == 1);
     assert(stats.variant_b_short_rejected == 1);
     assert(stats.total_similarity_rejected == 0);
+    assert(std::strcmp(stats.last_reject_reason, "quality") == 0);
     std::printf("  PASS: noise rejection stats tracked separately from retained captures\n");
+}
+
+void test_service_similarity_rejection_sets_last_reason() {
+    PriosCaptureService::instance().clear();
+
+    PriosCaptureRecord rec{};
+    rec.manchester_enabled = true;
+    rec.total_bytes_captured = 6;
+    std::memcpy(rec.captured_bytes, "\x11\x22\x33\x44\x55\x66", 6);
+
+    const auto decision = PriosCaptureService::instance().insert_with_quality_gate(rec);
+    assert(decision == PriosCaptureInsertDecision::RejectedVariantBSimilarity);
+
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.total_similarity_rejected == 1);
+    assert(std::strcmp(stats.last_reject_reason, "variant_b_similarity") == 0);
+    std::printf("  PASS: similarity rejection updates last reject reason\n");
 }
 
 void test_service_capacity_is_64_records() {
@@ -772,6 +791,7 @@ int main() {
     test_service_empty_snapshot();
     test_service_stats_are_lightweight_and_correct();
     test_service_noise_rejection_stats_are_tracked();
+    test_service_similarity_rejection_sets_last_reason();
     test_service_capacity_is_64_records();
     test_service_insert_and_retrieve();
     test_service_preserves_full_bounded_capture();

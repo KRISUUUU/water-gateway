@@ -109,6 +109,7 @@ class RadioCc1101 {
                                                               uint8_t remaining_encoded_bytes);
     common::Result<void> owner_restore_infinite_packet_mode(void* owner_token);
     common::Result<void> owner_abort_and_restart_rx(void* owner_token);
+    common::Result<void> owner_apply_tmode_profile(void* owner_token);
 
     // Apply PRIOS R3 register profile while holding radio ownership.
     // Transitions: idle → configure registers → flush FIFO → RX-ready.

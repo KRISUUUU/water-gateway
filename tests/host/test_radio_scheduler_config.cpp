@@ -10,8 +10,10 @@
 //   - validate_config fails with unknown scheduler_mode
 //   - RadioProfileManager: configure, status, active_profile_id
 //   - RadioProfileManager: Locked mode advance is a no-op
+//   - RadioProfileManager: Priority mode returns to preferred after bounded fallback scan
 //   - RadioProfileManager: Scan mode advance cycles through enabled profiles
 //   - RadioProfileManager: single-profile scan stays put
+//   - RadioProfileManager: selected profile is tracked separately from applied profile
 //   - RadioProfileManager: wake source counters
 
 #include "host_test_stubs.hpp"
@@ -187,9 +189,12 @@ void test_manager_configure_sets_active_profile() {
     auto& mgr = RadioProfileManager::instance();
     mgr.configure(RadioSchedulerMode::Locked, kRadioProfileMaskWMbusT868);
     const auto st = mgr.status();
-    assert(st.active_profile_id  == RadioProfileId::WMbusT868);
+    assert(st.preferred_profile_id == RadioProfileId::WMbusT868);
+    assert(st.selected_profile_id  == RadioProfileId::WMbusT868);
+    assert(st.active_profile_id    == RadioProfileId::Unknown);
     assert(st.scheduler_mode     == RadioSchedulerMode::Locked);
     assert(st.enabled_profiles   == kRadioProfileMaskWMbusT868);
+    assert(st.last_apply_status  == ProfileApplyStatus::Pending);
     assert(st.profile_switch_count == 0);
     std::printf("  PASS: configure sets active profile to first enabled\n");
 }
@@ -198,11 +203,35 @@ void test_manager_locked_advance_is_noop() {
     auto& mgr = RadioProfileManager::instance();
     mgr.configure(RadioSchedulerMode::Locked,
                   kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3);
-    const RadioProfileId before = mgr.active_profile_id();
+    const RadioProfileId before = mgr.selected_profile_id();
     mgr.advance();
-    assert(mgr.active_profile_id() == before);
+    assert(mgr.selected_profile_id() == before);
     assert(mgr.status().profile_switch_count == 0);
     std::printf("  PASS: Locked mode advance is a no-op\n");
+}
+
+void test_manager_priority_returns_to_preferred_after_fallback_scan() {
+    auto& mgr = RadioProfileManager::instance();
+    mgr.configure(RadioSchedulerMode::Priority,
+                  kRadioProfileMaskWMbusT868 |
+                  kRadioProfileMaskWMbusPriosR3 |
+                  kRadioProfileMaskWMbusPriosR4);
+
+    assert(mgr.preferred_profile_id() == RadioProfileId::WMbusT868);
+    assert(mgr.selected_profile_id() == RadioProfileId::WMbusT868);
+
+    RadioProfileId next = mgr.advance();
+    assert(next == RadioProfileId::WMbusPriosR3);
+    assert(mgr.status().last_switch_reason == SchedulerSwitchReason::FallbackTimeout);
+
+    next = mgr.advance();
+    assert(next == RadioProfileId::WMbusPriosR4);
+    assert(mgr.status().last_switch_reason == SchedulerSwitchReason::SchedulerAdvance);
+
+    next = mgr.advance();
+    assert(next == RadioProfileId::WMbusT868);
+    assert(mgr.status().last_switch_reason == SchedulerSwitchReason::PriorityReturn);
+    std::printf("  PASS: Priority mode performs bounded fallback scan then returns to preferred\n");
 }
 
 void test_manager_scan_advance_cycles_profiles() {
@@ -210,7 +239,7 @@ void test_manager_scan_advance_cycles_profiles() {
     mgr.configure(RadioSchedulerMode::Scan,
                   kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3);
     // Should start on T868
-    assert(mgr.active_profile_id() == RadioProfileId::WMbusT868);
+    assert(mgr.selected_profile_id() == RadioProfileId::WMbusT868);
     // Advance → PriosR3
     RadioProfileId next = mgr.advance();
     assert(next == RadioProfileId::WMbusPriosR3);
@@ -225,12 +254,39 @@ void test_manager_scan_advance_cycles_profiles() {
 void test_manager_scan_single_profile_stays_put() {
     auto& mgr = RadioProfileManager::instance();
     mgr.configure(RadioSchedulerMode::Scan, kRadioProfileMaskWMbusT868);
-    const RadioProfileId before = mgr.active_profile_id();
+    const RadioProfileId before = mgr.selected_profile_id();
     mgr.advance();
     // Only one enabled — should stay on T868
-    assert(mgr.active_profile_id() == before);
+    assert(mgr.selected_profile_id() == before);
     assert(mgr.status().profile_switch_count == 0);
     std::printf("  PASS: Scan with single enabled profile stays put\n");
+}
+
+void test_manager_tracks_applied_profile_separately() {
+    auto& mgr = RadioProfileManager::instance();
+    mgr.configure(RadioSchedulerMode::Scan,
+                  kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR4);
+    assert(mgr.selected_profile_id() == RadioProfileId::WMbusT868);
+    assert(mgr.active_profile_id() == RadioProfileId::Unknown);
+
+    mgr.note_profile_applied(RadioProfileId::WMbusT868);
+    auto st = mgr.status();
+    assert(st.active_profile_id == RadioProfileId::WMbusT868);
+    assert(st.profile_apply_count == 1);
+    assert(st.profile_apply_failures == 0);
+    assert(st.last_apply_status == ProfileApplyStatus::Applied);
+
+    mgr.advance();
+    assert(mgr.selected_profile_id() == RadioProfileId::WMbusPriosR4);
+    mgr.note_profile_applied(RadioProfileId::WMbusT868,
+                             ProfileApplyStatus::UnsupportedRequestedProfile);
+    st = mgr.status();
+    assert(st.selected_profile_id == RadioProfileId::WMbusPriosR4);
+    assert(st.active_profile_id == RadioProfileId::WMbusT868);
+    assert(st.profile_apply_count == 2);
+    assert(st.profile_apply_failures == 1);
+    assert(st.last_apply_status == ProfileApplyStatus::UnsupportedRequestedProfile);
+    std::printf("  PASS: selected and applied profiles are tracked separately\n");
 }
 
 void test_manager_wake_counters() {
@@ -242,6 +298,7 @@ void test_manager_wake_counters() {
     const auto st = mgr.status();
     assert(st.irq_wake_count     == 2);
     assert(st.fallback_wake_count == 1);
+    assert(st.last_wake_source == RuntimeWakeSource::FallbackPoll);
     std::printf("  PASS: wake source counters tracked correctly\n");
 }
 
@@ -256,7 +313,27 @@ void test_manager_configure_resets_counters() {
     assert(st.irq_wake_count      == 0);
     assert(st.fallback_wake_count == 0);
     assert(st.profile_switch_count == 0);
+    assert(st.profile_apply_count == 0);
     std::printf("  PASS: configure() resets all counters\n");
+}
+
+void test_manager_instances_are_independent() {
+    auto& primary = RadioProfileManager::for_instance(kRadioInstancePrimary);
+    auto& secondary = RadioProfileManager::for_instance(kRadioInstanceSecondary);
+    primary.configure(RadioSchedulerMode::Locked, kRadioProfileMaskWMbusT868,
+                      kRadioInstancePrimary);
+    secondary.configure(RadioSchedulerMode::Scan, kRadioProfileMaskWMbusPriosR3,
+                        kRadioInstanceSecondary);
+    primary.note_profile_applied(RadioProfileId::WMbusT868);
+    secondary.note_profile_applied(RadioProfileId::WMbusPriosR3);
+
+    const auto primary_st = primary.status();
+    const auto secondary_st = secondary.status();
+    assert(primary_st.radio_instance == kRadioInstancePrimary);
+    assert(secondary_st.radio_instance == kRadioInstanceSecondary);
+    assert(primary_st.active_profile_id == RadioProfileId::WMbusT868);
+    assert(secondary_st.active_profile_id == RadioProfileId::WMbusPriosR3);
+    std::printf("  PASS: manager state remains independent per radio instance\n");
 }
 
 } // namespace
@@ -276,10 +353,13 @@ int main() {
     test_unknown_scheduler_mode_fails_validation();
     test_manager_configure_sets_active_profile();
     test_manager_locked_advance_is_noop();
+    test_manager_priority_returns_to_preferred_after_fallback_scan();
     test_manager_scan_advance_cycles_profiles();
     test_manager_scan_single_profile_stays_put();
+    test_manager_tracks_applied_profile_separately();
     test_manager_wake_counters();
     test_manager_configure_resets_counters();
+    test_manager_instances_are_independent();
 
     std::printf("All radio scheduler config tests passed.\n");
     return 0;

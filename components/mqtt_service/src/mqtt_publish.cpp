@@ -208,7 +208,10 @@ common::Result<SerializedPublishMessage> build_raw_frame_message(const MqttPubli
     }
 
     size_t used = 0;
-    if (!append_literal(message.payload, sizeof(message.payload), used, "{\"raw_hex\":") ||
+    if (!append_literal(message.payload, sizeof(message.payload), used, "{\"protocol_name\":") ||
+        !append_json_string(message.payload, sizeof(message.payload), used,
+                            command.protocol_name[0] ? command.protocol_name : "WMBUS_T") ||
+        !append_literal(message.payload, sizeof(message.payload), used, ",\"raw_hex\":") ||
         !append_hex(message.payload, sizeof(message.payload), used, command.raw_bytes.data(),
                     command.raw_length) ||
         !append_format(message.payload, sizeof(message.payload), used,
@@ -232,6 +235,35 @@ common::Result<SerializedPublishMessage> build_raw_frame_message(const MqttPubli
     return common::Result<SerializedPublishMessage>::ok(message);
 }
 
+common::Result<SerializedPublishMessage> build_prios_frame_message(
+    const MqttPublishCommand& command) {
+    SerializedPublishMessage message{};
+    if (!build_topic(message.topic, sizeof(message.topic), command.topic_prefix, command.device_id,
+                     "prios/raw")) {
+        return common::Result<SerializedPublishMessage>::error(overflow_code());
+    }
+
+    size_t used = 0;
+    if (!append_literal(message.payload, sizeof(message.payload), used,
+                        "{\"protocol_name\":\"PRIOS_R3\",\"vendor\":\"Techem\",\"support_level\":\"identity_only_capture\",\"decoded_ok\":false,\"reading_decode_available\":false,\"meter_key\":") ||
+        !append_json_string(message.payload, sizeof(message.payload), used, command.meter_key) ||
+        !append_literal(message.payload, sizeof(message.payload), used,
+                        ",\"display_prefix_hex\":") ||
+        !append_json_string(message.payload, sizeof(message.payload), used,
+                            command.prios_display_hex) ||
+        !append_format(message.payload, sizeof(message.payload), used,
+                       ",\"captured_length\":%" PRIu16 ",\"rssi_dbm\":%" PRId8
+                       ",\"lqi\":%" PRIu8 ",\"manchester_enabled\":%s,\"timestamp\":",
+                       command.raw_length,  // raw_length re-used as captured_length for PRIOS
+                       command.rssi_dbm, command.lqi,
+                       command.prios_manchester_enabled ? "true" : "false") ||
+        !append_json_string(message.payload, sizeof(message.payload), used, command.timestamp) ||
+        !append_literal(message.payload, sizeof(message.payload), used, "}")) {
+        return common::Result<SerializedPublishMessage>::error(overflow_code());
+    }
+    return common::Result<SerializedPublishMessage>::ok(message);
+}
+
 } // namespace
 
 common::Result<SerializedPublishMessage> serialize_publish_command(
@@ -243,6 +275,8 @@ common::Result<SerializedPublishMessage> serialize_publish_command(
         return build_event_message(command);
     case PublishCommandType::RawFrame:
         return build_raw_frame_message(command);
+    case PublishCommandType::PriosFrame:
+        return build_prios_frame_message(command);
     }
     return common::Result<SerializedPublishMessage>::error(common::ErrorCode::InvalidArgument);
 }
@@ -315,6 +349,31 @@ common::Result<MqttPublishCommand> make_raw_frame_command(
     command.rx_count = rx_count;
     command.decoded_ok = decoded_ok;
     command.raw_frame_contract_valid = raw_frame_contract_valid;
+    // T-mode protocol identity.
+    copy_cstr(command.protocol_name, "WMBUS_T");
+    return common::Result<MqttPublishCommand>::ok(command);
+}
+
+common::Result<MqttPublishCommand> make_prios_frame_command(
+    const char* topic_prefix, const char* device_id, const char* meter_key,
+    const char* display_prefix_hex, uint16_t captured_length, int8_t rssi_dbm, uint8_t lqi,
+    bool manchester_enabled, const char* timestamp) {
+    MqttPublishCommand command{};
+    command.type = PublishCommandType::PriosFrame;
+    if (!copy_cstr(command.topic_prefix, topic_prefix) ||
+        !copy_cstr(command.device_id, device_id)       ||
+        !copy_cstr(command.meter_key, meter_key)        ||
+        !copy_cstr(command.prios_display_hex, display_prefix_hex) ||
+        !copy_cstr(command.timestamp, timestamp)        ||
+        !copy_cstr(command.protocol_name, "PRIOS_R3")  ||
+        !copy_cstr(command.vendor, "Techem")) {
+        return common::Result<MqttPublishCommand>::error(overflow_code());
+    }
+    // raw_length is re-used as captured_length for PRIOS (no raw bytes stored).
+    command.raw_length            = captured_length;
+    command.rssi_dbm              = rssi_dbm;
+    command.lqi                   = lqi;
+    command.prios_manchester_enabled = manchester_enabled;
     return common::Result<MqttPublishCommand>::ok(command);
 }
 

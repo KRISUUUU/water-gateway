@@ -6,8 +6,12 @@
 #include "common/security_posture.hpp"
 #include "config_store/config_store.hpp"
 #include "health_monitor/health_monitor.hpp"
+#include "meter_registry/meter_registry.hpp"
 #include "metrics_service/metrics_service.hpp"
 #include "ntp_service/ntp_service.hpp"
+#include "protocol_driver/radio_profile_manager.hpp"
+#include "rf_diagnostics/rf_diagnostics.hpp"
+#include "wmbus_prios_rx/prios_capture_service.hpp"
 
 #include <memory>
 #include <string>
@@ -15,6 +19,98 @@
 namespace api_handlers::detail {
 
 namespace {
+
+const char* protocol_name_for_profile(protocol_driver::RadioProfileId profile_id) {
+    switch (profile_id) {
+        case protocol_driver::RadioProfileId::WMbusT868:
+            return "WMBUS_T";
+        case protocol_driver::RadioProfileId::WMbusPriosR3:
+        case protocol_driver::RadioProfileId::WMbusPriosR4:
+            return "PRIOS";
+        default:
+            return "Unknown";
+    }
+}
+
+struct ProtocolRecentSummary {
+    uint32_t recent_accepts = 0;
+    int64_t last_success_timestamp_ms = 0;
+    int8_t last_success_rssi_dbm = 0;
+    uint8_t last_success_lqi = 0;
+    const char* last_meter_key = "";
+};
+
+ProtocolRecentSummary summarize_recent_protocol(
+    const std::vector<meter_registry::RecentTelegram>& recent,
+    const char* protocol_name) {
+    ProtocolRecentSummary summary{};
+    for (const auto& telegram : recent) {
+        if (telegram.protocol_name != protocol_name) {
+            continue;
+        }
+        summary.recent_accepts++;
+        if (summary.last_success_timestamp_ms == 0) {
+            summary.last_success_timestamp_ms = telegram.timestamp_ms;
+            summary.last_success_rssi_dbm = telegram.rssi_dbm;
+            summary.last_success_lqi = telegram.lqi;
+            summary.last_meter_key = telegram.meter_key.c_str();
+        }
+    }
+    return summary;
+}
+
+void add_protocol_runtime_json(cJSON* root) {
+    const auto sched = protocol_driver::RadioProfileManager::instance().status();
+    const auto recent =
+        meter_registry::MeterRegistry::instance().recent_telegrams(
+            meter_registry::TelegramFilter::All);
+    const auto tmode_recent = summarize_recent_protocol(recent, "WMBUS_T");
+    const auto prios_recent = summarize_recent_protocol(recent, "PRIOS_R3");
+    const auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot();
+    const auto prios_stats = wmbus_prios_rx::PriosCaptureService::instance().stats();
+
+    std::string last_tmode_reject = "none";
+    if (rf_snapshot.count > 0) {
+        last_tmode_reject = rf_diagnostics::RfDiagnosticsService::reject_reason_to_string(
+            rf_snapshot.records[rf_snapshot.count - 1].reject_reason);
+    }
+
+    cJSON* runtime = cJSON_AddObjectToObject(root, "radio_runtime");
+    cJSON_AddStringToObject(runtime, "active_profile",
+                            protocol_driver::radio_profile_id_to_string(sched.active_profile_id));
+    cJSON_AddStringToObject(runtime, "active_protocol",
+                            protocol_name_for_profile(sched.active_profile_id));
+    cJSON_AddStringToObject(runtime, "last_wake_source",
+                            protocol_driver::runtime_wake_source_to_string(
+                                sched.last_wake_source));
+
+    cJSON* tmode = cJSON_AddObjectToObject(runtime, "tmode");
+    cJSON_AddNumberToObject(tmode, "recent_accepts",
+                            static_cast<double>(tmode_recent.recent_accepts));
+    cJSON_AddStringToObject(tmode, "last_reject_reason", last_tmode_reject.c_str());
+    cJSON_AddNumberToObject(tmode, "last_success_timestamp_ms",
+                            static_cast<double>(tmode_recent.last_success_timestamp_ms));
+    cJSON_AddStringToObject(tmode, "last_success_meter_key", tmode_recent.last_meter_key);
+    cJSON_AddNumberToObject(tmode, "last_success_rssi_dbm",
+                            static_cast<double>(tmode_recent.last_success_rssi_dbm));
+    cJSON_AddNumberToObject(tmode, "last_success_lqi",
+                            static_cast<double>(tmode_recent.last_success_lqi));
+
+    cJSON* prios = cJSON_AddObjectToObject(runtime, "prios");
+    cJSON_AddStringToObject(prios, "support_level", "identity_only_capture");
+    cJSON_AddBoolToObject(prios, "reading_decode_available", false);
+    cJSON_AddNumberToObject(prios, "recent_accepts",
+                            static_cast<double>(prios_recent.recent_accepts));
+    cJSON_AddStringToObject(prios, "last_reject_reason", prios_stats.last_reject_reason);
+    cJSON_AddNumberToObject(prios, "last_success_timestamp_ms",
+                            static_cast<double>(prios_recent.last_success_timestamp_ms));
+    cJSON_AddStringToObject(prios, "last_success_meter_key", prios_recent.last_meter_key);
+    cJSON_AddNumberToObject(prios, "last_success_rssi_dbm",
+                            static_cast<double>(prios_recent.last_success_rssi_dbm));
+    cJSON_AddNumberToObject(prios, "last_success_lqi",
+                            static_cast<double>(prios_recent.last_success_lqi));
+}
+
 bool serialize_json_object(cJSON* root, std::string& out) {
     if (!root) {
         return false;
@@ -362,6 +458,11 @@ esp_err_t send_status_full_chunked(httpd_req_t* req, const health_monitor::Healt
         return err;
     }
     err = send_json_object_section(req, first_field,
+                                   [&](cJSON* root) { add_protocol_runtime_json(root); });
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = send_json_object_section(req, first_field,
                                    [&](cJSON* root) { add_security_json(root, cfg); });
     if (err != ESP_OK) {
         return err;
@@ -405,6 +506,7 @@ esp_err_t handle_status(httpd_req_t* req) {
     add_health_summary_json(root.get(), *health);
     add_metrics_summary_json(root.get(), *metrics);
     add_time_summary_json(root.get());
+    add_protocol_runtime_json(root.get());
     return send_json_root(req, 200, root);
 }
 

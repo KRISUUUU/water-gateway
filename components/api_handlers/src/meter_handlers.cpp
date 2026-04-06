@@ -78,6 +78,10 @@ esp_err_t handle_telegrams(httpd_req_t* req) {
         json_escape_append(row, t.meter_key);
         row += "\",\"watched\":";
         row += t.watched ? "true" : "false";
+        row += ",\"protocol_name\":\"";
+        json_escape_append(row, t.protocol_name);
+        row += "\",\"vendor\":\"";
+        json_escape_append(row, t.vendor);
         row += '}';
         err = send_json_chunk_row(req, row);
         if (err != ESP_OK) {

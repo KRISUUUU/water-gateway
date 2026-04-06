@@ -30,8 +30,9 @@ esp_err_t begin_prios_export_response(httpd_req_t* req) {
 // GET /api/diagnostics/prios
 //
 // Returns PRIOS R3 bring-up status and the last N bounded raw captures.
-// The "decoding" field is always false at this stage — this endpoint exists
-// to support evidence gathering, not production frame routing.
+// PRIOS support is still bounded bring-up/capture support with identity
+// extraction only. This endpoint exists to support evidence gathering and
+// hardware validation, not full PRIOS reading decode.
 //
 // Response shape:
 // {
@@ -40,7 +41,8 @@ esp_err_t begin_prios_export_response(httpd_req_t* req) {
 //   "discovery_active": false,
 //   "variant": "manchester_off",
 //   "profile": "WMbusPriosR3",
-//   "decoding": false,
+//   "support_level": "identity_only_capture",
+//   "reading_decode_available": false,
 //   "total_captures": 42,
 //   "total_evicted": 0,
 //   "recent_captures": [
@@ -94,7 +96,10 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
     cJSON_AddStringToObject(root.get(), "profile",
                             protocol_driver::radio_profile_id_to_string(
                                 protocol_driver::RadioProfileId::WMbusPriosR3));
-    cJSON_AddFalseToObject(root.get(),  "decoding");
+    cJSON_AddStringToObject(root.get(), "support_level", "identity_only_capture");
+    cJSON_AddBoolToObject(root.get(), "identity_extract_active",
+                          campaign_active || discovery_active);
+    cJSON_AddBoolToObject(root.get(), "reading_decode_available", false);
     cJSON_AddNumberToObject(root.get(), "total_captures",
                             static_cast<double>(stats.total_inserted));
     cJSON_AddNumberToObject(root.get(), "total_evicted",
@@ -126,6 +131,8 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(stats.variant_b_short_rejected));
     cJSON_AddNumberToObject(root.get(), "similarity_rejections",
                             static_cast<double>(stats.total_similarity_rejected));
+    cJSON_AddStringToObject(root.get(), "last_reject_reason",
+                            stats.last_reject_reason);
     cJSON_AddNumberToObject(root.get(), "retained_variant_a_total",
                             static_cast<double>(stats.retained_variant_a_total));
     cJSON_AddNumberToObject(root.get(), "retained_variant_b_total",

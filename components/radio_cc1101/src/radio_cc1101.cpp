@@ -502,6 +502,53 @@ common::Result<void> RadioCc1101::owner_abort_and_restart_rx(void* owner_token) 
     return common::Result<void>::ok();
 }
 
+common::Result<void> RadioCc1101::owner_apply_tmode_profile(void* owner_token) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "T-mode apply: begin");
+
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
+        state_ = RadioState::Error;
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+
+    auto result =
+        device::apply_register_profile(spi_handle_, counters_, kTmodeConfig, kTmodeConfigSize);
+    if (result.is_error()) {
+        state_ = RadioState::Error;
+        return result;
+    }
+
+    ESP_LOGI(TAG, "T-mode apply: profile_ok regs=%zu", kTmodeConfigSize);
+#else
+    (void)owner_token;
+#endif
+
+    auto flush_result = flush_rx_fifo();
+    if (flush_result.is_error()) {
+        state_ = RadioState::Error;
+        return flush_result;
+    }
+
+    auto rx_result = start_rx();
+    if (rx_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "T-mode apply: start_rx failed (%d)", static_cast<int>(rx_result.error()));
+#endif
+        state_ = RadioState::Error;
+        return rx_result;
+    }
+
+    state_ = RadioState::Receiving;
+    return common::Result<void>::ok();
+}
+
 common::Result<void> RadioCc1101::owner_apply_prios_r3_profile(void* owner_token,
                                                                 bool  manchester_enabled) {
     if (!initialized_) {

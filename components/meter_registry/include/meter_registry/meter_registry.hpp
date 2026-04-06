@@ -3,6 +3,7 @@
 #include "common/result.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include "wmbus_link/wmbus_link.hpp"
+#include "wmbus_prios_rx/prios_decoder.hpp"
 
 #include <cstdint>
 #include <string>
@@ -55,6 +56,10 @@ struct RecentTelegram {
     bool duplicate = false;
     std::string meter_key;
     bool watched = false;
+    // Protocol identity — populated for all protocols.
+    // Defaults: "WMBUS_T" / "" for T-mode; "PRIOS_R3" / "Techem" for PRIOS.
+    std::string protocol_name = "WMBUS_T";
+    std::string vendor;
 };
 
 enum class TelegramFilter : uint8_t {
@@ -77,6 +82,8 @@ class MeterRegistry {
     // - detected meters model
     // - recent telegram list
     void observe_telegram(const wmbus_link::ValidatedTelegram& telegram, bool duplicate);
+    // PRIOS R3 decoded telegram: update detected meters and recent telegrams lists.
+    void observe_prios_telegram(const wmbus_prios_rx::PriosDecodedTelegram& telegram);
 
     std::vector<DetectedMeter> detected_meters() const;
     std::vector<WatchlistEntry> watchlist() const;

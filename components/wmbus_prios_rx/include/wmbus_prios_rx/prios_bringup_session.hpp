@@ -66,6 +66,7 @@ class PriosBringUpSession {
     };
 
     void reset();
+    bool active() const { return session_active_; }
 
     void configure(Mode mode, bool manchester_enabled) {
         mode_ = mode;

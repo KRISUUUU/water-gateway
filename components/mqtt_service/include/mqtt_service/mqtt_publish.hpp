@@ -23,6 +23,7 @@ enum class PublishCommandType : uint8_t {
     Telemetry = 0,
     Event,
     RawFrame,
+    PriosFrame,  // PRIOS R3 decoded identity telegram
 };
 
 struct MqttPublishCommand {
@@ -60,6 +61,19 @@ struct MqttPublishCommand {
     uint32_t rx_count = 0;
     bool decoded_ok = false;
     bool raw_frame_contract_valid = false;
+
+    // Protocol identity fields — set for all frame command types.
+    // protocol_name: "WMBUS_T" for T-mode, "PRIOS_R3" for PRIOS.
+    // vendor: empty string for T-mode (unknown from frame alone), "Techem" for PRIOS.
+    static constexpr size_t kPublishProtocolNameCapacity = 16;
+    static constexpr size_t kPublishVendorCapacity       = 16;
+    char protocol_name[kPublishProtocolNameCapacity]{};
+    char vendor[kPublishVendorCapacity]{};
+
+    // PRIOS-specific fields (populated only for PriosFrame type).
+    static constexpr size_t kPublishDisplayHexCapacity = 65;  // 32 raw bytes → 64 hex + null
+    char prios_display_hex[kPublishDisplayHexCapacity]{};
+    bool prios_manchester_enabled = false;
 };
 
 struct SerializedPublishMessage {
@@ -83,6 +97,13 @@ common::Result<MqttPublishCommand> make_event_command(const char* topic_prefix,
                                                       const char* severity,
                                                       const char* message,
                                                       const char* timestamp);
+
+// PRIOS R3 identity telegram — bounded, no raw payload, no reading decode.
+// Topic: {prefix}/{device_id}/prios/raw
+common::Result<MqttPublishCommand> make_prios_frame_command(
+    const char* topic_prefix, const char* device_id, const char* meter_key,
+    const char* display_prefix_hex, uint16_t captured_length, int8_t rssi_dbm, uint8_t lqi,
+    bool manchester_enabled, const char* timestamp);
 
 common::Result<MqttPublishCommand> make_raw_frame_command(
     const char* topic_prefix, const char* device_id, const uint8_t* raw_bytes, uint16_t raw_length,

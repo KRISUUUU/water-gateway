@@ -138,6 +138,21 @@ static void test_prios_profile_apply_rearms_rx() {
     printf("  PASS: PRIOS profile apply leaves radio RX-ready\n");
 }
 
+static void test_tmode_profile_apply_rearms_rx() {
+    auto& radio = RadioCc1101::instance();
+    void* owner = reinterpret_cast<void*>(0xD00C);
+    const SpiPins pins{23, 19, 18, 5, -1, -1};
+
+    const auto init = radio.initialize(pins);
+    assert(init.is_ok() || init.error() == common::ErrorCode::AlreadyInitialized);
+    assert(radio.claim_owner(owner).is_ok());
+    const auto apply = radio.owner_apply_tmode_profile(owner);
+    assert(apply.is_ok());
+    assert(radio.state() == RadioState::Receiving);
+    radio.release_owner(owner);
+    printf("  PASS: T-mode profile apply leaves radio RX-ready\n");
+}
+
 static void test_prios_discovery_profile_apply_rearms_rx() {
     auto& radio = RadioCc1101::instance();
     void* owner = reinterpret_cast<void*>(0xD00E);
@@ -166,7 +181,7 @@ static void test_prios_variant_b_profile_is_stricter_than_variant_a() {
     bool found_b = false;
     for (size_t i = 0; i < count_a; ++i) {
         if (variant_a[i].addr == registers::MDMCFG2) {
-            assert(variant_a[i].value == 0x01);
+            assert(variant_a[i].value == 0x02);
             found_a = true;
         }
     }
@@ -216,6 +231,7 @@ int main() {
     test_owner_claim_state_is_singular();
 
     test_owner_only_rx_helpers_require_claim_and_return_status();
+    test_tmode_profile_apply_rearms_rx();
     test_prios_profile_apply_rearms_rx();
     test_prios_discovery_profile_apply_rearms_rx();
     test_prios_variant_b_profile_is_stricter_than_variant_a();

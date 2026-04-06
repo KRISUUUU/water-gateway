@@ -19,6 +19,28 @@ uint8_t bounded_variant_b_prefix_length(const PriosCaptureRecord& record) {
 
 } // namespace
 
+const char* prios_capture_reject_reason_to_string(PriosCaptureRejectReason reason) {
+    switch (reason) {
+        case PriosCaptureRejectReason::Noise:
+            return "noise";
+        case PriosCaptureRejectReason::Quality:
+            return "quality";
+        case PriosCaptureRejectReason::VariantBShortTimeout:
+            return "variant_b_short_timeout";
+        case PriosCaptureRejectReason::VariantBSimilarity:
+            return "variant_b_similarity";
+        case PriosCaptureRejectReason::Duplicate:
+            return "duplicate";
+        case PriosCaptureRejectReason::DeviceQuota:
+            return "device_quota";
+        case PriosCaptureRejectReason::NewDeviceLimit:
+            return "new_device_limit";
+        case PriosCaptureRejectReason::None:
+        default:
+            return "none";
+    }
+}
+
 PriosCaptureService& PriosCaptureService::instance() {
     static PriosCaptureService s_instance;
     return s_instance;
@@ -42,6 +64,7 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_quality_gate(
     remember_variant_b_prefix_locked(record);
     if (!seen_before) {
         total_similarity_rejected_++;
+        record_reject_locked(PriosCaptureRejectReason::VariantBSimilarity);
         return PriosCaptureInsertDecision::RejectedVariantBSimilarity;
     }
 
@@ -64,12 +87,16 @@ void PriosCaptureService::record_noise_rejection(bool manchester_enabled, bool s
     total_noise_rejected_++;
     if (manchester_enabled && short_capture) {
         variant_b_short_rejected_++;
+        record_reject_locked(PriosCaptureRejectReason::VariantBShortTimeout);
+        return;
     }
+    record_reject_locked(PriosCaptureRejectReason::Noise);
 }
 
 void PriosCaptureService::record_quality_rejection() {
     std::lock_guard<std::mutex> lock(mutex_);
     total_quality_rejected_++;
+    record_reject_locked(PriosCaptureRejectReason::Quality);
 }
 
 void PriosCaptureService::insert_locked(const PriosCaptureRecord& record) {
@@ -99,6 +126,10 @@ void PriosCaptureService::insert_locked(const PriosCaptureRecord& record) {
     } else {
         retained_variant_a_total_++;
     }
+}
+
+void PriosCaptureService::record_reject_locked(PriosCaptureRejectReason reason) {
+    last_reject_reason_ = reason;
 }
 
 bool PriosCaptureService::variant_b_prefix_seen_locked(const PriosCaptureRecord& record) const {
@@ -200,6 +231,7 @@ PriosCaptureStats PriosCaptureService::stats() const {
     stats.retained_length_total = retained_length_total_;
     stats.retained_length_min = retained_length_min_;
     stats.retained_length_max = retained_length_max_;
+    stats.last_reject_reason = prios_capture_reject_reason_to_string(last_reject_reason_);
     return stats;
 }
 
@@ -304,6 +336,7 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
         // (c) New device: reject if the global device table is full.
         if (tracked_device_count_ >= kMaxTrackedDevices) {
             total_new_device_limit_rejected_++;
+            record_reject_locked(PriosCaptureRejectReason::NewDeviceLimit);
             return PriosCaptureInsertDecision::RejectedNewDeviceLimit;
         }
         // Register new device — falls through to insert below.
@@ -319,6 +352,7 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
             std::memcmp(last->captured_bytes, record.captured_bytes,
                         record.total_bytes_captured) == 0) {
             total_dedup_rejected_++;
+            record_reject_locked(PriosCaptureRejectReason::Duplicate);
             return PriosCaptureInsertDecision::RejectedDuplicate;
         }
 
@@ -326,6 +360,7 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
         //     meter floods the ring buffer with distinct readings.
         if (count_for_fingerprint_locked(fp) >= kMaxRecordsPerDevice) {
             total_device_quota_rejected_++;
+            record_reject_locked(PriosCaptureRejectReason::DeviceQuota);
             return PriosCaptureInsertDecision::RejectedDeviceQuota;
         }
     }
@@ -361,6 +396,7 @@ void PriosCaptureService::clear() {
     retained_length_total_ = 0;
     retained_length_min_ = 0;
     retained_length_max_ = 0;
+    last_reject_reason_ = PriosCaptureRejectReason::None;
 }
 
 } // namespace wmbus_prios_rx

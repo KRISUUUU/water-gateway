@@ -18,6 +18,7 @@
 #include "radio_state_machine/radio_state_machine.hpp"
 #include "protocol_driver/protocol_ids.hpp"
 #include "protocol_driver/radio_profile_manager.hpp"
+#include "protocol_driver/radio_runtime_plan.hpp"
 #include "rf_diagnostics/rf_diagnostics.hpp"
 #include "telegram_router/telegram_router.hpp"
 #include "watchdog_service/watchdog_service.hpp"
@@ -25,6 +26,7 @@
 #include "wmbus_link/wmbus_link.hpp"
 #include "wmbus_prios_rx/prios_bringup_session.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
+#include "wmbus_prios_rx/prios_decoder.hpp"
 #include "wmbus_tmode_rx/rx_session_engine.hpp"
 
 #include "esp_log.h"
@@ -188,24 +190,130 @@ static void populate_rf_diagnostic_timestamps(rf_diagnostics::RfDiagnosticRecord
 }
 
 struct RadioStartupConfigSnapshot {
+    protocol_driver::RadioRuntimePlan runtime_plan =
+        protocol_driver::RadioRuntimePlan::single_radio(
+            protocol_driver::RadioSchedulerMode::Locked,
+            protocol_driver::kRadioProfileMaskWMbusT868);
     bool campaign_active = false;
     bool discovery_active = false;
     bool campaign_manchester = false;
-    protocol_driver::RadioSchedulerMode scheduler_mode =
-        protocol_driver::RadioSchedulerMode::Locked;
-    protocol_driver::RadioProfileMask enabled_profiles =
-        protocol_driver::kRadioProfileMaskWMbusT868;
 };
 
 static RadioStartupConfigSnapshot load_radio_startup_config() {
     const auto cfg = config_store::ConfigStore::instance().config();
     return {
+        .runtime_plan = protocol_driver::RadioRuntimePlan::single_radio(
+            cfg.radio.scheduler_mode, cfg.radio.enabled_profiles),
         .campaign_active = cfg.radio.prios_capture_campaign,
         .discovery_active = cfg.radio.prios_discovery_mode,
         .campaign_manchester = cfg.radio.prios_manchester_enabled,
-        .scheduler_mode = cfg.radio.scheduler_mode,
-        .enabled_profiles = cfg.radio.enabled_profiles,
     };
+}
+
+struct RuntimeProfileApplyResult {
+    protocol_driver::RadioProfileId requested_profile =
+        protocol_driver::RadioProfileId::Unknown;
+    protocol_driver::RadioProfileId applied_profile =
+        protocol_driver::RadioProfileId::Unknown;
+    protocol_driver::ProfileApplyStatus apply_status =
+        protocol_driver::ProfileApplyStatus::Pending;
+    common::ErrorCode error = common::ErrorCode::OK;
+};
+
+static const char* prios_mode_to_string(wmbus_prios_rx::PriosBringUpSession::Mode mode) {
+    return mode == wmbus_prios_rx::PriosBringUpSession::Mode::DiscoverySniffer
+               ? "DiscoverySniffer"
+               : "SyncCampaign";
+}
+
+static RuntimeProfileApplyResult apply_runtime_radio_profile(
+    radio_cc1101::RadioCc1101& radio, void* owner_token,
+    protocol_driver::RadioProfileId requested_profile, bool experimental_prios_active,
+    bool discovery_active, bool manchester_enabled,
+    wmbus_tmode_rx::RxSessionEngine& session_engine,
+    wmbus_prios_rx::PriosBringUpSession& prios_session) {
+    RuntimeProfileApplyResult result{};
+    result.requested_profile = requested_profile;
+
+    switch (requested_profile) {
+        case protocol_driver::RadioProfileId::WMbusT868: {
+            session_engine.reset();
+            prios_session.reset();
+            auto apply = radio.owner_apply_tmode_profile(owner_token);
+            if (apply.is_error()) {
+                result.apply_status = protocol_driver::ProfileApplyStatus::ApplyFailed;
+                result.error = apply.error();
+                return result;
+            }
+            result.applied_profile = protocol_driver::RadioProfileId::WMbusT868;
+            result.apply_status = protocol_driver::ProfileApplyStatus::Applied;
+            return result;
+        }
+
+        case protocol_driver::RadioProfileId::WMbusPriosR3: {
+            const auto mode =
+                (experimental_prios_active && !discovery_active)
+                    ? wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign
+                    : wmbus_prios_rx::PriosBringUpSession::Mode::DiscoverySniffer;
+            session_engine.reset();
+            prios_session.reset();
+            prios_session.configure(mode, manchester_enabled);
+            auto apply =
+                mode == wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign
+                    ? radio.owner_apply_prios_r3_profile(owner_token, manchester_enabled)
+                    : radio.owner_apply_prios_r3_discovery_profile(owner_token, manchester_enabled);
+            if (apply.is_error()) {
+                result.apply_status = protocol_driver::ProfileApplyStatus::ApplyFailed;
+                result.error = apply.error();
+                return result;
+            }
+            result.applied_profile = protocol_driver::RadioProfileId::WMbusPriosR3;
+            result.apply_status = protocol_driver::ProfileApplyStatus::Applied;
+            return result;
+        }
+
+        case protocol_driver::RadioProfileId::WMbusPriosR4: {
+            session_engine.reset();
+            prios_session.reset();
+            auto fallback = radio.owner_apply_tmode_profile(owner_token);
+            if (fallback.is_error()) {
+                result.apply_status = protocol_driver::ProfileApplyStatus::ApplyFailed;
+                result.error = fallback.error();
+                return result;
+            }
+            result.applied_profile = protocol_driver::RadioProfileId::WMbusT868;
+            result.apply_status = protocol_driver::ProfileApplyStatus::UnsupportedRequestedProfile;
+            return result;
+        }
+
+        default:
+            result.apply_status = protocol_driver::ProfileApplyStatus::ApplyFailed;
+            result.error = common::ErrorCode::InvalidArgument;
+            return result;
+    }
+}
+
+static void log_runtime_profile_apply(const RuntimeProfileApplyResult& result,
+                                      protocol_driver::SchedulerSwitchReason switch_reason,
+                                      bool manchester_enabled,
+                                      wmbus_prios_rx::PriosBringUpSession::Mode prios_mode) {
+    if (result.error != common::ErrorCode::OK) {
+        ESP_LOGW(TAG,
+                 "radio profile apply failed: requested=%s reason=%s error=%s",
+                 protocol_driver::radio_profile_id_to_string(result.requested_profile),
+                 protocol_driver::scheduler_switch_reason_to_string(switch_reason),
+                 common::error_code_to_string(result.error));
+        return;
+    }
+
+    ESP_LOGI(TAG,
+             "radio profile apply: requested=%s applied=%s status=%s reason=%s variant=%s prios_mode=%s",
+             protocol_driver::radio_profile_id_to_string(result.requested_profile),
+             protocol_driver::radio_profile_id_to_string(result.applied_profile),
+             protocol_driver::profile_apply_status_to_string(result.apply_status),
+             protocol_driver::scheduler_switch_reason_to_string(switch_reason),
+             manchester_enabled ? "manchester_on" : "manchester_off",
+             prios_mode_to_string(prios_mode));
 }
 
 static void log_radio_boot_stack_headroom(TaskHandle_t radio_task) {
@@ -387,29 +495,35 @@ static void radio_rx_task(void* /*param*/) {
     // large, so keep that copy scoped to the helper call instead of the
     // radio_rx task lifetime.
     const auto startup_radio_cfg = load_radio_startup_config();
+    const auto* const primary_runtime_cfg =
+        startup_radio_cfg.runtime_plan.instance(protocol_driver::kRadioInstancePrimary);
     const bool campaign_active = startup_radio_cfg.campaign_active;
     const bool discovery_active = startup_radio_cfg.discovery_active;
     const bool campaign_manchester = startup_radio_cfg.campaign_manchester;
     const bool experimental_prios_active = campaign_active || discovery_active;
-    const auto prios_mode =
-        discovery_active
-            ? wmbus_prios_rx::PriosBringUpSession::Mode::DiscoverySniffer
-            : wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign;
 
     if (experimental_prios_active) {
-        // Experimental PRIOS modes lock the scheduler to PRIOS R3 only, regardless of
-        // whatever scheduler_mode and enabled_profiles are set in config.
-        // T-mode reception is suspended for the duration of the session.
+        // Experimental PRIOS modes override the user's scheduler config and lock
+        // the primary radio to WMbusPriosR3 for the duration of the session.
+        // T-mode reception is suspended.  PriosExperimentalLock is recorded as
+        // the switch reason so the diagnostics API makes the override visible.
         profile_mgr.configure(protocol_driver::RadioSchedulerMode::Locked,
-                              protocol_driver::kRadioProfileMaskWMbusPriosR3);
+                              protocol_driver::kRadioProfileMaskWMbusPriosR3,
+                              protocol_driver::kRadioInstancePrimary,
+                              protocol_driver::SchedulerSwitchReason::PriosExperimentalLock);
         ESP_LOGI(TAG, "PRIOS %s ACTIVE — radio locked to WMbusPriosR3 "
-                      "(variant=%s, T-mode suspended)",
+                      "(variant=%s, T-mode suspended, reason=PriosExperimentalLock)",
                  discovery_active ? "discovery/sniffer mode"
                                   : "capture campaign",
                  campaign_manchester ? "manchester_on" : "manchester_off");
     } else {
         // Normal operation: apply scheduler mode and enabled profiles from config.
-        profile_mgr.configure(startup_radio_cfg.scheduler_mode, startup_radio_cfg.enabled_profiles);
+        profile_mgr.configure(primary_runtime_cfg ? primary_runtime_cfg->scheduler_mode
+                                                  : protocol_driver::RadioSchedulerMode::Locked,
+                              primary_runtime_cfg ? primary_runtime_cfg->enabled_profiles
+                                                  : protocol_driver::kRadioProfileMaskWMbusT868,
+                              protocol_driver::kRadioInstancePrimary,
+                              protocol_driver::SchedulerSwitchReason::Initial);
     }
 
     auto owner_claim = radio.claim_owner(current_task);
@@ -419,24 +533,19 @@ static void radio_rx_task(void* /*param*/) {
         return;
     }
 
-    // If an experimental PRIOS mode is active, overwrite the T-mode CC1101
-    // registers with either the sync-driven campaign profile or the separate
-    // discovery/sniffer profile before starting RX.
-    if (experimental_prios_active) {
-        auto profile_result =
-            discovery_active
-                ? radio.owner_apply_prios_r3_discovery_profile(current_task,
-                                                               campaign_manchester)
-                : radio.owner_apply_prios_r3_profile(current_task, campaign_manchester);
-        if (profile_result.is_error()) {
-            ESP_LOGE(TAG, "Failed to apply PRIOS R3 %s profile (%d)",
-                     discovery_active ? "discovery" : "campaign",
-                     static_cast<int>(profile_result.error()));
-            // Non-fatal: the radio will keep the previous profile. Log
-            // prominently so the operator can diagnose why captures do not
-            // match the selected PRIOS mode.
+    {
+        const auto apply_result = apply_runtime_radio_profile(
+            radio, current_task, profile_mgr.selected_profile_id(), experimental_prios_active,
+            discovery_active, campaign_manchester, session_engine, prios_session);
+        if (apply_result.error == common::ErrorCode::OK) {
+            profile_mgr.note_profile_applied(apply_result.applied_profile,
+                                             apply_result.apply_status);
+        } else {
+            profile_mgr.note_profile_applied(profile_mgr.active_profile_id(),
+                                             protocol_driver::ProfileApplyStatus::ApplyFailed);
         }
-        prios_session.configure(prios_mode, campaign_manchester);
+        log_runtime_profile_apply(apply_result, profile_mgr.status().last_switch_reason,
+                                  campaign_manchester, prios_session.mode());
     }
 
     auto irq_enable = radio.enable_gdo_interrupts(current_task, current_task);
@@ -470,6 +579,7 @@ static void radio_rx_task(void* /*param*/) {
         }
 
         const auto active_profile = profile_mgr.active_profile_id();
+        const auto selected_profile_before = profile_mgr.selected_profile_id();
 
         // PRIOS bring-up path: raw bounded capture, no decode, no link-layer routing.
         if (active_profile == protocol_driver::RadioProfileId::WMbusPriosR3) {
@@ -485,6 +595,28 @@ static void radio_rx_task(void* /*param*/) {
                     ESP_LOGW(TAG,
                              "device limit reached (kMaxTrackedDevices=%zu), new fingerprint ignored",
                              wmbus_prios_rx::PriosCaptureService::kMaxTrackedDevices);
+                } else if (dedup_result ==
+                           wmbus_prios_rx::PriosCaptureInsertDecision::Inserted) {
+                    // New unique capture: decode identity and route to normalized pipeline.
+                    const auto decoded =
+                        wmbus_prios_rx::PriosDecoder::decode(prios_result.record);
+                    if (decoded.valid) {
+                        meter_registry::MeterRegistry::instance().observe_prios_telegram(decoded);
+                        const auto& cfg = config_store::ConfigStore::instance().config();
+                        const int64_t ts_ms = prios_result.record.timestamp_ms;
+                        const bool ntp_synced =
+                            ntp_service::NtpService::instance().status().synchronized;
+                        char ts_str[mqtt_service::kPublishTimestampCapacity]{};
+                        format_timestamp(ts_ms, ntp_synced, ts_str);
+                        auto cmd = mqtt_service::make_prios_frame_command(
+                            cfg.mqtt.prefix, cfg.device.hostname,
+                            decoded.meter_key, decoded.display_prefix_hex,
+                            decoded.captured_length, decoded.rssi_dbm, decoded.lqi,
+                            decoded.manchester_enabled, ts_str);
+                        if (cmd.is_ok()) {
+                            enqueue_mqtt(cmd.value());
+                        }
+                    }
                 }
             }
             if (prios_result.radio_error != common::ErrorCode::OK) {
@@ -496,6 +628,26 @@ static void radio_rx_task(void* /*param*/) {
                 if ((errors % 64U) == 1U) {
                     ESP_LOGW(TAG, "watchdog feed failed in radio_rx prios path (errors=%lu)",
                              static_cast<unsigned long>(errors));
+                }
+            }
+            if (!experimental_prios_active &&
+                wait_result.source != app_core::RadioRxWaitSource::IrqNotification &&
+                !prios_session.active()) {
+                const auto next_selected = profile_mgr.advance();
+                if (next_selected != selected_profile_before) {
+                    const auto apply_result = apply_runtime_radio_profile(
+                        radio, current_task, next_selected, false, false,
+                        campaign_manchester, session_engine, prios_session);
+                    if (apply_result.error == common::ErrorCode::OK) {
+                        profile_mgr.note_profile_applied(apply_result.applied_profile,
+                                                         apply_result.apply_status);
+                    } else {
+                        profile_mgr.note_profile_applied(active_profile,
+                                                         protocol_driver::ProfileApplyStatus::ApplyFailed);
+                    }
+                    log_runtime_profile_apply(apply_result,
+                                              profile_mgr.status().last_switch_reason,
+                                              campaign_manchester, prios_session.mode());
                 }
             }
             continue;
@@ -561,6 +713,26 @@ static void radio_rx_task(void* /*param*/) {
             if ((errors % 64U) == 1U) {
                 ESP_LOGW(TAG, "watchdog feed failed in radio_rx (errors=%lu)",
                          static_cast<unsigned long>(errors));
+            }
+        }
+
+        if (!experimental_prios_active &&
+            wait_result.source != app_core::RadioRxWaitSource::IrqNotification &&
+            !session_engine.snapshot().active) {
+            const auto next_selected = profile_mgr.advance();
+            if (next_selected != selected_profile_before) {
+                const auto apply_result = apply_runtime_radio_profile(
+                    radio, current_task, next_selected, false, false,
+                    campaign_manchester, session_engine, prios_session);
+                if (apply_result.error == common::ErrorCode::OK) {
+                    profile_mgr.note_profile_applied(apply_result.applied_profile,
+                                                     apply_result.apply_status);
+                } else {
+                    profile_mgr.note_profile_applied(active_profile,
+                                                     protocol_driver::ProfileApplyStatus::ApplyFailed);
+                }
+                log_runtime_profile_apply(apply_result, profile_mgr.status().last_switch_reason,
+                                          campaign_manchester, prios_session.mode());
             }
         }
     }

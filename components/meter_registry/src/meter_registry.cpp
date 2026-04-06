@@ -175,6 +175,92 @@ void MeterRegistry::observe_telegram(const wmbus_link::ValidatedTelegram& telegr
     t.duplicate = duplicate;
     t.meter_key = key;
     t.watched = watched;
+    t.protocol_name = "WMBUS_T";
+    s.recent.push_back(std::move(t));
+    if (s.recent.size() > kMaxRecentTelegrams) {
+        s.recent.erase(s.recent.begin(),
+                       s.recent.begin() + (s.recent.size() - kMaxRecentTelegrams));
+    }
+}
+
+void MeterRegistry::observe_prios_telegram(
+    const wmbus_prios_rx::PriosDecodedTelegram& telegram) {
+    if (!initialized_ || !telegram.valid) {
+        return;
+    }
+    RegistryState& s = state();
+    const std::string key = telegram.meter_key;
+
+    std::lock_guard<std::mutex> lock(s.mutex);
+
+    // Detected meters
+    int idx = detected_index_by_key(s.detected, key);
+    if (idx < 0) {
+        if (s.detected.size() >= kMaxDetectedMeters) {
+            auto oldest = std::min_element(
+                s.detected.begin(), s.detected.end(),
+                [](const DetectedMeter& a, const DetectedMeter& b) {
+                    return a.last_seen_ms < b.last_seen_ms;
+                });
+            if (oldest != s.detected.end()) {
+                s.detected.erase(oldest);
+            }
+        }
+        DetectedMeter m{};
+        m.key             = key;
+        m.manufacturer_id = wmbus_prios_rx::PriosDecodedTelegram::kManufacturerId;
+        m.device_id       = 0;
+        m.first_seen_ms   = telegram.timestamp_ms;
+        m.last_seen_ms    = telegram.timestamp_ms;
+        m.seen_count      = 1;
+        m.last_rssi_dbm   = telegram.rssi_dbm;
+        m.last_lqi        = telegram.lqi;
+        m.last_crc_ok     = true;
+        s.detected.push_back(std::move(m));
+        idx = detected_index_by_key(s.detected, key);
+        if (idx < 0) {
+            return;
+        }
+    } else {
+        DetectedMeter& m = s.detected[static_cast<size_t>(idx)];
+        m.last_seen_ms  = telegram.timestamp_ms;
+        m.seen_count++;
+        m.last_rssi_dbm = telegram.rssi_dbm;
+        m.last_lqi      = telegram.lqi;
+        m.last_crc_ok   = true;
+    }
+
+    DetectedMeter& meter = s.detected[static_cast<size_t>(idx)];
+    const int wl_idx = watchlist_index_by_key(s.watchlist, key);
+    const bool watched = wl_idx >= 0 && s.watchlist[static_cast<size_t>(wl_idx)].enabled;
+    meter.watched      = wl_idx >= 0;
+    meter.watch_enabled = watched;
+    if (wl_idx >= 0) {
+        meter.alias = s.watchlist[static_cast<size_t>(wl_idx)].alias;
+        meter.note  = s.watchlist[static_cast<size_t>(wl_idx)].note;
+    }
+
+    // Recent telegrams
+    RecentTelegram t{};
+    t.timestamp_ms          = telegram.timestamp_ms;
+    t.raw_hex               = telegram.display_prefix_hex;
+    t.frame_length          = telegram.captured_length;
+    t.captured_hex          = telegram.display_prefix_hex;
+    t.captured_frame_length = telegram.captured_length;
+    t.canonical_hex         = telegram.meter_key;
+    t.canonical_frame_length = telegram.captured_length;
+    t.decoded_ok            = false;
+    t.raw_frame_contract_valid = false;
+    t.rssi_dbm              = telegram.rssi_dbm;
+    t.lqi                   = telegram.lqi;
+    t.crc_ok                = true;
+    t.radio_crc_available   = false;
+    t.duplicate             = false;
+    t.meter_key             = key;
+    t.watched               = watched;
+    t.protocol_name         = wmbus_prios_rx::PriosDecodedTelegram::kProtocolName;
+    t.vendor                = wmbus_prios_rx::PriosDecodedTelegram::kVendor;
+
     s.recent.push_back(std::move(t));
     if (s.recent.size() > kMaxRecentTelegrams) {
         s.recent.erase(s.recent.begin(),

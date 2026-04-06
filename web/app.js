@@ -22,19 +22,19 @@
             bit: 0x02,
             id: "WMbusT868",
             label: "Wireless M-Bus T-mode",
-            help: "Current production receive path.",
+            help: "Current production receive path and safe fallback profile.",
         },
         {
             bit: 0x04,
             id: "WMbusPriosR3",
             label: "PRIOS R3",
-            help: "Capture-only experimental profile used by the PRIOS campaign.",
+            help: "Capture-only experimental profile available to the primary radio runtime.",
         },
         {
             bit: 0x08,
             id: "WMbusPriosR4",
             label: "PRIOS R4",
-            help: "Reserved experimental profile. No decode path is implemented.",
+            help: "Profile presence is wired for scheduler/runtime planning. A dedicated R4 RX path is not active yet.",
         },
     ];
 
@@ -775,6 +775,12 @@
                 arr.forEach((f) => {
                     const tr = document.createElement("tr");
                     createCell(tr, formatTimeMs(f.timestamp_ms));
+                    const proto = f.protocol_name || "WMBUS_T";
+                    const protoCell = createCell(tr, proto);
+                    if (proto === "PRIOS_R3") {
+                        protoCell.style.cssText = "color:#7ec8e3;font-weight:600";
+                    }
+                    createCell(tr, f.vendor || "");
                     createCell(tr, f.meter_key || "");
                     createCell(tr, aliases[f.meter_key] || "");
                     const raw = createCell(tr, f.raw_hex || "", "hex");
@@ -933,6 +939,9 @@
                 const priosDiscovery = prios.discovery_active === true;
                 const priosVariant  = prios.variant || "manchester_off";
                 const priosMode = prios.mode || "inactive";
+                const operatorView = radioData.operator_view || {};
+                const operatorTmode = operatorView.tmode || {};
+                const operatorPrios = operatorView.prios || {};
                 [
                     ["PRIOS Mode", priosMode === "discovery_sniffer"
                         ? "\u25CF Discovery / Sniffer ACTIVE \u2014 T-mode suspended"
@@ -943,13 +952,15 @@
                         ? "Variant B (Manchester ON)"
                         : "Variant A (Manchester OFF)"],
                     ["Profile",       prios.profile],
-                    ["Decoding",      prios.decoding ? "yes (active)" : "no \u2014 capture only"],
+                    ["Support Level", prios.support_level || "identity_only_capture"],
+                    ["Reading Decode", prios.reading_decode_available ? "available" : "not available"],
                     ["Burst Starts Seen", prios.burst_starts_seen],
                     ["Total Captures",prios.total_captures],
                     ["Noise Rejections", prios.noise_rejections],
                     ["Quality Rejections", prios.quality_rejections],
                     ["Variant B Short Rejects", prios.variant_b_short_rejections],
                     ["Similarity Rejects", prios.similarity_rejections],
+                    ["Last Reject Reason", prios.last_reject_reason],
                     ["Total Evicted", prios.total_evicted],
                     ["Retained Captures", prios.retained_captures],
                     ["Retained A/B Totals", text(prios.retained_variant_a_total, "0") + " / " + text(prios.retained_variant_b_total, "0")],
@@ -1033,17 +1044,39 @@
                 }
 
                 const sched = radioData.scheduler || {};
+                const topology = radioData.topology || {};
                 const enabledProfiles = Array.isArray(sched.enabled_profiles)
                     ? sched.enabled_profiles.join(", ")
                     : "--";
                 [
+                    ["Radio Topology", topology.single_radio_mode ? "Single-radio (primary active)" : "Multi-radio"],
+                    ["Active Radio Count", topology.active_radio_count],
+                    ["Supported Radio Slots", topology.supported_radio_slots],
                     ["Scheduler Mode", sched.mode],
+                    ["Preferred Profile", sched.preferred_profile],
+                    ["Selected Profile", sched.selected_profile],
                     ["Active Profile", sched.active_profile],
+                    ["Active Protocol", sched.active_protocol],
+                    ["Last Apply Status", sched.last_apply_status],
                     ["Enabled Profiles", enabledProfiles],
                     ["Last Switch Reason", sched.last_switch_reason],
+                    ["Last Wake Source", sched.last_wake_source],
                     ["Profile Switches", sched.profile_switch_count],
+                    ["Profile Applies", sched.profile_apply_count],
+                    ["Profile Apply Failures", sched.profile_apply_failures],
                     ["IRQ Wakes", sched.irq_wake_count],
                     ["Fallback Wakes", sched.fallback_wake_count],
+                    ["T-mode Recent Accepts", operatorTmode.recent_accepts],
+                    ["T-mode Last Reject", operatorTmode.last_reject_reason],
+                    ["T-mode Last Success", operatorTmode.last_success_meter_key
+                        ? operatorTmode.last_success_meter_key + " @ " + text(operatorTmode.last_success_rssi_dbm, "--") + " dBm / LQI " + text(operatorTmode.last_success_lqi, "--")
+                        : "--"],
+                    ["PRIOS Recent Accepts", operatorPrios.recent_accepts],
+                    ["PRIOS Support", operatorPrios.support_level],
+                    ["PRIOS Last Reject", operatorPrios.last_reject_reason],
+                    ["PRIOS Last Success", operatorPrios.last_success_meter_key
+                        ? operatorPrios.last_success_meter_key + " @ " + text(operatorPrios.last_success_rssi_dbm, "--") + " dBm / LQI " + text(operatorPrios.last_success_lqi, "--")
+                        : "--"],
                 ].forEach((entry) => schedEl.appendChild(kvRow(entry[0], entry[1])));
 
                 [
@@ -1139,7 +1172,7 @@
 
         appendFieldHint(
             card,
-            "PRIOS support is currently capture-only. Enabling PRIOS capture campaign locks the radio to PRIOS R3 and suspends T-mode after save and reboot."
+            "This firmware currently runs one active CC1101 runtime. The primary radio can schedule multiple profiles; the secondary radio slot is reserved in the runtime model for future hardware."
         );
 
         const freqLabel = document.createElement("label");
@@ -1189,7 +1222,7 @@
         schedulerSelect.value = String(toNumberOr(radio.scheduler_mode, 0));
         schedulerLabel.appendChild(schedulerSelect);
         card.appendChild(schedulerLabel);
-        appendFieldHint(card, "Scheduler mode is saved normally, but active PRIOS experimental modes override it until they are turned off.");
+        appendFieldHint(card, "Scheduler mode is saved for the primary radio instance. Active PRIOS experimental modes still override that radio intentionally until they are turned off.");
 
         const profilesBlock = document.createElement("div");
         profilesBlock.className = "config-subsection";
@@ -1263,7 +1296,7 @@
                     "Discovery / sniffer mode locks the radio to PRIOS R3, suspends T-mode, and captures bounded bursts using discovery-oriented radio activity gating instead of the placeholder sync word.";
             } else {
                 summary.textContent =
-                    "Normal mode uses the saved scheduler mode and enabled profiles after reboot. PRIOS decode is not available yet.";
+                    "Normal mode uses the saved primary-radio scheduler mode and enabled profiles after reboot. T-mode and PRIOS R3 can share one CC1101 runtime; the secondary radio slot remains reserved for future hardware.";
             }
         }
 

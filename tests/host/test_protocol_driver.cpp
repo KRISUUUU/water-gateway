@@ -9,6 +9,7 @@
 #include "protocol_driver/protocol_ids.hpp"
 #include "protocol_driver/radio_profile.hpp"
 #include "protocol_driver/radio_protocol_scheduler.hpp"
+#include "protocol_driver/radio_runtime_plan.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -85,6 +86,25 @@ void test_radio_profile_valid_with_register_table() {
 }
 
 // ----- RadioProtocolScheduler -----
+
+void test_runtime_plan_single_radio_marks_secondary_reserved() {
+    const auto plan =
+        RadioRuntimePlan::single_radio(RadioSchedulerMode::Priority,
+                                       kRadioProfileMaskWMbusT868 |
+                                       kRadioProfileMaskWMbusPriosR3);
+    assert(plan.single_radio_mode);
+    assert(plan.active_radio_count == 1);
+    const auto* primary = plan.instance(kRadioInstancePrimary);
+    const auto* secondary = plan.instance(kRadioInstanceSecondary);
+    assert(primary != nullptr);
+    assert(secondary != nullptr);
+    assert(primary->present);
+    assert(primary->enabled);
+    assert(primary->scheduler_mode == RadioSchedulerMode::Priority);
+    assert(!secondary->present);
+    assert(!secondary->enabled);
+    std::printf("  PASS: single-radio runtime plan reserves secondary slot cleanly\n");
+}
 
 void test_scheduler_starts_empty() {
     RadioProtocolScheduler sched;
@@ -289,6 +309,7 @@ int main() {
     test_radio_instance_constants();
     test_radio_profile_invalid_when_default();
     test_radio_profile_valid_with_register_table();
+    test_runtime_plan_single_radio_marks_secondary_reserved();
     test_scheduler_starts_empty();
     test_scheduler_add_single_slot();
     test_scheduler_disabled_slot_not_active();

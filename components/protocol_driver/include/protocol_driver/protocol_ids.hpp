@@ -73,8 +73,9 @@ inline const char* radio_profile_id_to_string(RadioProfileId id) {
 //   Priority — one preferred profile with bounded fallback scanning.
 //   Scan     — round-robin across all enabled profiles.
 //
-// Only Locked is wired at runtime today; Priority and Scan are scaffolding
-// for when the scheduler drives profile rotation.
+// All three modes are wired into the single-radio owner task. Priority and
+// Scan advance only on bounded idle/liveness wakes so one radio instance
+// still owns exactly one active RX path at a time.
 enum class RadioSchedulerMode : uint8_t {
     Locked   = 0,
     Priority = 1,
