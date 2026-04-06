@@ -515,6 +515,137 @@ void test_discovery_mode_uses_irq_or_fifo_instead_of_receiving_state() {
     std::printf("  PASS: discovery mode starts on burst activity, not just RX state\n");
 }
 
+// ---- insert_with_dedup_gate tests -------------------------------------------
+
+// Build a record with a known device fingerprint at bytes 9-14.
+PriosCaptureRecord make_record_with_fp(const uint8_t fp_bytes[PriosDeviceFingerprint::kLength],
+                                        uint8_t payload_variant = 0) {
+    PriosCaptureRecord rec{};
+    rec.total_bytes_captured = 20;
+    for (uint8_t i = 0; i < 20; ++i) {
+        rec.captured_bytes[i] = static_cast<uint8_t>(i + payload_variant);
+    }
+    // Overwrite fingerprint bytes at offset 9.
+    for (uint8_t i = 0; i < PriosDeviceFingerprint::kLength; ++i) {
+        rec.captured_bytes[PriosDeviceFingerprint::kOffset + i] = fp_bytes[i];
+    }
+    return rec;
+}
+
+void test_dedup_gate_inserts_first_record_for_device() {
+    PriosCaptureService::instance().clear();
+    const uint8_t fp[] = {0xB2, 0xB1, 0xC6, 0x9D, 0xA2, 0xCE};
+    const auto rec = make_record_with_fp(fp, 0);
+    const auto d = PriosCaptureService::instance().insert_with_dedup_gate(rec);
+    assert(d == PriosCaptureInsertDecision::Inserted);
+    assert(PriosCaptureService::instance().stats().total_inserted == 1);
+    std::printf("  PASS: dedup gate inserts first record for a device\n");
+}
+
+void test_dedup_gate_rejects_exact_duplicate() {
+    PriosCaptureService::instance().clear();
+    const uint8_t fp[] = {0xB2, 0xB1, 0xC6, 0x9D, 0xA2, 0xCE};
+    const auto rec = make_record_with_fp(fp, 0);
+
+    const auto first  = PriosCaptureService::instance().insert_with_dedup_gate(rec);
+    const auto second = PriosCaptureService::instance().insert_with_dedup_gate(rec);  // identical
+
+    assert(first  == PriosCaptureInsertDecision::Inserted);
+    assert(second == PriosCaptureInsertDecision::RejectedDuplicate);
+    assert(PriosCaptureService::instance().stats().total_inserted == 1);
+    assert(PriosCaptureService::instance().stats().total_dedup_rejected == 1);
+    std::printf("  PASS: dedup gate rejects exact payload duplicate\n");
+}
+
+void test_dedup_gate_accepts_different_payload_same_device() {
+    PriosCaptureService::instance().clear();
+    const uint8_t fp[] = {0xB2, 0xB1, 0xC6, 0x9D, 0xA2, 0xCE};
+    const auto rec_a = make_record_with_fp(fp, 0);
+    const auto rec_b = make_record_with_fp(fp, 10);  // different payload bytes
+
+    const auto da = PriosCaptureService::instance().insert_with_dedup_gate(rec_a);
+    const auto db = PriosCaptureService::instance().insert_with_dedup_gate(rec_b);
+
+    assert(da == PriosCaptureInsertDecision::Inserted);
+    assert(db == PriosCaptureInsertDecision::Inserted);
+    assert(PriosCaptureService::instance().stats().total_inserted == 2);
+    assert(PriosCaptureService::instance().stats().total_dedup_rejected == 0);
+    std::printf("  PASS: dedup gate accepts different payload from same device\n");
+}
+
+void test_dedup_gate_enforces_per_device_quota() {
+    PriosCaptureService::instance().clear();
+    const uint8_t fp[] = {0xB2, 0xB1, 0xC6, 0x9D, 0xA2, 0xCE};
+
+    // Insert kMaxRecordsPerDevice unique records for one device.
+    for (size_t i = 0; i < PriosCaptureService::kMaxRecordsPerDevice; ++i) {
+        const auto rec = make_record_with_fp(fp, static_cast<uint8_t>(i));
+        const auto d = PriosCaptureService::instance().insert_with_dedup_gate(rec);
+        assert(d == PriosCaptureInsertDecision::Inserted);
+    }
+    assert(PriosCaptureService::instance().stats().total_inserted ==
+           PriosCaptureService::kMaxRecordsPerDevice);
+
+    // One more unique payload for the same device should be rejected.
+    const auto extra = make_record_with_fp(fp, 0xFF);
+    const auto d = PriosCaptureService::instance().insert_with_dedup_gate(extra);
+    assert(d == PriosCaptureInsertDecision::RejectedDeviceQuota);
+    assert(PriosCaptureService::instance().stats().total_device_quota_rejected == 1);
+    assert(PriosCaptureService::instance().stats().total_inserted ==
+           PriosCaptureService::kMaxRecordsPerDevice);
+    std::printf("  PASS: dedup gate rejects 6th unique record for same device\n");
+}
+
+void test_dedup_gate_different_devices_have_independent_quotas() {
+    PriosCaptureService::instance().clear();
+    const uint8_t fp_a[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    const uint8_t fp_b[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+
+    // Fill quota for device A.
+    for (size_t i = 0; i < PriosCaptureService::kMaxRecordsPerDevice; ++i) {
+        const auto rec = make_record_with_fp(fp_a, static_cast<uint8_t>(i));
+        assert(PriosCaptureService::instance().insert_with_dedup_gate(rec) ==
+               PriosCaptureInsertDecision::Inserted);
+    }
+    // Device B should still be insertable regardless of device A's quota.
+    const auto rec_b = make_record_with_fp(fp_b, 0);
+    assert(PriosCaptureService::instance().insert_with_dedup_gate(rec_b) ==
+           PriosCaptureInsertDecision::Inserted);
+    assert(PriosCaptureService::instance().stats().total_inserted ==
+           PriosCaptureService::kMaxRecordsPerDevice + 1);
+    std::printf("  PASS: different devices have independent quotas\n");
+}
+
+void test_dedup_gate_short_capture_bypasses_fingerprint_check() {
+    // Capture shorter than kOffset+kLength (< 15 bytes) — no fingerprint possible.
+    // Must be inserted without dedup/quota checks.
+    PriosCaptureService::instance().clear();
+    PriosCaptureRecord short_rec{};
+    short_rec.total_bytes_captured = 5;
+    for (uint8_t i = 0; i < 5; ++i) { short_rec.captured_bytes[i] = i; }
+
+    const auto d1 = PriosCaptureService::instance().insert_with_dedup_gate(short_rec);
+    const auto d2 = PriosCaptureService::instance().insert_with_dedup_gate(short_rec);
+    // Both should be inserted (no fingerprint → no dedup).
+    assert(d1 == PriosCaptureInsertDecision::Inserted);
+    assert(d2 == PriosCaptureInsertDecision::Inserted);
+    assert(PriosCaptureService::instance().stats().total_inserted == 2);
+    std::printf("  PASS: short capture (no fingerprint) bypasses dedup gate\n");
+}
+
+void test_dedup_gate_stats_cleared_by_clear() {
+    PriosCaptureService::instance().clear();
+    const uint8_t fp[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    const auto rec = make_record_with_fp(fp, 0);
+    (void)PriosCaptureService::instance().insert_with_dedup_gate(rec);
+    (void)PriosCaptureService::instance().insert_with_dedup_gate(rec);  // duplicate
+    PriosCaptureService::instance().clear();
+    const auto stats = PriosCaptureService::instance().stats();
+    assert(stats.total_dedup_rejected == 0);
+    assert(stats.total_device_quota_rejected == 0);
+    std::printf("  PASS: clear() resets dedup counters\n");
+}
+
 void test_sync_campaign_starts_counter_is_incremented() {
     PriosCaptureService::instance().clear();
 
@@ -585,6 +716,14 @@ int main() {
     test_variant_a_and_longer_variant_b_captures_are_preserved();
     test_discovery_mode_uses_irq_or_fifo_instead_of_receiving_state();
     test_discovery_mode_rejects_weak_signal_candidates();
+    test_dedup_gate_inserts_first_record_for_device();
+    test_dedup_gate_rejects_exact_duplicate();
+    test_dedup_gate_accepts_different_payload_same_device();
+    test_dedup_gate_enforces_per_device_quota();
+    test_dedup_gate_different_devices_have_independent_quotas();
+    test_dedup_gate_short_capture_bypasses_fingerprint_check();
+    test_dedup_gate_stats_cleared_by_clear();
+
     test_sync_campaign_starts_counter_is_incremented();
     test_sync_campaign_starts_cleared_by_clear();
 

@@ -320,6 +320,7 @@ add_host_test(test_prios_capture
     test_prios_capture.cpp
     "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_driver.cpp"
     "${COMP_DIR}/wmbus_prios_rx/src/prios_capture_service.cpp"
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_analyzer.cpp"
 )
 
 # ---- test_prios_fixture_analyzer ----
@@ -332,6 +333,7 @@ add_host_test(test_prios_fixture_analyzer
 add_host_test(test_prios_export
     test_prios_export.cpp
     "${COMP_DIR}/wmbus_prios_rx/src/prios_export.cpp"
+    "${COMP_DIR}/wmbus_prios_rx/src/prios_analyzer.cpp"
     ${CJSON_SRC}
 )
 

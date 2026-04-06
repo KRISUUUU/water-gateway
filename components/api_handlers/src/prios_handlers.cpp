@@ -3,10 +3,14 @@
 #ifndef HOST_TEST_BUILD
 
 #include "config_store/config_store.hpp"
+#include "meter_registry/meter_registry.hpp"
 #include "protocol_driver/protocol_ids.hpp"
+#include "wmbus_prios_rx/prios_analyzer.hpp"
 #include "wmbus_prios_rx/prios_bringup_session.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
 #include "wmbus_prios_rx/prios_export.hpp"
+
+#include <unordered_map>
 
 namespace api_handlers::detail {
 
@@ -101,6 +105,10 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(stats.total_burst_starts));
     cJSON_AddNumberToObject(root.get(), "sync_campaign_starts",
                             static_cast<double>(stats.total_sync_campaign_starts));
+    cJSON_AddNumberToObject(root.get(), "total_dedup_rejected",
+                            static_cast<double>(stats.total_dedup_rejected));
+    cJSON_AddNumberToObject(root.get(), "total_device_quota_rejected",
+                            static_cast<double>(stats.total_device_quota_rejected));
     cJSON_AddNumberToObject(root.get(), "recent_preview_count",
                             static_cast<double>(preview.count));
     cJSON_AddNumberToObject(root.get(), "noise_rejections",
@@ -125,6 +133,18 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                             static_cast<double>(
                                 wmbus_prios_rx::PriosBringUpSession::kVariantBMinTimeoutCaptureBytes));
 
+    // Build fingerprint → alias lookup from watchlist.
+    // PRIOS devices are stored in the watchlist with the fingerprint hex as their key,
+    // so users can assign human-readable names via the watchlist quick-add flow.
+    std::unordered_map<std::string, std::string> fp_alias_map;
+    for (const auto& entry : meter_registry::MeterRegistry::instance().watchlist()) {
+        if (!entry.alias.empty()) {
+            fp_alias_map[entry.key] = entry.alias;
+        }
+    }
+
+    constexpr char kHex[] = "0123456789ABCDEF";
+
     cJSON* arr = cJSON_AddArrayToObject(root.get(), "recent_captures");
     for (size_t i = 0; i < preview.count; ++i) {
         const auto& r = preview.records[i];
@@ -138,10 +158,34 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
         cJSON_AddStringToObject(rec, "variant",
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
 
+        // Device fingerprint (bytes 9–14 of the frame). Usable as a stable
+        // per-device identity during bring-up before a full decoder is available.
+        const auto fp = wmbus_prios_rx::PriosAnalyzer::extract_fingerprint(
+            r.preview_bytes, r.preview_length);
+        if (fp.valid) {
+            char fp_hex[wmbus_prios_rx::PriosDeviceFingerprint::kLength * 2 + 1]{};
+            for (uint8_t bi = 0; bi < wmbus_prios_rx::PriosDeviceFingerprint::kLength; ++bi) {
+                fp_hex[bi * 2 + 0] = kHex[(fp.bytes[bi] >> 4) & 0x0F];
+                fp_hex[bi * 2 + 1] = kHex[fp.bytes[bi] & 0x0F];
+            }
+            fp_hex[wmbus_prios_rx::PriosDeviceFingerprint::kLength * 2] = '\0';
+            cJSON_AddStringToObject(rec, "device_fingerprint", fp_hex);
+
+            // Alias from watchlist (if user has already named this device).
+            auto alias_it = fp_alias_map.find(fp_hex);
+            if (alias_it != fp_alias_map.end()) {
+                cJSON_AddStringToObject(rec, "device_alias", alias_it->second.c_str());
+            } else {
+                cJSON_AddNullToObject(rec, "device_alias");
+            }
+        } else {
+            cJSON_AddNullToObject(rec, "device_fingerprint");
+            cJSON_AddNullToObject(rec, "device_alias");
+        }
+
         // Short dashboard preview only. Export uses the full bounded payload.
         char hex_buf[wmbus_prios_rx::PriosCaptureRecord::kDisplayPrefixBytes * 2 + 1]{};
         for (uint8_t j = 0; j < r.preview_length; ++j) {
-            constexpr char kHex[] = "0123456789ABCDEF";
             hex_buf[j * 2 + 0] = kHex[(r.preview_bytes[j] >> 4) & 0x0F];
             hex_buf[j * 2 + 1] = kHex[r.preview_bytes[j] & 0x0F];
         }

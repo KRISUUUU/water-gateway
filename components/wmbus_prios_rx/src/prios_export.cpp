@@ -1,5 +1,6 @@
 #include "wmbus_prios_rx/prios_export.hpp"
 
+#include "wmbus_prios_rx/prios_analyzer.hpp"
 #include "wmbus_prios_rx/prios_fixture.hpp"
 
 namespace wmbus_prios_rx {
@@ -51,7 +52,21 @@ void append_export_json_object(std::string& out, const PriosCaptureRecord& recor
     out += std::to_string(static_cast<long long>(frame.timestamp_ms));
     out += ",\"variant\":\"";
     out += record.manchester_enabled ? "manchester_on" : "manchester_off";
-    out += "\",\"display_prefix_hex\":";
+    out += "\",\"device_fingerprint\":";
+    {
+        const auto fp = PriosAnalyzer::extract_fingerprint(frame.bytes, frame.length);
+        if (fp.valid) {
+            out.push_back('"');
+            for (uint8_t i = 0; i < PriosDeviceFingerprint::kLength; ++i) {
+                out.push_back(kHex[(fp.bytes[i] >> 4) & 0x0F]);
+                out.push_back(kHex[fp.bytes[i] & 0x0F]);
+            }
+            out.push_back('"');
+        } else {
+            out += "null";
+        }
+    }
+    out += ",\"display_prefix_hex\":";
     append_hex_string(out, frame.bytes, preview_length);
     out += ",\"full_hex\":";
     append_hex_string(out, frame.bytes, bounded_capture_length(record));

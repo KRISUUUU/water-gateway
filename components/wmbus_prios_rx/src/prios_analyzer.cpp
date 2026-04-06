@@ -167,6 +167,21 @@ PriosAnalyzer::Readiness PriosAnalyzer::assess_readiness(
     return r;
 }
 
+// ---- Device fingerprint extraction ------------------------------------------
+
+PriosDeviceFingerprint PriosAnalyzer::extract_fingerprint(const uint8_t* data, size_t len) {
+    PriosDeviceFingerprint fp{};
+    constexpr size_t kRequired =
+        PriosDeviceFingerprint::kOffset + PriosDeviceFingerprint::kLength;
+    if (!data || len < kRequired) {
+        return fp;  // valid = false
+    }
+    std::memcpy(fp.bytes, data + PriosDeviceFingerprint::kOffset,
+                PriosDeviceFingerprint::kLength);
+    fp.valid = true;
+    return fp;
+}
+
 // ---- Text report ------------------------------------------------------------
 
 size_t PriosAnalyzer::format_report(char*                    buf,
@@ -243,6 +258,68 @@ size_t PriosAnalyzer::format_report(char*                    buf,
             }
             EMIT("\n");
         }
+    }
+
+    // Per-device fingerprint grouping
+    EMIT("Devices by fingerprint (bytes 9-14):\n");
+    if (frames && count > 0) {
+        // Stack-allocated fingerprint frequency table; bounded by kMaxFpEntries.
+        struct FpEntry {
+            uint8_t bytes[PriosDeviceFingerprint::kLength]{};
+            uint8_t count = 0;
+        };
+        constexpr size_t kMaxFpEntries = 16;
+        FpEntry fp_table[kMaxFpEntries]{};
+        size_t  fp_count = 0;
+        size_t  short_count = 0;  // captures too short to fingerprint
+
+        for (size_t i = 0; i < count; ++i) {
+            const auto fp = extract_fingerprint(frames[i].bytes, frames[i].length);
+            if (!fp.valid) {
+                ++short_count;
+                continue;
+            }
+            bool found = false;
+            for (size_t j = 0; j < fp_count; ++j) {
+                if (std::memcmp(fp_table[j].bytes, fp.bytes,
+                                PriosDeviceFingerprint::kLength) == 0) {
+                    if (fp_table[j].count < 0xFF) {
+                        fp_table[j].count++;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && fp_count < kMaxFpEntries) {
+                std::memcpy(fp_table[fp_count].bytes, fp.bytes,
+                            PriosDeviceFingerprint::kLength);
+                fp_table[fp_count].count = 1;
+                fp_count++;
+            }
+        }
+
+        if (fp_count == 0 && short_count == count) {
+            EMIT("  (all captures too short — need >= %u bytes)\n",
+                 static_cast<unsigned>(PriosDeviceFingerprint::kOffset +
+                                       PriosDeviceFingerprint::kLength));
+        } else {
+            for (size_t i = 0; i < fp_count; ++i) {
+                EMIT("  [%zu] ", i);
+                for (size_t b = 0; b < PriosDeviceFingerprint::kLength; ++b) {
+                    EMIT("%02X", fp_table[i].bytes[b]);
+                }
+                EMIT("  count=%u\n", static_cast<unsigned>(fp_table[i].count));
+            }
+            if (fp_count >= kMaxFpEntries) {
+                EMIT("  (table full at %zu devices — more may be present)\n",
+                     kMaxFpEntries);
+            }
+            if (short_count > 0) {
+                EMIT("  (%zu capture(s) too short to fingerprint)\n", short_count);
+            }
+        }
+    } else {
+        EMIT("  (no captures)\n");
     }
 
     // Readiness summary

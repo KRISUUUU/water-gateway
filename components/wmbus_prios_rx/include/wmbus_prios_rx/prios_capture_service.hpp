@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <memory>
 
@@ -20,6 +21,27 @@
 // embedded use while preserving enough evidence for offline analysis.
 
 namespace wmbus_prios_rx {
+
+// Device fingerprint extracted from a raw PRIOS capture.
+//
+// Based on analysis of PRIOS R3 frames: bytes at 0-indexed positions 9–14
+// are stable within a single device's transmissions and differ between
+// devices.  They correspond to the device address/serial field in the frame.
+//
+// Used for per-device deduplication and per-device retention limiting in
+// PriosCaptureService.
+struct PriosDeviceFingerprint {
+    static constexpr uint8_t kOffset = 9;
+    static constexpr uint8_t kLength = 6;
+
+    uint8_t bytes[kLength]{};
+    bool    valid = false;  // false when capture is too short to contain the field
+
+    bool matches(const PriosDeviceFingerprint& other) const {
+        return valid && other.valid &&
+               std::memcmp(bytes, other.bytes, kLength) == 0;
+    }
+};
 
 struct PriosCaptureRecord {
     // Bounded raw capture copied from the PRIOS bring-up session.
@@ -62,6 +84,9 @@ struct PriosCaptureStats {
     // by the CC1101 hardware decoder.
     uint32_t total_sync_campaign_starts = 0;
     uint32_t total_noise_rejected = 0;
+    // Multi-device deduplication counters (populated by insert_with_dedup_gate).
+    uint32_t total_dedup_rejected = 0;
+    uint32_t total_device_quota_rejected = 0;
     uint32_t total_quality_rejected = 0;
     uint32_t variant_b_short_rejected = 0;
     uint32_t total_similarity_rejected = 0;
@@ -75,6 +100,8 @@ struct PriosCaptureStats {
 enum class PriosCaptureInsertDecision : uint8_t {
     Inserted = 0,
     RejectedVariantBSimilarity,
+    RejectedDuplicate,    // exact payload already stored in buffer for this device
+    RejectedDeviceQuota,  // device already has kMaxRecordsPerDevice unique records retained
 };
 
 struct PriosCapturePreviewRecord {
@@ -106,6 +133,19 @@ class PriosCaptureService {
     void insert(const PriosCaptureRecord& record);
     [[nodiscard]] PriosCaptureInsertDecision insert_with_quality_gate(
         const PriosCaptureRecord& record);
+    // Multi-device deduplication gate (replaces insert_with_quality_gate in the
+    // campaign path once 0x1E9B is confirmed).  For each record:
+    //   - Extracts device fingerprint (bytes 9–14).
+    //   - Rejects exact payload duplicates (same device, same bytes).
+    //   - Rejects new unique payloads when the device already has
+    //     kMaxRecordsPerDevice records retained in the ring buffer.
+    //   - Falls through to normal insertion for unknown/short captures.
+    [[nodiscard]] PriosCaptureInsertDecision insert_with_dedup_gate(
+        const PriosCaptureRecord& record);
+
+    // Maximum unique records retained per device. Exposed for test assertions.
+    static constexpr size_t kMaxRecordsPerDevice = 5;
+
     void record_burst_start();
     void record_sync_campaign_start();
     void record_noise_rejection(bool manchester_enabled, bool short_capture);
@@ -132,6 +172,13 @@ class PriosCaptureService {
     [[nodiscard]] bool variant_b_prefix_seen_locked(const PriosCaptureRecord& record) const;
     void remember_variant_b_prefix_locked(const PriosCaptureRecord& record);
 
+    // Fingerprint-based dedup helpers (all called with mutex_ held).
+    // Counts how many records in the ring buffer match fp.
+    [[nodiscard]] size_t count_for_fingerprint_locked(const PriosDeviceFingerprint& fp) const;
+    // Returns true if an exact payload duplicate for fp is already in the buffer.
+    [[nodiscard]] bool is_exact_duplicate_locked(const PriosDeviceFingerprint& fp,
+                                                  const PriosCaptureRecord& incoming) const;
+
     mutable std::mutex mutex_{};
     std::array<PriosCaptureRecord, kCapacity> storage_{};
     std::array<VariantBPrefixObservation, kVariantBObservationDepth> variant_b_observations_{};
@@ -144,6 +191,8 @@ class PriosCaptureService {
     uint32_t total_burst_starts_ = 0;
     uint32_t total_sync_campaign_starts_ = 0;
     uint32_t total_noise_rejected_ = 0;
+    uint32_t total_dedup_rejected_ = 0;
+    uint32_t total_device_quota_rejected_ = 0;
     uint32_t total_quality_rejected_ = 0;
     uint32_t variant_b_short_rejected_ = 0;
     uint32_t total_similarity_rejected_ = 0;

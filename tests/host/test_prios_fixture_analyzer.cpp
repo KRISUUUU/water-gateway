@@ -373,6 +373,120 @@ static void test_format_report_empty_suite() {
     CHECK("format_report_empty_has_no_captures", has_no_captures);
 }
 
+// ---- PriosAnalyzer::extract_fingerprint ------------------------------------
+
+static void test_extract_fingerprint_valid_long_capture() {
+    // Build a frame with exactly 15 bytes (kOffset=9, kLength=6 → need >= 15).
+    uint8_t buf[15]{};
+    for (uint8_t i = 0; i < 15; ++i) { buf[i] = i; }
+
+    const auto fp = PriosAnalyzer::extract_fingerprint(buf, 15);
+
+    CHECK("fp_valid_at_15_bytes",  fp.valid);
+    // Expect bytes 9..14 = {0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E}
+    bool bytes_ok = true;
+    for (uint8_t i = 0; i < PriosDeviceFingerprint::kLength; ++i) {
+        if (fp.bytes[i] != static_cast<uint8_t>(PriosDeviceFingerprint::kOffset + i)) {
+            bytes_ok = false;
+        }
+    }
+    CHECK("fp_bytes_9_to_14", bytes_ok);
+}
+
+static void test_extract_fingerprint_valid_64_byte_capture() {
+    uint8_t buf[64]{};
+    for (uint8_t i = 0; i < 64; ++i) { buf[i] = static_cast<uint8_t>(i * 3); }
+
+    const auto fp = PriosAnalyzer::extract_fingerprint(buf, 64);
+    CHECK("fp_valid_64_bytes", fp.valid);
+    for (uint8_t i = 0; i < PriosDeviceFingerprint::kLength; ++i) {
+        const uint8_t expected = static_cast<uint8_t>((PriosDeviceFingerprint::kOffset + i) * 3);
+        if (fp.bytes[i] != expected) {
+            FAIL("fp_64_byte_value", "byte %u: got %02X expected %02X",
+                 static_cast<unsigned>(i),
+                 static_cast<unsigned>(fp.bytes[i]),
+                 static_cast<unsigned>(expected));
+            return;
+        }
+    }
+    PASS("fp_64_byte_values_correct");
+}
+
+static void test_extract_fingerprint_too_short() {
+    uint8_t buf[14]{};
+    const auto fp = PriosAnalyzer::extract_fingerprint(buf, 14);
+    CHECK("fp_invalid_at_14_bytes", !fp.valid);
+}
+
+static void test_extract_fingerprint_zero_length() {
+    uint8_t buf[4]{};
+    const auto fp = PriosAnalyzer::extract_fingerprint(buf, 0);
+    CHECK("fp_invalid_zero_len", !fp.valid);
+}
+
+static void test_extract_fingerprint_null_ptr() {
+    const auto fp = PriosAnalyzer::extract_fingerprint(nullptr, 64);
+    CHECK("fp_invalid_null_ptr", !fp.valid);
+}
+
+static void test_extract_fingerprint_matches_same_device() {
+    uint8_t a[15]{};
+    uint8_t b[15]{};
+    // Fill identically.
+    for (uint8_t i = 0; i < 15; ++i) { a[i] = b[i] = i; }
+
+    const auto fp_a = PriosAnalyzer::extract_fingerprint(a, 15);
+    const auto fp_b = PriosAnalyzer::extract_fingerprint(b, 15);
+    CHECK("fp_matches_same",  fp_a.valid && fp_b.valid && fp_a.matches(fp_b));
+}
+
+static void test_extract_fingerprint_no_match_different_device() {
+    uint8_t a[15]{};
+    uint8_t b[15]{};
+    for (uint8_t i = 0; i < 15; ++i) { a[i] = i; b[i] = i; }
+    b[10] = 0xFF;  // one of the fingerprint bytes differs
+
+    const auto fp_a = PriosAnalyzer::extract_fingerprint(a, 15);
+    const auto fp_b = PriosAnalyzer::extract_fingerprint(b, 15);
+    CHECK("fp_no_match_different", !fp_a.matches(fp_b));
+}
+
+static void test_format_report_shows_device_section() {
+    // Build 3 frames: 2 from device A (bytes 9-14 = 0x01..0x06),
+    //                 1 from device B (bytes 9-14 = 0xFF..0xFA).
+    constexpr uint8_t kLen = 20;
+    PriosFixtureFrame frames[3]{};
+    for (int i = 0; i < 3; ++i) {
+        frames[i].length = kLen;
+        frames[i].rssi_dbm = -70;
+    }
+    // Device A fingerprint at bytes 9-14
+    for (uint8_t b = 0; b < PriosDeviceFingerprint::kLength; ++b) {
+        frames[0].bytes[PriosDeviceFingerprint::kOffset + b] = static_cast<uint8_t>(b + 1);
+        frames[1].bytes[PriosDeviceFingerprint::kOffset + b] = static_cast<uint8_t>(b + 1);
+    }
+    // Device B fingerprint
+    for (uint8_t b = 0; b < PriosDeviceFingerprint::kLength; ++b) {
+        frames[2].bytes[PriosDeviceFingerprint::kOffset + b] = static_cast<uint8_t>(0xFF - b);
+    }
+
+    PriosAnalyzer::ByteVote votes[PriosFixtureFrame::kMaxBytes]{};
+    PriosAnalyzer::compute_byte_votes(frames, 3, votes);
+    PriosAnalyzer::LengthHistogram hist{};
+    PriosAnalyzer::compute_length_histogram(frames, 3, hist);
+    const auto r = PriosAnalyzer::assess_readiness(frames, 3, hist, votes);
+
+    char buf[4096]{};
+    const size_t written = PriosAnalyzer::format_report(buf, sizeof(buf), frames, 3, votes, hist, r);
+
+    CHECK("device_section_written", written > 0);
+    const bool has_device_section = std::strstr(buf, "Devices by fingerprint") != nullptr;
+    CHECK("format_report_has_device_section", has_device_section);
+    // Device A fingerprint should appear (010203040506)
+    const bool has_device_a = std::strstr(buf, "010203040506") != nullptr;
+    CHECK("format_report_shows_device_a", has_device_a);
+}
+
 // ---- main --------------------------------------------------------------------
 
 int main() {
@@ -412,6 +526,16 @@ int main() {
     test_format_report_nonempty();
     test_format_report_null_buf();
     test_format_report_empty_suite();
+
+    // extract_fingerprint
+    test_extract_fingerprint_valid_long_capture();
+    test_extract_fingerprint_valid_64_byte_capture();
+    test_extract_fingerprint_too_short();
+    test_extract_fingerprint_zero_length();
+    test_extract_fingerprint_null_ptr();
+    test_extract_fingerprint_matches_same_device();
+    test_extract_fingerprint_no_match_different_device();
+    test_format_report_shows_device_section();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

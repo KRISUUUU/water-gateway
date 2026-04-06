@@ -123,10 +123,22 @@ class PriosAnalyzer {
                                        const LengthHistogram&   hist,
                                        const ByteVote*          votes);
 
+    // ---- Device fingerprint extraction ---------------------------------------
+
+    // Extract the device fingerprint from a raw PRIOS capture buffer.
+    //
+    // Returns {.valid=true, .bytes={frame[9]..frame[14]}} when
+    // len >= PriosDeviceFingerprint::kOffset + PriosDeviceFingerprint::kLength.
+    // Returns {.valid=false} if the capture is too short to contain the field.
+    //
+    // This is a pure function — no state, no heap, host-testable.
+    static PriosDeviceFingerprint extract_fingerprint(const uint8_t* data, size_t len);
+
     // ---- Text report (for stdout / test output) ------------------------------
 
     // Write a compact human-readable analysis report into `buf` (NUL-terminated).
     // At most `buf_size` bytes written (including NUL). Returns bytes written.
+    // Includes a per-device fingerprint grouping section when frames are provided.
     static size_t format_report(char*                    buf,
                                  size_t                   buf_size,
                                  const PriosFixtureFrame* frames,

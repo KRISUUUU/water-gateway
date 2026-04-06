@@ -477,7 +477,7 @@ static void radio_rx_task(void* /*param*/) {
             const auto prios_result = prios_session.process(
                 session_device, owner_events, now_ms(), ts > 0 ? ts : 0);
             if (prios_result.has_capture) {
-                (void)wmbus_prios_rx::PriosCaptureService::instance().insert_with_quality_gate(
+                (void)wmbus_prios_rx::PriosCaptureService::instance().insert_with_dedup_gate(
                     prios_result.record);
             }
             if (prios_result.radio_error != common::ErrorCode::OK) {

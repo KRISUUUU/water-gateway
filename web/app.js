@@ -936,8 +936,8 @@
                 [
                     ["PRIOS Mode", priosMode === "discovery_sniffer"
                         ? "\u25CF Discovery / Sniffer ACTIVE \u2014 T-mode suspended"
-                        : (priosMode === "campaign_fake_sync"
-                            ? "\u25CF Experimental campaign ACTIVE \u2014 T-mode suspended"
+                        : (priosMode === "campaign_1E9B" || priosMode === "campaign_fake_sync"
+                            ? "\u25CF Campaign 0x1E9B ACTIVE \u2014 T-mode suspended"
                             : "\u25CB inactive")],
                     ["Variant",       priosVariant === "manchester_on"
                         ? "Variant B (Manchester ON)"
@@ -956,6 +956,9 @@
                     ["Retained Length Avg", prios.retained_length_avg],
                     ["Retained Length Min/Max", text(prios.retained_length_min, "0") + " / " + text(prios.retained_length_max, "0")],
                     ["Variant B Min Timeout Bytes", prios.variant_b_min_timeout_capture_bytes],
+                    ["Sync Campaign Starts",  prios.sync_campaign_starts],
+                    ["Dedup Rejected",         prios.total_dedup_rejected],
+                    ["Device Quota Rejected",  prios.total_device_quota_rejected],
                 ].forEach((entry) => priosStatusEl.appendChild(kvRow(entry[0], entry[1])));
 
                 // Show export button only when there are captures
@@ -980,12 +983,49 @@
                     recentCaptures.slice().reverse().forEach((c) => {
                         const row = document.createElement("div");
                         row.className = "kv-item";
+                        row.style.alignItems = "flex-start";
+                        row.style.paddingBottom = "8px";
+
+                        // Left: variant + sequence + signal quality
                         const left = document.createElement("span");
                         const variantTag = c.variant === "manchester_on" ? "[B]" : "[A]";
-                        left.textContent = variantTag + " #" + c.seq + " (" + c.bytes_captured + "B, " + c.rssi_dbm + "dBm, lqi=" + c.lqi + ")";
+                        left.textContent = variantTag + " #" + c.seq +
+                            "  " + c.bytes_captured + "B" +
+                            "  " + c.rssi_dbm + "dBm" +
+                            "  lqi=" + c.lqi;
+
+                        // Right: device fingerprint badge (if present) + hex preview
                         const right = document.createElement("span");
-                        right.className = "hex";
-                        right.textContent = c.display_prefix_hex || c.prefix_hex || "--";
+                        right.style.cssText = "display:flex;flex-direction:column;align-items:flex-end;gap:3px";
+
+                        const fp = c.device_fingerprint || null;
+                        if (fp) {
+                            // Derive a stable hue from first fingerprint byte so each
+                            // device gets a consistent color across page refreshes.
+                            const hue = Math.round((parseInt(fp.substring(0, 2), 16) / 256) * 360);
+                            const badge = document.createElement("span");
+                            badge.className = "badge";
+                            badge.style.cssText =
+                                "background:hsl(" + hue + ",45%,22%);" +
+                                "color:hsl(" + hue + ",80%,72%);" +
+                                "border:1px solid hsl(" + hue + ",45%,35%);" +
+                                "font-family:Consolas,Menlo,monospace;" +
+                                "cursor:pointer;user-select:none";
+                            badge.title = "Click to add to watchlist";
+                            badge.textContent = c.device_alias
+                                ? fp + " \u2014 " + c.device_alias
+                                : fp;
+                            badge.addEventListener("click", () => {
+                                addWatchlistQuickAction(fp, c.device_alias || "", "PRIOS device");
+                            });
+                            right.appendChild(badge);
+                        }
+
+                        const hexSpan = document.createElement("span");
+                        hexSpan.className = "hex";
+                        hexSpan.textContent = c.display_prefix_hex || c.prefix_hex || "--";
+                        right.appendChild(hexSpan);
+
                         row.appendChild(left);
                         row.appendChild(right);
                         priosCapturesEl.appendChild(row);

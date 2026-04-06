@@ -1,4 +1,5 @@
 #include "wmbus_prios_rx/prios_capture_service.hpp"
+#include "wmbus_prios_rx/prios_analyzer.hpp"
 
 #include <cstring>
 #include <new>
@@ -187,6 +188,8 @@ PriosCaptureStats PriosCaptureService::stats() const {
     stats.total_burst_starts = total_burst_starts_;
     stats.total_sync_campaign_starts = total_sync_campaign_starts_;
     stats.total_noise_rejected = total_noise_rejected_;
+    stats.total_dedup_rejected = total_dedup_rejected_;
+    stats.total_device_quota_rejected = total_device_quota_rejected_;
     stats.total_quality_rejected = total_quality_rejected_;
     stats.variant_b_short_rejected = variant_b_short_rejected_;
     stats.total_similarity_rejected = total_similarity_rejected_;
@@ -234,6 +237,74 @@ PriosCapturePreviewSnapshot PriosCaptureService::preview_snapshot() const {
     return snap;
 }
 
+// ---- Fingerprint helpers (mutex held by callers) ----------------------------
+
+size_t PriosCaptureService::count_for_fingerprint_locked(const PriosDeviceFingerprint& fp) const {
+    constexpr size_t kRequired = PriosDeviceFingerprint::kOffset + PriosDeviceFingerprint::kLength;
+    size_t n = 0;
+    const size_t oldest = count_ < kCapacity ? 0 : head_ % kCapacity;
+    for (size_t i = 0; i < count_; ++i) {
+        const auto& rec = storage_[(oldest + i) % kCapacity];
+        if (rec.total_bytes_captured < kRequired) {
+            continue;
+        }
+        if (std::memcmp(rec.captured_bytes + PriosDeviceFingerprint::kOffset,
+                        fp.bytes, PriosDeviceFingerprint::kLength) == 0) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+bool PriosCaptureService::is_exact_duplicate_locked(const PriosDeviceFingerprint& fp,
+                                                     const PriosCaptureRecord& incoming) const {
+    constexpr size_t kRequired = PriosDeviceFingerprint::kOffset + PriosDeviceFingerprint::kLength;
+    const size_t oldest = count_ < kCapacity ? 0 : head_ % kCapacity;
+    for (size_t i = 0; i < count_; ++i) {
+        const auto& rec = storage_[(oldest + i) % kCapacity];
+        if (rec.total_bytes_captured < kRequired) {
+            continue;
+        }
+        // Quick fingerprint check via raw byte comparison.
+        if (std::memcmp(rec.captured_bytes + PriosDeviceFingerprint::kOffset,
+                        fp.bytes, PriosDeviceFingerprint::kLength) != 0) {
+            continue;
+        }
+        // Same device: compare full payload.
+        if (rec.total_bytes_captured == incoming.total_bytes_captured &&
+            std::memcmp(rec.captured_bytes, incoming.captured_bytes,
+                        rec.total_bytes_captured) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ---- insert_with_dedup_gate --------------------------------------------------
+
+PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
+    const PriosCaptureRecord& record) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    const auto fp = PriosAnalyzer::extract_fingerprint(record.captured_bytes,
+                                                        record.total_bytes_captured);
+    if (fp.valid) {
+        // Reject exact payload duplicates (same meter, same reading already stored).
+        if (is_exact_duplicate_locked(fp, record)) {
+            total_dedup_rejected_++;
+            return PriosCaptureInsertDecision::RejectedDuplicate;
+        }
+        // Enforce per-device retention cap so no single meter floods the buffer.
+        if (count_for_fingerprint_locked(fp) >= kMaxRecordsPerDevice) {
+            total_device_quota_rejected_++;
+            return PriosCaptureInsertDecision::RejectedDeviceQuota;
+        }
+    }
+    // Fingerprint absent (capture too short) or passes all checks: insert.
+    insert_locked(record);
+    return PriosCaptureInsertDecision::Inserted;
+}
+
 void PriosCaptureService::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     storage_      = {};
@@ -247,6 +318,8 @@ void PriosCaptureService::clear() {
     total_burst_starts_ = 0;
     total_sync_campaign_starts_ = 0;
     total_noise_rejected_ = 0;
+    total_dedup_rejected_ = 0;
+    total_device_quota_rejected_ = 0;
     total_quality_rejected_ = 0;
     variant_b_short_rejected_ = 0;
     total_similarity_rejected_ = 0;
