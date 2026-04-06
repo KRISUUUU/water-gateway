@@ -173,7 +173,7 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
 
         // Device fingerprint (meter ID is bytes 4-7 in wM-Bus Format A header)
-        if (r.preview_length >= 11 && r.preview_bytes[1] == 0x44 && r.preview_bytes[10] == 0xA2) {
+        if (r.preview_length >= 13 && r.preview_bytes[12] == 0xA2) {
             char fp_hex[16]{};
             std::snprintf(fp_hex, sizeof(fp_hex), "%02X%02X%02X%02X",
                           r.preview_bytes[7], r.preview_bytes[6], r.preview_bytes[5], r.preview_bytes[4]);

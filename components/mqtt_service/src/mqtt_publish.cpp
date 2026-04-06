@@ -373,7 +373,7 @@ common::Result<MqttPublishCommand> make_prios_frame_command(
         !copy_cstr(command.meter_key, meter_key)        ||
         !copy_cstr(command.prios_display_hex, display_prefix_hex) ||
         !copy_cstr(command.timestamp, timestamp)        ||
-        !copy_cstr(command.protocol_name, "PRIOS_IZAR")  ||
+        !copy_cstr(command.protocol_name, "PRIOS")  ||
         !copy_cstr(command.vendor, vendor)) {
         return common::Result<MqttPublishCommand>::error(overflow_code());
     }

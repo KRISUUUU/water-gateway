@@ -21,7 +21,7 @@
 namespace wmbus_prios_rx {
 
 struct PriosDecodedTelegram {
-    static constexpr const char* kProtocolName   = "PRIOS_IZAR";
+    static constexpr const char* kProtocolName   = "PRIOS";
 
     // Max raw bytes shown as hex in display_prefix_hex (matches kDisplayPrefixBytes).
     static constexpr size_t kDisplayPrefixRawBytes = PriosCaptureRecord::kDisplayPrefixBytes;

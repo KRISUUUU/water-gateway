@@ -13,20 +13,20 @@ static constexpr char kHex[] = "0123456789ABCDEF";
 PriosDecodedTelegram PriosDecoder::decode(const PriosCaptureRecord& record) {
     PriosDecodedTelegram result{};
 
-    if (record.total_bytes_captured < 11) {
+    if (record.total_bytes_captured < 13) {
         return result;
     }
 
     const uint8_t* b = record.captured_bytes;
     uint8_t L = b[0];
 
-    // L must be at least 10 (C,M,M,A,A,A,A,V,T,CI)
-    if (L < 10) {
+    // L must be at least 13
+    if (L < 13) {
         return result;
     }
 
-    // C must be 0x44 (SND-NR) and CI must be 0xA2 (Mfct specific PRIOS)
-    if (b[1] != 0x44 || b[10] != 0xA2) {
+    // CI must be 0xA2 at byte 12 (allowing Format A with block 1 CRC or Format B)
+    if (b[12] != 0xA2) {
         return result;
     }
 

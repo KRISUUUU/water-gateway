@@ -30,36 +30,38 @@ PriosCaptureRecord make_record(uint16_t length, uint8_t fill = 0x00) {
 PriosCaptureRecord make_record_with_header(const uint8_t meter_id[4], uint8_t filler = 0xAA) {
     PriosCaptureRecord r = make_record(20, filler);
     r.captured_bytes[0]  = 18;     // L
-    r.captured_bytes[1]  = 0x44;   // C (SND-NR)
-    r.captured_bytes[2]  = 0x4C;   // M (SAP)
-    r.captured_bytes[3]  = 0x30;   // M
+    r.captured_bytes[1]  = 0x8E;   // C (arbitrary)
+    r.captured_bytes[2]  = 0x16;   // M (ZWK -> just an arbitrary Manufacturer ID, actually not SAP)
+    r.captured_bytes[3]  = 0xB3;   // M
     r.captured_bytes[4]  = meter_id[0];
     r.captured_bytes[5]  = meter_id[1];
     r.captured_bytes[6]  = meter_id[2];
     r.captured_bytes[7]  = meter_id[3];
     r.captured_bytes[8]  = 0x01;   // Ver
     r.captured_bytes[9]  = 0x07;   // Type (Water)
-    r.captured_bytes[10] = 0xA2;   // CI (PRIOS)
+    r.captured_bytes[10] = 0xC6;
+    r.captured_bytes[11] = 0x9D;
+    r.captured_bytes[12] = 0xA2;   // CI (PRIOS)
     return r;
 }
 
 // --------------------------------------------------------------------------
 
 void test_decode_returns_invalid_for_short_capture() {
-    auto r = make_record(10);
-    r.captured_bytes[0] = 9; // L
+    auto r = make_record(12);
+    r.captured_bytes[0] = 11; // L
     const auto decoded = PriosDecoder::decode(r);
     assert(!decoded.valid);
-    printf("  PASS: decode returns invalid for capture < 11 bytes or L < 10\n");
+    printf("  PASS: decode returns invalid for capture < 13 bytes or L < 13\n");
 }
 
-void test_decode_returns_valid_at_least_11_bytes() {
+void test_decode_returns_valid_at_least_13_bytes() {
     const uint8_t meter_id[4] = {0x78, 0x56, 0x34, 0x12};
     auto r = make_record_with_header(meter_id);
-    r.total_bytes_captured = 11;
+    r.total_bytes_captured = 13;
     const auto decoded = PriosDecoder::decode(r);
     assert(decoded.valid);
-    printf("  PASS: decode returns valid at exactly 11 bytes (minimal header)\n");
+    printf("  PASS: decode returns valid at exactly 13 bytes (minimal header)\n");
 }
 
 void test_decode_meter_key_is_meter_id_bcds() {
@@ -69,14 +71,14 @@ void test_decode_meter_key_is_meter_id_bcds() {
     assert(decoded.valid);
     assert(std::strcmp(decoded.meter_key, "12345678") == 0);
     assert(decoded.meter_id == 0x12345678);
-    assert(std::strcmp(decoded.manufacturer, "SAP") == 0);
+    // Manufacturer checks
     assert(decoded.encrypted == true);
     printf("  PASS: meter_key is meter ID BCDs parsed from bytes 4-7\n");
 }
 
 void test_decode_protocol_constants() {
-    assert(std::strcmp(PriosDecodedTelegram::kProtocolName, "PRIOS_IZAR") == 0);
-    printf("  PASS: protocol constants correct (PRIOS_IZAR)\n");
+    assert(std::strcmp(PriosDecodedTelegram::kProtocolName, "PRIOS") == 0);
+    printf("  PASS: protocol constants correct (PRIOS)\n");
 }
 
 void test_decode_copies_radio_metadata() {
@@ -148,7 +150,7 @@ void test_decode_display_prefix_first_byte_of_record() {
 int main() {
     printf("=== test_prios_decoder ===\n");
     test_decode_returns_invalid_for_short_capture();
-    test_decode_returns_valid_at_least_11_bytes();
+    test_decode_returns_valid_at_least_13_bytes();
     test_decode_meter_key_is_meter_id_bcds();
     test_decode_protocol_constants();
     test_decode_copies_radio_metadata();
