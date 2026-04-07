@@ -173,16 +173,18 @@ class PriosCaptureService {
     static constexpr size_t kMaxRecordsPerDevice = 5;
     // Maximum number of distinct device fingerprints tracked globally.
     // New devices seen beyond this limit are silently dropped to protect RAM.
-    static constexpr size_t kMaxTrackedDevices = 16;
+    static constexpr size_t kMaxTrackedDevices = 64;
 
     void record_burst_start();
     void record_sync_campaign_start();
+    void record_noise_rejection();
     void record_noise_rejection(bool manchester_enabled, bool short_capture);
     void record_quality_rejection();
     [[nodiscard]] PriosCaptureSnapshot snapshot() const;
     [[nodiscard]] std::unique_ptr<PriosCaptureSnapshot> snapshot_allocated() const;
     [[nodiscard]] PriosCaptureStats stats() const;
     [[nodiscard]] PriosCapturePreviewSnapshot preview_snapshot() const;
+    void clear_tracked_devices();
     void clear();
 
   private:

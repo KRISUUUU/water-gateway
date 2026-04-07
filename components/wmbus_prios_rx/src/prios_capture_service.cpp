@@ -4,6 +4,13 @@
 #include <cstring>
 #include <new>
 
+#ifndef HOST_TEST_BUILD
+#include "esp_log.h"
+static const char* TAG = "prios_capture";
+#else
+#define ESP_LOGI(tag, fmt, ...) (void)0
+#endif
+
 namespace wmbus_prios_rx {
 
 namespace {
@@ -80,6 +87,10 @@ void PriosCaptureService::record_burst_start() {
 void PriosCaptureService::record_sync_campaign_start() {
     std::lock_guard<std::mutex> lock(mutex_);
     total_sync_campaign_starts_++;
+}
+
+void PriosCaptureService::record_noise_rejection() {
+    record_noise_rejection(false, false);
 }
 
 void PriosCaptureService::record_noise_rejection(bool manchester_enabled, bool short_capture) {
@@ -342,6 +353,11 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
         }
         // Register new device — falls through to insert below.
         tracked_devices_[tracked_device_count_++] = fp;
+        ESP_LOGI(TAG,
+                 "new PRIOS device tracked: index=%zu/%zu fp=%02X%02X%02X%02X profile=%s",
+                 tracked_device_count_, kMaxTrackedDevices,
+                 fp.bytes[0], fp.bytes[1], fp.bytes[2], fp.bytes[3],
+                 protocol_driver::radio_profile_id_to_string(record.radio_profile));
     } else {
         // (d) Known device: compare incoming payload against the most recently
         //     retained record for this fingerprint.  Meters repeat the same
@@ -369,6 +385,12 @@ PriosCaptureInsertDecision PriosCaptureService::insert_with_dedup_gate(
     // (f) All checks passed — insert.
     insert_locked(record);
     return PriosCaptureInsertDecision::Inserted;
+}
+
+void PriosCaptureService::clear_tracked_devices() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tracked_devices_ = {};
+    tracked_device_count_ = 0;
 }
 
 void PriosCaptureService::clear() {

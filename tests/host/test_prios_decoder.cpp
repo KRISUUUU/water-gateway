@@ -50,6 +50,7 @@ PriosCaptureRecord make_record_with_header(const uint8_t meter_id[4], uint8_t fi
 void test_decode_returns_invalid_for_short_capture() {
     auto r = make_record(12);
     r.captured_bytes[0] = 11; // L
+    assert(!PriosDecoder::is_likely_prios(r));
     const auto decoded = PriosDecoder::decode(r);
     assert(!decoded.valid);
     printf("  PASS: decode returns invalid for capture < 13 bytes or L < 13\n");
@@ -59,9 +60,18 @@ void test_decode_returns_valid_at_least_13_bytes() {
     const uint8_t meter_id[4] = {0x78, 0x56, 0x34, 0x12};
     auto r = make_record_with_header(meter_id);
     r.total_bytes_captured = 13;
+    assert(PriosDecoder::is_likely_prios(r));
     const auto decoded = PriosDecoder::decode(r);
     assert(decoded.valid);
     printf("  PASS: decode returns valid at exactly 13 bytes (minimal header)\n");
+}
+
+void test_is_likely_prios_rejects_wrong_ci() {
+    const uint8_t meter_id[4] = {0x78, 0x56, 0x34, 0x12};
+    auto r = make_record_with_header(meter_id);
+    r.captured_bytes[12] = 0x00;
+    assert(!PriosDecoder::is_likely_prios(r));
+    printf("  PASS: is_likely_prios rejects capture with wrong CI byte\n");
 }
 
 void test_decode_meter_key_is_meter_id_bcds() {
@@ -155,6 +165,7 @@ int main() {
     printf("=== test_prios_decoder ===\n");
     test_decode_returns_invalid_for_short_capture();
     test_decode_returns_valid_at_least_13_bytes();
+    test_is_likely_prios_rejects_wrong_ci();
     test_decode_meter_key_is_meter_id_bcds();
     test_decode_protocol_constants();
     test_decode_copies_radio_metadata();

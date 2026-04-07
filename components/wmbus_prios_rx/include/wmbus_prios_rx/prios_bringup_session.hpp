@@ -68,6 +68,7 @@ class PriosBringUpSession {
 
     void reset();
     bool active() const { return session_active_; }
+    void note_noise_rejection() { counters_.noise_rejections++; }
 
     void configure(Mode mode, bool manchester_enabled,
                    protocol_driver::RadioProfileId radio_profile) {

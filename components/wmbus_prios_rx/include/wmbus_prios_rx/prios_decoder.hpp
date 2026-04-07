@@ -54,6 +54,8 @@ struct PriosDecodedTelegram {
 
 class PriosDecoder {
   public:
+    [[nodiscard]] static bool is_likely_prios(const PriosCaptureRecord& record);
+
     // Decode one raw capture record into a normalized PriosDecodedTelegram.
     // Returns a telegram with valid=false when the capture is too short to
     // extract the device fingerprint (< 15 bytes).

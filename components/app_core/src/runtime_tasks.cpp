@@ -613,6 +613,11 @@ static void radio_rx_task(void* /*param*/) {
             const auto prios_result = prios_session.process(
                 session_device, owner_events, now_ms(), ts > 0 ? ts : 0);
             if (prios_result.has_capture) {
+                if (!wmbus_prios_rx::PriosDecoder::is_likely_prios(prios_result.record)) {
+                    prios_session.note_noise_rejection();
+                    wmbus_prios_rx::PriosCaptureService::instance().record_noise_rejection();
+                    continue;
+                }
                 const auto dedup_result =
                     wmbus_prios_rx::PriosCaptureService::instance().insert_with_dedup_gate(
                         prios_result.record);

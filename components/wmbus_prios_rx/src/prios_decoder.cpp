@@ -11,21 +11,20 @@ namespace {
 static constexpr char kHex[] = "0123456789ABCDEF";
 }
 
+bool PriosDecoder::is_likely_prios(const PriosCaptureRecord& record) {
+    return record.total_bytes_captured >= 13 &&
+           record.captured_bytes[12] == 0xA2;
+}
+
 PriosDecodedTelegram PriosDecoder::decode(const PriosCaptureRecord& record) {
     PriosDecodedTelegram result{};
 
-    if (record.total_bytes_captured < 13) {
+    if (!is_likely_prios(record)) {
         result.valid = false;
         return result;
     }
 
     const uint8_t* b = record.captured_bytes;
-
-    if (b[12] != 0xA2) {  // CI field dla PRIOS
-        result.valid = false;
-        return result;
-    }
-
     result.valid = true;
     result.radio_profile = record.radio_profile;
 

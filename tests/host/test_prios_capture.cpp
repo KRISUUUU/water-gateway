@@ -680,7 +680,7 @@ void test_new_device_limit_rejects_17th_fingerprint() {
     assert(PriosCaptureService::instance().stats().unique_devices_tracked ==
            PriosCaptureService::kMaxTrackedDevices);
 
-    // 17th unique device must be rejected.
+    // One more unique device must be rejected.
     const uint8_t fp_new[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     const auto rec_new = make_record_with_fp(fp_new, 0);
     const auto d = PriosCaptureService::instance().insert_with_dedup_gate(rec_new);
@@ -689,7 +689,7 @@ void test_new_device_limit_rejects_17th_fingerprint() {
     // Total inserted must not have grown for the rejected device.
     assert(PriosCaptureService::instance().stats().total_inserted ==
            PriosCaptureService::kMaxTrackedDevices);
-    std::printf("  PASS: new device limit rejects 17th unique fingerprint\n");
+    std::printf("  PASS: new device limit rejects fingerprint beyond tracked-device limit\n");
 }
 
 void test_new_device_limit_allows_existing_device_extra_records() {
@@ -735,6 +735,29 @@ void test_new_device_limit_cleared_by_clear() {
     assert(stats.total_new_device_limit_rejected == 0);
     assert(stats.unique_devices_tracked == 0);
     std::printf("  PASS: clear() resets new_device_limit counter and unique_devices_tracked\n");
+}
+
+void test_clear_tracked_devices_keeps_records_but_resets_device_table() {
+    PriosCaptureService::instance().clear();
+
+    const uint8_t fp_a[6] = {0x10, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t fp_b[6] = {0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
+    assert(PriosCaptureService::instance().insert_with_dedup_gate(make_record_with_fp(fp_a, 0)) ==
+           PriosCaptureInsertDecision::Inserted);
+    assert(PriosCaptureService::instance().insert_with_dedup_gate(make_record_with_fp(fp_b, 0)) ==
+           PriosCaptureInsertDecision::Inserted);
+
+    auto before = PriosCaptureService::instance().stats();
+    assert(before.total_inserted == 2);
+    assert(before.unique_devices_tracked == 2);
+
+    PriosCaptureService::instance().clear_tracked_devices();
+
+    auto after = PriosCaptureService::instance().stats();
+    assert(after.total_inserted == 2);
+    assert(after.unique_devices_tracked == 0);
+    assert(PriosCaptureService::instance().snapshot().count == 2);
+    std::printf("  PASS: clear_tracked_devices resets only the tracked device table\n");
 }
 
 void test_sync_campaign_starts_counter_is_incremented() {
@@ -819,6 +842,7 @@ int main() {
     test_new_device_limit_rejects_17th_fingerprint();
     test_new_device_limit_allows_existing_device_extra_records();
     test_new_device_limit_cleared_by_clear();
+    test_clear_tracked_devices_keeps_records_but_resets_device_table();
 
     test_sync_campaign_starts_counter_is_incremented();
     test_sync_campaign_starts_cleared_by_clear();
