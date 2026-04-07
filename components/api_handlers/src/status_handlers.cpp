@@ -30,6 +30,17 @@ const char* prios_control_mode(const config_store::RadioConfig& radio_cfg) {
     return "Normal scheduler control";
 }
 
+uint32_t effective_frequency_khz_for_profile(protocol_driver::RadioProfileId profile_id) {
+    switch (profile_id) {
+        case protocol_driver::RadioProfileId::WMbusPriosR4:
+            return 868300;
+        case protocol_driver::RadioProfileId::WMbusPriosR3:
+        case protocol_driver::RadioProfileId::WMbusT868:
+        default:
+            return 868950;
+    }
+}
+
 const char* protocol_name_for_profile(protocol_driver::RadioProfileId profile_id) {
     switch (profile_id) {
         case protocol_driver::RadioProfileId::WMbusT868:
@@ -113,6 +124,9 @@ void add_protocol_runtime_json(cJSON* root) {
                             protocol_name_for_profile(sched.active_profile_id));
     cJSON_AddStringToObject(runtime, "control_mode",
                             prios_control_mode(cfg.radio));
+    cJSON_AddNumberToObject(runtime, "effective_frequency_khz",
+                            static_cast<double>(
+                                effective_frequency_khz_for_profile(sched.active_profile_id)));
     cJSON_AddBoolToObject(runtime, "prios_override_active",
                           cfg.radio.prios_capture_campaign || cfg.radio.prios_discovery_mode);
     cJSON_AddStringToObject(runtime, "configured_prios_profile",

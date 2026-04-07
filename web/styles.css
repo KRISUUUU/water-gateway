@@ -365,6 +365,13 @@ label {
     color: #ffd287;
 }
 
+.config-mode-banner.mode-info {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.25);
+    color: #cfe1ff;
+    font-weight: 500;
+}
+
 .config-summary {
     padding-top: var(--space-2);
     border-top: 1px solid var(--border);

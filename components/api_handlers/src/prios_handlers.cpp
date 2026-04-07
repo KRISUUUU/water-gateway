@@ -283,6 +283,20 @@ esp_err_t handle_diagnostics_prios_export(httpd_req_t* req) {
     return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
+esp_err_t handle_diagnostics_prios_clear(httpd_req_t* req) {
+    const esp_err_t auth = require_auth(req);
+    if (auth != ESP_OK) {
+        return auth;
+    }
+
+    // Clear retained captures and explicitly reset the tracked-device table so
+    // new real meters are not blocked by stale fingerprints after a noise run.
+    auto& service = wmbus_prios_rx::PriosCaptureService::instance();
+    service.clear_tracked_devices();
+    service.clear();
+    return send_json(req, 200, "{\"status\":\"ok\"}");
+}
+
 } // namespace api_handlers::detail
 
 #endif // !HOST_TEST_BUILD

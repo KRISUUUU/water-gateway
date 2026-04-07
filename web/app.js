@@ -1055,6 +1055,9 @@
                     ["Control Mode", operatorView.control_mode || "--"],
                     ["PRIOS Override Active", operatorView.prios_override_active ? "yes" : "no"],
                     ["Configured PRIOS Profile", operatorView.configured_prios_profile || "--"],
+                    ["Effective Frequency", operatorView.effective_frequency_khz
+                        ? (Number(operatorView.effective_frequency_khz) / 1000).toFixed(2) + " MHz"
+                        : "--"],
                     ["Scheduler Mode", sched.mode],
                     ["Preferred Profile", sched.preferred_profile],
                     ["Selected Profile", sched.selected_profile],
@@ -1184,6 +1187,12 @@
         }
         section.classList.toggle("config-subsection-active", !!active);
         section.classList.toggle("config-subsection-inactive", !active);
+        section.querySelectorAll("input, select, button, textarea").forEach((el) => {
+            if (el.dataset.allowWhileInactive === "true") {
+                return;
+            }
+            el.disabled = !active;
+        });
     }
 
     function renderRadioConfigSection(container, radioCfg) {
@@ -1234,6 +1243,11 @@
             normalSection,
             "These settings control the active radio plan only when PRIOS Experimental Mode is Off."
         );
+        const normalWarning = document.createElement("p");
+        normalWarning.className = "msg msg-warning";
+        normalWarning.hidden = true;
+        normalWarning.textContent = "Standard scheduler is inactive while PRIOS Experimental mode is running.";
+        normalSection.appendChild(normalWarning);
 
         const schedulerLabel = document.createElement("label");
         schedulerLabel.setAttribute("for", "cfg-radio-scheduler_mode");
@@ -1334,6 +1348,7 @@
         manchesterInput.id = "cfg-radio-prios_manchester_enabled";
         manchesterInput.type = "checkbox";
         manchesterInput.checked = !!radio.prios_manchester_enabled;
+        manchesterInput.dataset.allowWhileInactive = "true";
         const manchesterText = document.createElement("span");
         manchesterText.textContent = "Variant B (Manchester ON)";
         manchesterRow.appendChild(manchesterInput);
@@ -1354,6 +1369,11 @@
         variantOffNote.appendChild(variantOffIndicator);
         variantOffNote.appendChild(variantOffText);
         priosSection.appendChild(variantOffNote);
+
+        const priosInfoBlock = document.createElement("div");
+        priosInfoBlock.className = "config-mode-banner mode-info";
+        priosInfoBlock.id = "cfg-radio-prios-info";
+        priosSection.appendChild(priosInfoBlock);
 
         appendFieldHint(
             priosSection,
@@ -1394,7 +1414,13 @@
             setRadioSectionState(normalSection, !experimentalActive);
             setRadioSectionState(priosSection, experimentalActive);
             setRadioSectionState(advancedSection, false);
+            normalWarning.hidden = !experimentalActive;
             variantOffIndicator.checked = !manchesterInput.checked;
+            priosInfoBlock.textContent =
+                "Target Frequency: " +
+                (priosProfileSelect.value === "WMbusPriosR4" ? "868.30 MHz" : "868.95 MHz") +
+                " | Variant: " +
+                (manchesterInput.checked ? "B (Manchester ON)" : "A (Manchester OFF)");
 
             if (priosModeSelect.value === "campaign") {
                 activeModeBanner.className = "config-mode-banner mode-prios";
@@ -1418,7 +1444,9 @@
         }
 
         priosModeSelect.addEventListener("change", updateRadioCampaignSummary);
+        priosModeSelect.dataset.allowWhileInactive = "true";
         priosProfileSelect.addEventListener("change", updateRadioCampaignSummary);
+        priosProfileSelect.dataset.allowWhileInactive = "true";
         manchesterInput.addEventListener("change", updateRadioCampaignSummary);
         updateRadioCampaignSummary();
         container.appendChild(card);
@@ -1855,6 +1883,31 @@
                     }
                     if (msg) {
                         setMsg(msg, "error", "PRIOS export failed.");
+                    }
+                });
+        });
+
+        $("#prios-clear-btn").addEventListener("click", () => {
+            const msg = $("#prios-export-msg");
+            if (!confirm("Clear retained PRIOS captures and tracked device fingerprints?")) {
+                return;
+            }
+            if (msg) {
+                setMsg(msg, "warning", "Clearing PRIOS captures...");
+            }
+            api("POST", "/api/diagnostics/prios/clear")
+                .then(() => {
+                    if (msg) {
+                        setMsg(msg, "success", "PRIOS captures cleared.");
+                    }
+                    loadDiagnostics();
+                })
+                .catch((err) => {
+                    if (err && err.message === "unauthorized") {
+                        return;
+                    }
+                    if (msg) {
+                        setMsg(msg, "error", "PRIOS clear failed.");
                     }
                 });
         });
