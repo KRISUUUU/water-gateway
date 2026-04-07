@@ -261,7 +261,10 @@ size_t PriosAnalyzer::format_report(char*                    buf,
     }
 
     // Per-device fingerprint grouping
-    EMIT("Devices by fingerprint (bytes 9-14):\n");
+    EMIT("Devices by fingerprint (bytes %u-%u):\n",
+         static_cast<unsigned>(PriosDeviceFingerprint::kOffset),
+         static_cast<unsigned>(PriosDeviceFingerprint::kOffset +
+                               PriosDeviceFingerprint::kLength - 1U));
     if (frames && count > 0) {
         // Stack-allocated fingerprint frequency table; bounded by kMaxFpEntries.
         struct FpEntry {

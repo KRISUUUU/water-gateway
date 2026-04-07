@@ -48,8 +48,8 @@ struct PriosDeviceFingerprint {
 struct PriosCaptureRecord {
     // Bounded raw capture copied from the PRIOS bring-up session.
     // Matches PriosBringUpSession::kMaxCaptureBytes and PriosFixtureFrame::kMaxBytes.
-    static constexpr size_t kMaxCaptureBytes = 64;
-    static constexpr size_t kDisplayPrefixBytes = 32;
+    static constexpr size_t kMaxCaptureBytes = 128;
+    static constexpr size_t kDisplayPrefixBytes = 64;
 
     uint32_t sequence            = 0;
     int64_t  timestamp_ms        = 0;  // monotonic or epoch (whichever is available)
@@ -76,6 +76,9 @@ struct PriosCaptureSnapshot {
     uint32_t total_inserted = 0;
     uint32_t total_evicted  = 0;
 };
+
+static_assert(sizeof(PriosCaptureSnapshot) <= (12U * 1024U),
+              "PriosCaptureSnapshot must remain bounded for ESP32 heap usage");
 
 struct PriosCaptureStats {
     size_t   count = 0;

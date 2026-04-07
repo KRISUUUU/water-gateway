@@ -41,9 +41,9 @@ namespace wmbus_prios_rx {
 
 struct PriosFixtureFrame {
     // Maximum raw bytes per fixture frame.
-    // Matches PriosBringUpSession::kMaxCaptureBytes (64) to ensure all
+    // Matches PriosBringUpSession::kMaxCaptureBytes (128) to ensure all
     // live captures fit without truncation.
-    static constexpr size_t kMaxBytes = 64;
+    static constexpr size_t kMaxBytes = 128;
 
     // Maximum length of the human-readable label (including NUL terminator).
     static constexpr size_t kMaxLabelLen = 48;

@@ -43,14 +43,13 @@ void test_export_json_contains_full_bounded_payload_and_metadata() {
     assert(cJSON_IsString(variant));
     assert(std::strcmp(variant->valuestring, "manchester_on") == 0);
 
-    // device_fingerprint: record has 64 bytes, fingerprint field is bytes 9-14.
+    // device_fingerprint: record is long enough and exports bytes 4-7.
     const cJSON* fp_field = cJSON_GetObjectItemCaseSensitive(root, "device_fingerprint");
     assert(fp_field != nullptr);
     assert(cJSON_IsString(fp_field));
     assert(std::strlen(fp_field->valuestring) ==
            static_cast<size_t>(PriosDeviceFingerprint::kLength) * 2U);
-    // Bytes 9-14 of ascending sequence 0,1,2,...: 09,0A,0B,0C,0D,0E
-    assert(std::strncmp(fp_field->valuestring, "090A0B0C0D0E", 12) == 0);
+    assert(std::strcmp(fp_field->valuestring, "04050607") == 0);
 
     const cJSON* prefix = cJSON_GetObjectItemCaseSensitive(root, "display_prefix_hex");
     assert(cJSON_IsString(prefix));

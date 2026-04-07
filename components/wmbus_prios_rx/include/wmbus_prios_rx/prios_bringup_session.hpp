@@ -39,7 +39,7 @@ class PriosBringUpSession {
     };
 
     // Maximum raw bytes accumulated per capture attempt.
-    static constexpr uint16_t kMaxCaptureBytes = 64;
+    static constexpr uint16_t kMaxCaptureBytes = 128;
 
     // Maximum bytes read from FIFO in a single process() call to bound latency.
     static constexpr uint16_t kMaxFifoReadPerCall = 32;

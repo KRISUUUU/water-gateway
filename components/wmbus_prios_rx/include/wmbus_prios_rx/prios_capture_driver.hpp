@@ -32,7 +32,7 @@ class PriosCaptureDriver final : public protocol_driver::IProtocolDriver {
     // Bounded byte budget per capture session.
     // Large enough to hold one complete PRIOS frame candidate (size unknown
     // at this stage) while small enough to avoid excessive RAM use.
-    static constexpr uint16_t kMaxCaptureBytes = 64;
+    static constexpr uint16_t kMaxCaptureBytes = 128;
 
     PriosCaptureDriver() = default;
 

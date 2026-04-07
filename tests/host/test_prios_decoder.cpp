@@ -81,8 +81,7 @@ void test_decode_meter_key_is_meter_id_bcds() {
     assert(decoded.valid);
     assert(std::strcmp(decoded.meter_key, "12345678") == 0);
     assert(decoded.meter_id == 0x12345678);
-    // Manufacturer checks
-    assert(decoded.encrypted == true);
+    assert(decoded.encrypted == false);
     printf("  PASS: meter_key is meter ID BCDs parsed from bytes 4-7\n");
 }
 
@@ -115,10 +114,10 @@ void test_decode_copies_radio_metadata() {
     printf("  PASS: radio metadata copied into decoded telegram\n");
 }
 
-void test_decode_display_prefix_hex_length_bounded_at_32_bytes() {
+void test_decode_display_prefix_hex_length_bounded_at_capture_limit() {
     PriosCaptureRecord r{};
-    r.total_bytes_captured = PriosCaptureRecord::kMaxCaptureBytes;  // 64
-    // Fill bytes 9-14 with known fingerprint, rest with 0xAA
+    r.total_bytes_captured = PriosCaptureRecord::kMaxCaptureBytes;
+    // Fill the fingerprint window with known bytes, rest with 0xAA.
     for (size_t i = 0; i < PriosCaptureRecord::kMaxCaptureBytes; ++i) {
         r.captured_bytes[i] = (i >= 9 && i < 15) ? static_cast<uint8_t>(i) : 0xAA;
     }
@@ -137,7 +136,7 @@ void test_decode_display_prefix_hex_length_bounded_at_32_bytes() {
 void test_decode_display_prefix_hex_truncated_for_partial_capture() {
     const uint8_t meter_id[4] = {0x01, 0x02, 0x03, 0x04};
     PriosCaptureRecord r = make_record_with_header(meter_id);
-    r.total_bytes_captured = 15;  // less than kDisplayPrefixRawBytes=32
+    r.total_bytes_captured = 15;  // less than kDisplayPrefixRawBytes
 
     const auto decoded = PriosDecoder::decode(r);
     assert(decoded.valid);
@@ -169,7 +168,7 @@ int main() {
     test_decode_meter_key_is_meter_id_bcds();
     test_decode_protocol_constants();
     test_decode_copies_radio_metadata();
-    test_decode_display_prefix_hex_length_bounded_at_32_bytes();
+    test_decode_display_prefix_hex_length_bounded_at_capture_limit();
     test_decode_display_prefix_hex_truncated_for_partial_capture();
     test_decode_display_prefix_first_byte_of_record();
     printf("All PRIOS decoder tests passed.\n");

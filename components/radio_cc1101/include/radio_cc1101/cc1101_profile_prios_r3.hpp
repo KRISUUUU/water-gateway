@@ -61,7 +61,7 @@ static constexpr PriosR3RegisterConfig kPriosR3Config[] = {
     // strong-signal captures was 0x1E9B.  Under validation — may still be wrong.
     {registers::SYNC1,    0x1E},   // 0x1E9B candidate — validate near-meter, update if wrong
     {registers::SYNC0,    0x9B},   // 0x1E9B candidate — validate near-meter, update if wrong
-    {registers::PKTLEN,   0xFF},   // Upper bound for FIFO protection
+    {registers::PKTLEN,   0x80},   // 128-byte bounded capture window
     {registers::PKTCTRL1, 0x00},   // No address filtering
     {registers::PKTCTRL0, 0x02},   // Infinite packet length, CRC disabled
     {registers::FSCTRL1,  0x08},   // IF frequency (T-mode value, EXPERIMENTAL)
@@ -115,7 +115,7 @@ static constexpr PriosR3RegisterConfig kPriosR3ConfigManchesterOn[] = {
     {registers::FIFOTHR,  0x47},
     {registers::SYNC1,    0x54},   // EXPERIMENTAL — T-mode placeholder
     {registers::SYNC0,    0x3D},   // EXPERIMENTAL — T-mode placeholder
-    {registers::PKTLEN,   0xFF},
+    {registers::PKTLEN,   0x80},
     {registers::PKTCTRL1, 0x00},
     {registers::PKTCTRL0, 0x02},
     {registers::FSCTRL1,  0x08},
@@ -186,7 +186,7 @@ static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfig[] = {
     {registers::FIFOTHR,  0x47},
     {registers::SYNC1,    0xAA},   // Wytrych preambuły FSK
     {registers::SYNC0,    0xAA},   // Wytrych preambuły FSK
-    {registers::PKTLEN,   0xFF},
+    {registers::PKTLEN,   0x80},
     {registers::PKTCTRL1, 0x00},
     {registers::PKTCTRL0, 0x02},
     {registers::FSCTRL1,  0x08},
@@ -227,7 +227,7 @@ static constexpr PriosR3RegisterConfig kPriosR3DiscoveryConfigManchesterOn[] = {
     {registers::FIFOTHR,  0x47},
     {registers::SYNC1,    0x54},
     {registers::SYNC0,    0x3D},
-    {registers::PKTLEN,   0xFF},
+    {registers::PKTLEN,   0x80},
     {registers::PKTCTRL1, 0x00},
     {registers::PKTCTRL0, 0x02},
     {registers::FSCTRL1,  0x08},

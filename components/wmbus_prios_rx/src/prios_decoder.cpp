@@ -39,7 +39,7 @@ PriosDecodedTelegram PriosDecoder::decode(const PriosCaptureRecord& record) {
     result.meter_id = b[4] | (b[5] << 8) | (b[6] << 16) | (b[7] << 24);
     std::snprintf(result.meter_key, sizeof(result.meter_key), "%02X%02X%02X%02X", b[7], b[6], b[5], b[4]);
 
-    result.encrypted = true;   // na razie zawsze (zgodnie z Prompt 7)
+    result.encrypted = false;
 
     // Display prefix hex (do pokazania w Live Telegrams)
     const size_t raw_bytes = std::min<size_t>(record.total_bytes_captured, PriosDecodedTelegram::kDisplayPrefixRawBytes);
