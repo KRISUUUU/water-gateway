@@ -1052,6 +1052,9 @@
                     ["Radio Topology", topology.single_radio_mode ? "Single-radio (primary active)" : "Multi-radio"],
                     ["Active Radio Count", topology.active_radio_count],
                     ["Supported Radio Slots", topology.supported_radio_slots],
+                    ["Control Mode", operatorView.control_mode || "--"],
+                    ["PRIOS Override Active", operatorView.prios_override_active ? "yes" : "no"],
+                    ["Configured PRIOS Profile", operatorView.configured_prios_profile || "--"],
                     ["Scheduler Mode", sched.mode],
                     ["Preferred Profile", sched.preferred_profile],
                     ["Selected Profile", sched.selected_profile],
@@ -1161,6 +1164,28 @@
         parent.appendChild(hint);
     }
 
+    function createConfigSubsection(titleText, toneClass) {
+        const section = document.createElement("section");
+        section.className = "config-subsection";
+        if (toneClass) {
+            section.classList.add(toneClass);
+        }
+
+        const title = document.createElement("div");
+        title.className = "subsection-title";
+        title.textContent = titleText;
+        section.appendChild(title);
+        return section;
+    }
+
+    function setRadioSectionState(section, active) {
+        if (!section) {
+            return;
+        }
+        section.classList.toggle("config-subsection-active", !!active);
+        section.classList.toggle("config-subsection-inactive", !active);
+    }
+
     function renderRadioConfigSection(container, radioCfg) {
         const radio = radioCfg || {};
         const card = document.createElement("div");
@@ -1174,16 +1199,6 @@
             card,
             "This firmware currently runs one active CC1101 runtime. The primary radio can schedule multiple profiles; the secondary radio slot is reserved in the runtime model for future hardware."
         );
-
-        const freqLabel = document.createElement("label");
-        freqLabel.setAttribute("for", "cfg-radio-frequency_khz");
-        freqLabel.textContent = "Frequency (kHz)";
-        const freqInput = document.createElement("input");
-        freqInput.id = "cfg-radio-frequency_khz";
-        freqInput.type = "number";
-        freqInput.value = String(toNumberOr(radio.frequency_khz, 868950));
-        freqLabel.appendChild(freqInput);
-        card.appendChild(freqLabel);
 
         const rateLabel = document.createElement("label");
         rateLabel.setAttribute("for", "cfg-radio-data_rate");
@@ -1208,6 +1223,18 @@
         recoveryRow.appendChild(recoveryText);
         card.appendChild(recoveryRow);
 
+        const activeModeBanner = document.createElement("div");
+        activeModeBanner.id = "cfg-radio-active-mode-banner";
+        activeModeBanner.className = "config-mode-banner";
+        card.appendChild(activeModeBanner);
+
+        const normalSection = createConfigSubsection("Normal Radio Scheduling");
+        card.appendChild(normalSection);
+        appendFieldHint(
+            normalSection,
+            "These settings control the active radio plan only when PRIOS Experimental Mode is Off."
+        );
+
         const schedulerLabel = document.createElement("label");
         schedulerLabel.setAttribute("for", "cfg-radio-scheduler_mode");
         schedulerLabel.textContent = "Scheduler Mode";
@@ -1221,8 +1248,11 @@
         });
         schedulerSelect.value = String(toNumberOr(radio.scheduler_mode, 0));
         schedulerLabel.appendChild(schedulerSelect);
-        card.appendChild(schedulerLabel);
-        appendFieldHint(card, "Scheduler mode is saved for the primary radio instance. Active PRIOS experimental modes still override that radio intentionally until they are turned off.");
+        normalSection.appendChild(schedulerLabel);
+        appendFieldHint(
+            normalSection,
+            "Scheduler mode and enabled profiles are saved for the primary radio instance. They are intentionally overridden while PRIOS experimental mode is active."
+        );
 
         const profilesBlock = document.createElement("div");
         profilesBlock.className = "config-subsection";
@@ -1245,7 +1275,14 @@
             profilesBlock.appendChild(row);
             appendFieldHint(profilesBlock, profile.help);
         });
-        card.appendChild(profilesBlock);
+        normalSection.appendChild(profilesBlock);
+
+        const priosSection = createConfigSubsection("PRIOS Experimental");
+        card.appendChild(priosSection);
+        appendFieldHint(
+            priosSection,
+            "When PRIOS Experimental Mode is On, the runtime locks the radio to the selected PRIOS profile and suspends normal scheduler-driven T-mode reception."
+        );
 
         const priosModeLabel = document.createElement("label");
         priosModeLabel.setAttribute("for", "cfg-radio-prios_mode");
@@ -1266,7 +1303,7 @@
             ? "discovery"
             : (radio.prios_capture_campaign ? "campaign" : "off");
         priosModeLabel.appendChild(priosModeSelect);
-        card.appendChild(priosModeLabel);
+        priosSection.appendChild(priosModeLabel);
 
         const priosProfileLabel = document.createElement("label");
         priosProfileLabel.setAttribute("for", "cfg-radio-prios_profile");
@@ -1285,7 +1322,11 @@
         priosProfileSelect.value =
             radio.prios_profile === "WMbusPriosR4" ? "WMbusPriosR4" : "WMbusPriosR3";
         priosProfileLabel.appendChild(priosProfileSelect);
-        card.appendChild(priosProfileLabel);
+        priosSection.appendChild(priosProfileLabel);
+        appendFieldHint(
+            priosSection,
+            "PRIOS Profile is the operator-facing source of truth for experimental PRIOS carrier selection: R3 uses 868.95 MHz and R4 uses 868.30 MHz."
+        );
 
         const manchesterRow = document.createElement("label");
         manchesterRow.className = "checkbox-row";
@@ -1294,13 +1335,52 @@
         manchesterInput.type = "checkbox";
         manchesterInput.checked = !!radio.prios_manchester_enabled;
         const manchesterText = document.createElement("span");
-        manchesterText.textContent = "Use Manchester variant for PRIOS experimental modes";
+        manchesterText.textContent = "Variant B (Manchester ON)";
         manchesterRow.appendChild(manchesterInput);
         manchesterRow.appendChild(manchesterText);
-        card.appendChild(manchesterRow);
+        priosSection.appendChild(manchesterRow);
+        appendFieldHint(
+            priosSection,
+            "Variant A = Manchester OFF. Variant B = Manchester ON. The selected variant applies to both PRIOS campaign and discovery/sniffer modes."
+        );
 
-        appendFieldHint(card, "Manchester off = Variant A. Manchester on = Variant B. The selected variant applies to both the sync-based campaign and the discovery/sniffer mode.");
-        appendFieldHint(card, "PRIOS profile chooses the carrier frequency only: R3 = 868.95 MHz, R4 = 868.30 MHz. Sync word 0x1E9B and the bounded diagnostics/export pipeline are shared.");
+        const variantOffNote = document.createElement("label");
+        variantOffNote.className = "checkbox-row checkbox-row-muted";
+        const variantOffIndicator = document.createElement("input");
+        variantOffIndicator.type = "checkbox";
+        variantOffIndicator.disabled = true;
+        const variantOffText = document.createElement("span");
+        variantOffText.textContent = "Variant A (Manchester OFF)";
+        variantOffNote.appendChild(variantOffIndicator);
+        variantOffNote.appendChild(variantOffText);
+        priosSection.appendChild(variantOffNote);
+
+        appendFieldHint(
+            priosSection,
+            "PRIOS R3 and R4 share the same frame format, sync word 0x1E9B, diagnostics path, export path, and live telegram handling. Only the PRIOS carrier/profile changes."
+        );
+
+        const advancedSection =
+            createConfigSubsection("Advanced Radio Overrides", "config-subsection-advanced");
+        card.appendChild(advancedSection);
+        appendFieldHint(
+            advancedSection,
+            "Expert-only compatibility fields. PRIOS experimental modes do not use Frequency (kHz) as their primary source of truth."
+        );
+
+        const freqLabel = document.createElement("label");
+        freqLabel.setAttribute("for", "cfg-radio-frequency_khz");
+        freqLabel.textContent = "Frequency (kHz)";
+        const freqInput = document.createElement("input");
+        freqInput.id = "cfg-radio-frequency_khz";
+        freqInput.type = "number";
+        freqInput.value = String(toNumberOr(radio.frequency_khz, 868950));
+        freqLabel.appendChild(freqInput);
+        advancedSection.appendChild(freqLabel);
+        appendFieldHint(
+            advancedSection,
+            "Saved for compatibility and normal radio configuration. PRIOS experimental R3/R4 selection overrides the carrier/profile at runtime."
+        );
 
         const summary = document.createElement("p");
         summary.id = "cfg-radio-campaign-summary";
@@ -1310,20 +1390,36 @@
         function updateRadioCampaignSummary() {
             const selectedProfile =
                 priosProfileSelect.value === "WMbusPriosR4" ? "PRIOS R4" : "PRIOS R3";
+            const experimentalActive = priosModeSelect.value !== "off";
+            setRadioSectionState(normalSection, !experimentalActive);
+            setRadioSectionState(priosSection, experimentalActive);
+            setRadioSectionState(advancedSection, false);
+            variantOffIndicator.checked = !manchesterInput.checked;
+
             if (priosModeSelect.value === "campaign") {
+                activeModeBanner.className = "config-mode-banner mode-prios";
+                activeModeBanner.textContent =
+                    "Active after reboot: PRIOS Experimental campaign overrides normal scheduler settings and locks the radio to " + selectedProfile + ".";
                 summary.textContent =
                     "Experimental campaign mode keeps the current sync-based PRIOS path. It locks the radio to " + selectedProfile + ", suspends T-mode, and uses the selected variant after reboot.";
             } else if (priosModeSelect.value === "discovery") {
+                activeModeBanner.className = "config-mode-banner mode-prios";
+                activeModeBanner.textContent =
+                    "Active after reboot: PRIOS discovery/sniffer overrides normal scheduler settings and locks the radio to " + selectedProfile + ".";
                 summary.textContent =
                     "Discovery / sniffer mode locks the radio to " + selectedProfile + ", suspends T-mode, and captures bounded bursts using discovery-oriented radio activity gating instead of the placeholder sync word.";
             } else {
+                activeModeBanner.className = "config-mode-banner mode-normal";
+                activeModeBanner.textContent =
+                    "Active after reboot: Normal Radio Scheduling uses Scheduler Mode plus Enabled Profiles on the primary radio runtime.";
                 summary.textContent =
-                    "Normal mode uses the saved primary-radio scheduler mode and enabled profiles after reboot. T-mode plus the selected PRIOS profile can share one CC1101 runtime; the secondary radio slot remains reserved for future hardware.";
+                    "Normal mode uses the saved primary-radio scheduler mode and enabled profiles after reboot. PRIOS profile selection is stored but not authoritative until an experimental PRIOS mode is turned on.";
             }
         }
 
         priosModeSelect.addEventListener("change", updateRadioCampaignSummary);
         priosProfileSelect.addEventListener("change", updateRadioCampaignSummary);
+        manchesterInput.addEventListener("change", updateRadioCampaignSummary);
         updateRadioCampaignSummary();
         container.appendChild(card);
     }

@@ -3,6 +3,7 @@
 #ifndef HOST_TEST_BUILD
 
 #include "common/error.hpp"
+#include "config_store/config_store.hpp"
 #include "diagnostics_service/diagnostics_service.hpp"
 #include "meter_registry/meter_registry.hpp"
 #include "protocol_driver/radio_profile_manager.hpp"
@@ -14,6 +15,16 @@
 namespace api_handlers::detail {
 
 namespace {
+
+const char* prios_control_mode(const config_store::RadioConfig& radio_cfg) {
+    if (radio_cfg.prios_discovery_mode) {
+        return "PRIOS discovery/sniffer override";
+    }
+    if (radio_cfg.prios_capture_campaign) {
+        return "PRIOS campaign override";
+    }
+    return "Normal scheduler control";
+}
 
 const char* protocol_name_for_profile(protocol_driver::RadioProfileId profile_id) {
     switch (profile_id) {
@@ -130,6 +141,7 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
             meter_registry::TelegramFilter::All);
     const auto tmode_recent = summarize_recent_protocol(recent_telegrams, "WMBUS_T");
     const auto prios_recent = summarize_recent_prios(recent_telegrams);
+    const auto cfg = config_store::ConfigStore::instance().config();
     auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot_allocated();
     const auto* last_tmode_reject = newest_rf_reject(rf_snapshot.get());
     const auto prios_stats = wmbus_prios_rx::PriosCaptureService::instance().stats();
@@ -217,6 +229,12 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
                             protocol_driver::radio_profile_id_to_string(sched.active_profile_id));
     cJSON_AddStringToObject(operator_obj, "active_protocol",
                             protocol_name_for_profile(sched.active_profile_id));
+    cJSON_AddStringToObject(operator_obj, "control_mode",
+                            prios_control_mode(cfg.radio));
+    cJSON_AddBoolToObject(operator_obj, "prios_override_active",
+                          cfg.radio.prios_capture_campaign || cfg.radio.prios_discovery_mode);
+    cJSON_AddStringToObject(operator_obj, "configured_prios_profile",
+                            protocol_driver::radio_profile_id_to_string(cfg.radio.prios_profile));
     cJSON_AddStringToObject(operator_obj, "last_wake_source",
                             protocol_driver::runtime_wake_source_to_string(
                                 sched.last_wake_source));

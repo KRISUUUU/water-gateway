@@ -72,6 +72,8 @@ struct MqttConfig {
 };
 
 struct RadioConfig {
+    // Generic compatibility frequency field used by normal radio config paths.
+    // Experimental PRIOS modes select their RF carrier from prios_profile.
     uint32_t frequency_khz;
     uint8_t  data_rate;      // Reserved for future mode selection
     bool     auto_recovery;

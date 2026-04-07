@@ -20,6 +20,16 @@ namespace api_handlers::detail {
 
 namespace {
 
+const char* prios_control_mode(const config_store::RadioConfig& radio_cfg) {
+    if (radio_cfg.prios_discovery_mode) {
+        return "PRIOS discovery/sniffer override";
+    }
+    if (radio_cfg.prios_capture_campaign) {
+        return "PRIOS campaign override";
+    }
+    return "Normal scheduler control";
+}
+
 const char* protocol_name_for_profile(protocol_driver::RadioProfileId profile_id) {
     switch (profile_id) {
         case protocol_driver::RadioProfileId::WMbusT868:
@@ -81,6 +91,7 @@ ProtocolRecentSummary summarize_recent_prios(
 
 void add_protocol_runtime_json(cJSON* root) {
     const auto sched = protocol_driver::RadioProfileManager::instance().status();
+    const auto cfg = config_store::ConfigStore::instance().config();
     const auto recent =
         meter_registry::MeterRegistry::instance().recent_telegrams(
             meter_registry::TelegramFilter::All);
@@ -100,6 +111,12 @@ void add_protocol_runtime_json(cJSON* root) {
                             protocol_driver::radio_profile_id_to_string(sched.active_profile_id));
     cJSON_AddStringToObject(runtime, "active_protocol",
                             protocol_name_for_profile(sched.active_profile_id));
+    cJSON_AddStringToObject(runtime, "control_mode",
+                            prios_control_mode(cfg.radio));
+    cJSON_AddBoolToObject(runtime, "prios_override_active",
+                          cfg.radio.prios_capture_campaign || cfg.radio.prios_discovery_mode);
+    cJSON_AddStringToObject(runtime, "configured_prios_profile",
+                            protocol_driver::radio_profile_id_to_string(cfg.radio.prios_profile));
     cJSON_AddStringToObject(runtime, "last_wake_source",
                             protocol_driver::runtime_wake_source_to_string(
                                 sched.last_wake_source));
