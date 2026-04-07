@@ -54,6 +54,26 @@ ProtocolRecentSummary summarize_recent_protocol(
     return summary;
 }
 
+ProtocolRecentSummary summarize_recent_prios(
+    const std::vector<meter_registry::RecentTelegram>& recent) {
+    ProtocolRecentSummary summary{};
+    for (const auto& telegram : recent) {
+        if (telegram.protocol_name != "PRIOS_R3" &&
+            telegram.protocol_name != "PRIOS_R4" &&
+            telegram.protocol_name != "PRIOS") {
+            continue;
+        }
+        summary.recent_accepts++;
+        if (summary.last_success_timestamp_ms == 0) {
+            summary.last_success_timestamp_ms = telegram.timestamp_ms;
+            summary.last_success_rssi_dbm = telegram.rssi_dbm;
+            summary.last_success_lqi = telegram.lqi;
+            summary.last_meter_key = telegram.meter_key.c_str();
+        }
+    }
+    return summary;
+}
+
 const rf_diagnostics::RfDiagnosticRecord* newest_rf_reject(
     const rf_diagnostics::RfDiagnosticsSnapshot* snapshot) {
     if (!snapshot || snapshot->count == 0) {
@@ -109,7 +129,7 @@ esp_err_t handle_diagnostics_radio(httpd_req_t* req) {
         meter_registry::MeterRegistry::instance().recent_telegrams(
             meter_registry::TelegramFilter::All);
     const auto tmode_recent = summarize_recent_protocol(recent_telegrams, "WMBUS_T");
-    const auto prios_recent = summarize_recent_protocol(recent_telegrams, "PRIOS_R3");
+    const auto prios_recent = summarize_recent_prios(recent_telegrams);
     auto rf_snapshot = rf_diagnostics::RfDiagnosticsService::instance().snapshot_allocated();
     const auto* last_tmode_reject = newest_rf_reject(rf_snapshot.get());
     const auto prios_stats = wmbus_prios_rx::PriosCaptureService::instance().stats();

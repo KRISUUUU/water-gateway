@@ -210,6 +210,18 @@ static RadioStartupConfigSnapshot load_radio_startup_config() {
     };
 }
 
+static protocol_driver::RadioProfileId configured_prios_profile(
+    const config_store::RadioConfig& radio_cfg) {
+    if (radio_cfg.prios_profile == protocol_driver::RadioProfileId::WMbusPriosR4) {
+        return protocol_driver::RadioProfileId::WMbusPriosR4;
+    }
+    return protocol_driver::RadioProfileId::WMbusPriosR3;
+}
+
+static const char* prios_protocol_name(protocol_driver::RadioProfileId profile) {
+    return profile == protocol_driver::RadioProfileId::WMbusPriosR4 ? "PRIOS_R4" : "PRIOS_R3";
+}
+
 struct RuntimeProfileApplyResult {
     protocol_driver::RadioProfileId requested_profile =
         protocol_driver::RadioProfileId::Unknown;
@@ -257,7 +269,7 @@ static RuntimeProfileApplyResult apply_runtime_radio_profile(
                     : wmbus_prios_rx::PriosBringUpSession::Mode::DiscoverySniffer;
             session_engine.reset();
             prios_session.reset();
-            prios_session.configure(mode, manchester_enabled);
+            prios_session.configure(mode, manchester_enabled, requested_profile);
             auto apply =
                 mode == wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign
                     ? radio.owner_apply_prios_r3_profile(owner_token, manchester_enabled)
@@ -273,16 +285,24 @@ static RuntimeProfileApplyResult apply_runtime_radio_profile(
         }
 
         case protocol_driver::RadioProfileId::WMbusPriosR4: {
+            const auto mode =
+                (experimental_prios_active && !discovery_active)
+                    ? wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign
+                    : wmbus_prios_rx::PriosBringUpSession::Mode::DiscoverySniffer;
             session_engine.reset();
             prios_session.reset();
-            auto fallback = radio.owner_apply_tmode_profile(owner_token);
-            if (fallback.is_error()) {
+            prios_session.configure(mode, manchester_enabled, requested_profile);
+            auto apply =
+                mode == wmbus_prios_rx::PriosBringUpSession::Mode::SyncCampaign
+                    ? radio.owner_apply_prios_r4_profile(owner_token, manchester_enabled)
+                    : radio.owner_apply_prios_r4_discovery_profile(owner_token, manchester_enabled);
+            if (apply.is_error()) {
                 result.apply_status = protocol_driver::ProfileApplyStatus::ApplyFailed;
-                result.error = fallback.error();
+                result.error = apply.error();
                 return result;
             }
-            result.applied_profile = protocol_driver::RadioProfileId::WMbusT868;
-            result.apply_status = protocol_driver::ProfileApplyStatus::UnsupportedRequestedProfile;
+            result.applied_profile = protocol_driver::RadioProfileId::WMbusPriosR4;
+            result.apply_status = protocol_driver::ProfileApplyStatus::Applied;
             return result;
         }
 
@@ -501,20 +521,25 @@ static void radio_rx_task(void* /*param*/) {
     const bool discovery_active = startup_radio_cfg.discovery_active;
     const bool campaign_manchester = startup_radio_cfg.campaign_manchester;
     const bool experimental_prios_active = campaign_active || discovery_active;
+    const auto startup_cfg = config_store::ConfigStore::instance().config();
+    const auto selected_prios_profile = configured_prios_profile(startup_cfg.radio);
 
     if (experimental_prios_active) {
         // Experimental PRIOS modes override the user's scheduler config and lock
-        // the primary radio to WMbusPriosR3 for the duration of the session.
+        // the primary radio to the selected PRIOS profile for the duration of
+        // the session.
         // T-mode reception is suspended.  PriosExperimentalLock is recorded as
         // the switch reason so the diagnostics API makes the override visible.
         profile_mgr.configure(protocol_driver::RadioSchedulerMode::Locked,
-                              protocol_driver::kRadioProfileMaskWMbusPriosR3,
+                              static_cast<protocol_driver::RadioProfileMask>(
+                                  1U << static_cast<uint8_t>(selected_prios_profile)),
                               protocol_driver::kRadioInstancePrimary,
                               protocol_driver::SchedulerSwitchReason::PriosExperimentalLock);
-        ESP_LOGI(TAG, "PRIOS %s ACTIVE — radio locked to WMbusPriosR3 "
+        ESP_LOGI(TAG, "PRIOS %s ACTIVE — radio locked to %s "
                       "(variant=%s, T-mode suspended, reason=PriosExperimentalLock)",
                  discovery_active ? "discovery/sniffer mode"
                                   : "capture campaign",
+                 protocol_driver::radio_profile_id_to_string(selected_prios_profile),
                  campaign_manchester ? "manchester_on" : "manchester_off");
     } else {
         // Normal operation: apply scheduler mode and enabled profiles from config.
@@ -582,7 +607,8 @@ static void radio_rx_task(void* /*param*/) {
         const auto selected_profile_before = profile_mgr.selected_profile_id();
 
         // PRIOS bring-up path: raw bounded capture, no decode, no link-layer routing.
-        if (active_profile == protocol_driver::RadioProfileId::WMbusPriosR3) {
+        if (active_profile == protocol_driver::RadioProfileId::WMbusPriosR3 ||
+            active_profile == protocol_driver::RadioProfileId::WMbusPriosR4) {
             const int64_t ts = ntp_service::NtpService::instance().now_epoch_ms();
             const auto prios_result = prios_session.process(
                 session_device, owner_events, now_ms(), ts > 0 ? ts : 0);
@@ -603,6 +629,7 @@ static void radio_rx_task(void* /*param*/) {
                         wmbus_prios_rx::PriosDecoder::decode(prios_result.record);
                     if (decoded.valid) {
                         meter_registry::MeterRegistry::instance().observe_prios_telegram(decoded);
+                        metrics_service::MetricsService::report_session_completed(false, true);
                         const auto& cfg = config_store::ConfigStore::instance().config();
                         const int64_t ts_ms = prios_result.record.timestamp_ms;
                         const bool ntp_synced =
@@ -613,7 +640,9 @@ static void radio_rx_task(void* /*param*/) {
                             cfg.mqtt.prefix, cfg.device.hostname,
                             decoded.meter_key, decoded.display_prefix_hex,
                             decoded.captured_length, decoded.rssi_dbm, decoded.lqi,
-                            decoded.manchester_enabled, ts_str, decoded.manufacturer, decoded.encrypted);
+                            decoded.manchester_enabled, ts_str,
+                            prios_protocol_name(decoded.radio_profile),
+                            decoded.manufacturer, decoded.encrypted);
                         if (cmd.is_ok()) {
                             enqueue_mqtt(cmd.value());
                         }

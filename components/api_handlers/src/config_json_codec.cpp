@@ -102,6 +102,35 @@ bool parse_scheduler_mode(const cJSON* item, protocol_driver::RadioSchedulerMode
     return false;
 }
 
+bool parse_prios_profile(const cJSON* item, protocol_driver::RadioProfileId& out) {
+    if (!item) {
+        return false;
+    }
+    if (cJSON_IsNumber(item)) {
+        const int value = static_cast<int>(item->valuedouble);
+        if (value == static_cast<int>(protocol_driver::RadioProfileId::WMbusPriosR3) ||
+            value == static_cast<int>(protocol_driver::RadioProfileId::WMbusPriosR4)) {
+            out = static_cast<protocol_driver::RadioProfileId>(value);
+            return true;
+        }
+        return false;
+    }
+    if (!cJSON_IsString(item) || !item->valuestring) {
+        return false;
+    }
+
+    const std::string value = lower_copy(item->valuestring);
+    if (value == "wmbuspriosr3" || value == "priosr3" || value == "prios_r3") {
+        out = protocol_driver::RadioProfileId::WMbusPriosR3;
+        return true;
+    }
+    if (value == "wmbuspriosr4" || value == "priosr4" || value == "prios_r4") {
+        out = protocol_driver::RadioProfileId::WMbusPriosR4;
+        return true;
+    }
+    return false;
+}
+
 bool profile_name_to_mask_bit(const char* value, protocol_driver::RadioProfileMask& out_bit) {
     if (!value) {
         return false;
@@ -192,6 +221,8 @@ std::string config_to_json_redacted(const config_store::AppConfig& c) {
                             static_cast<double>(c.radio.scheduler_mode));
     cJSON_AddNumberToObject(radio, "enabled_profiles",
                             static_cast<double>(c.radio.enabled_profiles));
+    cJSON_AddStringToObject(radio, "prios_profile",
+                            protocol_driver::radio_profile_id_to_string(c.radio.prios_profile));
     cJSON_AddBoolToObject(radio, "prios_capture_campaign", c.radio.prios_capture_campaign);
     cJSON_AddBoolToObject(radio, "prios_discovery_mode", c.radio.prios_discovery_mode);
     cJSON_AddBoolToObject(radio, "prios_manchester_enabled",
@@ -304,6 +335,12 @@ void apply_config_json(const cJSON* root, config_store::AppConfig& cfg) {
         if (parse_enabled_profiles(cJSON_GetObjectItemCaseSensitive(radio, "enabled_profiles"),
                                    enabled_profiles)) {
             cfg.radio.enabled_profiles = enabled_profiles;
+        }
+
+        protocol_driver::RadioProfileId prios_profile = cfg.radio.prios_profile;
+        if (parse_prios_profile(cJSON_GetObjectItemCaseSensitive(radio, "prios_profile"),
+                                prios_profile)) {
+            cfg.radio.prios_profile = prios_profile;
         }
 
         if (parse_bool_like(cJSON_GetObjectItemCaseSensitive(radio, "prios_capture_campaign"),

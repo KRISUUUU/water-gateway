@@ -91,6 +91,7 @@ void test_migrate_v0_reaches_current() {
     assert(result.value().version == kCurrentConfigVersion);
     assert(result.value().radio.scheduler_mode    == RadioSchedulerMode::Locked);
     assert(result.value().radio.enabled_profiles  == kRadioProfileMaskWMbusT868);
+    assert(result.value().radio.prios_profile == RadioProfileId::WMbusPriosR3);
     // v4 fields must default to false on migration from old configs.
     assert(result.value().radio.prios_capture_campaign  == false);
     assert(result.value().radio.prios_discovery_mode    == false);
@@ -128,6 +129,18 @@ void test_migrate_v4_to_v5_discovery_defaults() {
     assert(result.value().radio.prios_discovery_mode == false);
     assert(result.value().radio.prios_manchester_enabled == true);
     std::printf("  PASS: v4→v5 migration adds discovery field with safe default\n");
+}
+
+void test_migrate_v5_to_v6_prios_profile_defaults() {
+    AppConfig cfg = AppConfig::make_default();
+    cfg.version = 5;
+    cfg.radio.prios_profile = RadioProfileId::Unknown;
+
+    auto result = migrate_to_current(cfg);
+    assert(result.is_ok());
+    assert(result.value().version == kCurrentConfigVersion);
+    assert(result.value().radio.prios_profile == RadioProfileId::WMbusPriosR3);
+    std::printf("  PASS: v5→v6 migration adds PRIOS profile with R3 default\n");
 }
 
 // ---- Validation ----
@@ -179,6 +192,22 @@ void test_unknown_scheduler_mode_fails_validation() {
     }
     assert(found);
     std::printf("  PASS: unknown scheduler_mode fails validation\n");
+}
+
+void test_invalid_prios_profile_fails_validation() {
+    AppConfig cfg = AppConfig::make_default();
+    cfg.radio.prios_profile = RadioProfileId::Unknown;
+    const auto result = validate_config(cfg);
+    assert(!result.valid);
+    bool found = false;
+    for (const auto& issue : result.issues) {
+        if (issue.field == "radio.prios_profile" &&
+            issue.severity == config_store::ValidationSeverity::Error) {
+            found = true;
+        }
+    }
+    assert(found);
+    std::printf("  PASS: invalid PRIOS profile fails validation\n");
 }
 
 // ---- RadioProfileManager ----
@@ -348,9 +377,11 @@ int main() {
     test_migrate_v0_reaches_current();
     test_migrate_v3_to_v4_campaign_defaults();
     test_migrate_v4_to_v5_discovery_defaults();
+    test_migrate_v5_to_v6_prios_profile_defaults();
     test_default_config_validates();
     test_empty_enabled_profiles_fails_validation();
     test_unknown_scheduler_mode_fails_validation();
+    test_invalid_prios_profile_fails_validation();
     test_manager_configure_sets_active_profile();
     test_manager_locked_advance_is_noop();
     test_manager_priority_returns_to_preferred_after_fallback_scan();

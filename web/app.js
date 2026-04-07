@@ -34,7 +34,7 @@
             bit: 0x08,
             id: "WMbusPriosR4",
             label: "PRIOS R4",
-            help: "Profile presence is wired for scheduler/runtime planning. A dedicated R4 RX path is not active yet.",
+            help: "Capture-only experimental profile using the same PRIOS pipeline at 868.30 MHz.",
         },
     ];
 
@@ -777,7 +777,7 @@
                     createCell(tr, formatTimeMs(f.timestamp_ms));
                     const proto = f.protocol_name || "WMBUS_T";
                     const protoCell = createCell(tr, proto);
-                    if (proto === "PRIOS_R3") {
+                    if (proto === "PRIOS_R3" || proto === "PRIOS_R4" || proto === "PRIOS") {
                         protoCell.style.cssText = "color:#7ec8e3;font-weight:600";
                     }
                     createCell(tr, f.vendor || "");
@@ -1268,6 +1268,25 @@
         priosModeLabel.appendChild(priosModeSelect);
         card.appendChild(priosModeLabel);
 
+        const priosProfileLabel = document.createElement("label");
+        priosProfileLabel.setAttribute("for", "cfg-radio-prios_profile");
+        priosProfileLabel.textContent = "PRIOS Profile";
+        const priosProfileSelect = document.createElement("select");
+        priosProfileSelect.id = "cfg-radio-prios_profile";
+        [
+            { value: "WMbusPriosR3", label: "PRIOS R3 (868.95 MHz)" },
+            { value: "WMbusPriosR4", label: "PRIOS R4 (868.30 MHz)" },
+        ].forEach((option) => {
+            const opt = document.createElement("option");
+            opt.value = option.value;
+            opt.textContent = option.label;
+            priosProfileSelect.appendChild(opt);
+        });
+        priosProfileSelect.value =
+            radio.prios_profile === "WMbusPriosR4" ? "WMbusPriosR4" : "WMbusPriosR3";
+        priosProfileLabel.appendChild(priosProfileSelect);
+        card.appendChild(priosProfileLabel);
+
         const manchesterRow = document.createElement("label");
         manchesterRow.className = "checkbox-row";
         const manchesterInput = document.createElement("input");
@@ -1281,6 +1300,7 @@
         card.appendChild(manchesterRow);
 
         appendFieldHint(card, "Manchester off = Variant A. Manchester on = Variant B. The selected variant applies to both the sync-based campaign and the discovery/sniffer mode.");
+        appendFieldHint(card, "PRIOS profile chooses the carrier frequency only: R3 = 868.95 MHz, R4 = 868.30 MHz. Sync word 0x1E9B and the bounded diagnostics/export pipeline are shared.");
 
         const summary = document.createElement("p");
         summary.id = "cfg-radio-campaign-summary";
@@ -1288,19 +1308,22 @@
         card.appendChild(summary);
 
         function updateRadioCampaignSummary() {
+            const selectedProfile =
+                priosProfileSelect.value === "WMbusPriosR4" ? "PRIOS R4" : "PRIOS R3";
             if (priosModeSelect.value === "campaign") {
                 summary.textContent =
-                    "Experimental campaign mode keeps the current sync-based PRIOS path. It locks the radio to PRIOS R3, suspends T-mode, and uses the selected variant after reboot.";
+                    "Experimental campaign mode keeps the current sync-based PRIOS path. It locks the radio to " + selectedProfile + ", suspends T-mode, and uses the selected variant after reboot.";
             } else if (priosModeSelect.value === "discovery") {
                 summary.textContent =
-                    "Discovery / sniffer mode locks the radio to PRIOS R3, suspends T-mode, and captures bounded bursts using discovery-oriented radio activity gating instead of the placeholder sync word.";
+                    "Discovery / sniffer mode locks the radio to " + selectedProfile + ", suspends T-mode, and captures bounded bursts using discovery-oriented radio activity gating instead of the placeholder sync word.";
             } else {
                 summary.textContent =
-                    "Normal mode uses the saved primary-radio scheduler mode and enabled profiles after reboot. T-mode and PRIOS R3 can share one CC1101 runtime; the secondary radio slot remains reserved for future hardware.";
+                    "Normal mode uses the saved primary-radio scheduler mode and enabled profiles after reboot. T-mode plus the selected PRIOS profile can share one CC1101 runtime; the secondary radio slot remains reserved for future hardware.";
             }
         }
 
         priosModeSelect.addEventListener("change", updateRadioCampaignSummary);
+        priosProfileSelect.addEventListener("change", updateRadioCampaignSummary);
         updateRadioCampaignSummary();
         container.appendChild(card);
     }
@@ -1374,6 +1397,7 @@
                 }
             });
             cfg.radio.enabled_profiles = enabledProfiles;
+            cfg.radio.prios_profile = $("#cfg-radio-prios_profile").value;
             const priosMode = $("#cfg-radio-prios_mode").value;
             cfg.radio.prios_capture_campaign = priosMode === "campaign";
             cfg.radio.prios_discovery_mode = priosMode === "discovery";

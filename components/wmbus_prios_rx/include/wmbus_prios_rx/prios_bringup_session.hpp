@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/error.hpp"
+#include "protocol_driver/protocol_ids.hpp"
 #include "radio_cc1101/cc1101_owner_events.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
 #include "wmbus_tmode_rx/rx_session_engine.hpp"
@@ -68,9 +69,11 @@ class PriosBringUpSession {
     void reset();
     bool active() const { return session_active_; }
 
-    void configure(Mode mode, bool manchester_enabled) {
+    void configure(Mode mode, bool manchester_enabled,
+                   protocol_driver::RadioProfileId radio_profile) {
         mode_ = mode;
         manchester_enabled_ = manchester_enabled;
+        radio_profile_ = radio_profile;
         counters_ = SummaryCounters{};
         last_summary_log_ms_ = 0;
         last_overflow_log_ms_ = 0;
@@ -78,7 +81,7 @@ class PriosBringUpSession {
     }
 
     void set_variant(bool manchester_enabled) {
-        configure(mode_, manchester_enabled);
+        configure(mode_, manchester_enabled, radio_profile_);
     }
 
     Mode mode() const { return mode_; }
@@ -148,6 +151,8 @@ class PriosBringUpSession {
     uint32_t seq_               = 0;
     Mode     mode_              = Mode::SyncCampaign;
     bool     manchester_enabled_ = false;  // set by set_variant(); propagated to records
+    protocol_driver::RadioProfileId radio_profile_ =
+        protocol_driver::RadioProfileId::WMbusPriosR3;
     SummaryCounters counters_{};
     uint32_t last_summary_log_ms_ = 0;
     uint32_t last_overflow_log_ms_ = 0;

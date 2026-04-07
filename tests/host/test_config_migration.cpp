@@ -29,6 +29,7 @@ static void test_v0_migrates_to_current() {
     assert(std::strcmp(result.value().device.hostname, "myhost") == 0);
     // New fields should have defaults
     assert(result.value().radio.frequency_khz == 868950);
+    assert(result.value().radio.prios_profile == protocol_driver::RadioProfileId::WMbusPriosR3);
     assert(result.value().auth.session_timeout_s == 3600);
     printf("  PASS: v0 migrates to current with field preservation\n");
 }
@@ -70,6 +71,18 @@ static void test_v0_preserves_wifi() {
     printf("  PASS: v0 preserves WiFi credentials\n");
 }
 
+static void test_v5_to_v6_adds_prios_profile_default() {
+    AppConfig cfg = AppConfig::make_default();
+    cfg.version = 5;
+    cfg.radio.prios_profile = protocol_driver::RadioProfileId::Unknown;
+
+    auto result = migrate_to_current(cfg);
+    assert(result.is_ok());
+    assert(result.value().version == kCurrentConfigVersion);
+    assert(result.value().radio.prios_profile == protocol_driver::RadioProfileId::WMbusPriosR3);
+    printf("  PASS: v5 to v6 migration defaults PRIOS profile to R3\n");
+}
+
 int main() {
     printf("=== test_config_migration ===\n");
     test_current_version_passes_through();
@@ -77,6 +90,7 @@ int main() {
     test_v0_blank_gets_defaults();
     test_future_version_fails();
     test_v0_preserves_wifi();
+    test_v5_to_v6_adds_prios_profile_default();
     printf("All config migration tests passed.\n");
     return 0;
 }

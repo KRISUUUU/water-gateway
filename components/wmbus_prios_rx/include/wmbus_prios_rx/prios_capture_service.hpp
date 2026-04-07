@@ -1,5 +1,7 @@
 #pragma once
 
+#include "protocol_driver/protocol_ids.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +59,8 @@ struct PriosCaptureRecord {
     bool     radio_crc_available = false;
     uint16_t total_bytes_captured = 0;  // how many bytes were captured in this bounded record
     uint8_t  captured_bytes[kMaxCaptureBytes]{};
+    protocol_driver::RadioProfileId radio_profile =
+        protocol_driver::RadioProfileId::WMbusPriosR3;
 
     // Which PRIOS capture variant was active when this record was captured.
     // false = Variant A (Manchester off), true = Variant B (Manchester on).
@@ -133,6 +137,8 @@ struct PriosCapturePreviewRecord {
     uint8_t  lqi                  = 0;
     uint16_t total_bytes_captured = 0;
     bool     manchester_enabled   = false;
+    protocol_driver::RadioProfileId radio_profile =
+        protocol_driver::RadioProfileId::WMbusPriosR3;
     uint8_t  preview_length       = 0;
     uint8_t  preview_bytes[kPreviewBytes]{};
 };

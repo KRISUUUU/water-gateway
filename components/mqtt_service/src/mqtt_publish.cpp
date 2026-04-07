@@ -365,7 +365,8 @@ common::Result<MqttPublishCommand> make_raw_frame_command(
 common::Result<MqttPublishCommand> make_prios_frame_command(
     const char* topic_prefix, const char* device_id, const char* meter_key,
     const char* display_prefix_hex, uint16_t captured_length, int8_t rssi_dbm, uint8_t lqi,
-    bool manchester_enabled, const char* timestamp, const char* vendor, bool encrypted) {
+    bool manchester_enabled, const char* timestamp, const char* protocol_name,
+    const char* vendor, bool encrypted) {
     MqttPublishCommand command{};
     command.type = PublishCommandType::PriosFrame;
     if (!copy_cstr(command.topic_prefix, topic_prefix) ||
@@ -373,7 +374,7 @@ common::Result<MqttPublishCommand> make_prios_frame_command(
         !copy_cstr(command.meter_key, meter_key)        ||
         !copy_cstr(command.prios_display_hex, display_prefix_hex) ||
         !copy_cstr(command.timestamp, timestamp)        ||
-        !copy_cstr(command.protocol_name, "PRIOS")  ||
+        !copy_cstr(command.protocol_name, protocol_name)  ||
         !copy_cstr(command.vendor, vendor)) {
         return common::Result<MqttPublishCommand>::error(overflow_code());
     }

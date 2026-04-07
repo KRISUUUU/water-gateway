@@ -140,7 +140,8 @@ static void test_serializer_escapes_event_message() {
 
 static void test_prios_frame_command_topic() {
     auto cmd = make_prios_frame_command("wmbus-gw", "a1b2c3", "AABBCCDDEEFF",
-                                        "AABBCCDD", 20, -70, 88, false, "2024-01-01T00:00:00Z");
+                                        "AABBCCDD", 20, -70, 88, false, "2024-01-01T00:00:00Z",
+                                        "PRIOS_R3", "Techem", true);
     assert(cmd.is_ok());
     auto serialized = serialize_publish_command(cmd.value());
     assert(serialized.is_ok());
@@ -150,14 +151,15 @@ static void test_prios_frame_command_topic() {
 
 static void test_prios_frame_command_payload_fields() {
     auto cmd = make_prios_frame_command("wmbus-gw", "dev1", "112233445566",
-                                        "112233", 15, -80, 77, true, "2024-06-01T12:00:00Z");
+                                        "112233", 15, -80, 77, true, "2024-06-01T12:00:00Z",
+                                        "PRIOS_R4", "Techem", true);
     assert(cmd.is_ok());
     auto serialized = serialize_publish_command(cmd.value());
     assert(serialized.is_ok());
     const std::string payload = serialized.value().payload;
-    assert(payload.find("\"protocol_name\":\"PRIOS_R3\"") != std::string::npos);
+    assert(payload.find("\"protocol_name\":\"PRIOS_R4\"") != std::string::npos);
     assert(payload.find("\"vendor\":\"Techem\"") != std::string::npos);
-    assert(payload.find("\"support_level\":\"identity_only_capture\"") != std::string::npos);
+    assert(payload.find("\"support_level\":\"header_decoded\"") != std::string::npos);
     assert(payload.find("\"decoded_ok\":false") != std::string::npos);
     assert(payload.find("\"reading_decode_available\":false") != std::string::npos);
     assert(payload.find("\"meter_key\":\"112233445566\"") != std::string::npos);
@@ -172,7 +174,8 @@ static void test_prios_frame_command_payload_fields() {
 static void test_prios_frame_command_no_raw_bytes() {
     // PRIOS commands must not contain a large raw_hex blob.
     auto cmd = make_prios_frame_command("gw", "dev", "AABBCCDDEEFF",
-                                        "AABB", 10, -75, 80, false, "");
+                                        "AABB", 10, -75, 80, false, "",
+                                        "PRIOS_R3", "Techem", false);
     assert(cmd.is_ok());
     auto serialized = serialize_publish_command(cmd.value());
     assert(serialized.is_ok());

@@ -68,6 +68,13 @@ static common::Result<AppConfig> migrate_v4_to_v5(const AppConfig& old) {
     return common::Result<AppConfig>::ok(migrated);
 }
 
+static common::Result<AppConfig> migrate_v5_to_v6(const AppConfig& old) {
+    AppConfig migrated = old;
+    migrated.version = 6;
+    migrated.radio.prios_profile = protocol_driver::RadioProfileId::WMbusPriosR3;
+    return common::Result<AppConfig>::ok(migrated);
+}
+
 common::Result<AppConfig> migrate_to_current(const AppConfig& old_config) {
     AppConfig migrated = old_config;
     auto result = migrate_to_current_in_place(migrated);
@@ -121,6 +128,14 @@ common::Result<void> migrate_to_current_in_place(AppConfig& current) {
 
     if (current.version == 4) {
         auto result = migrate_v4_to_v5(current);
+        if (result.is_error()) {
+            return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
+        }
+        current = result.value();
+    }
+
+    if (current.version == 5) {
+        auto result = migrate_v5_to_v6(current);
         if (result.is_error()) {
             return common::Result<void>::error(common::ErrorCode::ConfigMigrationFailed);
         }

@@ -33,9 +33,12 @@ void PriosBringUpSession::emit_periodic_summary(uint32_t now_ms) {
     last_summary_log_ms_ = now_ms;
 
     const auto stats = PriosCaptureService::instance().stats();
+    const char* profile_label =
+        radio_profile_ == protocol_driver::RadioProfileId::WMbusPriosR4
+            ? "PRIOS R4"
+            : "PRIOS R3";
     const char* mode_label =
-        mode_ == Mode::DiscoverySniffer ? "PRIOS discovery summary"
-                                        : "PRIOS R3 summary";
+        mode_ == Mode::DiscoverySniffer ? "PRIOS discovery summary" : profile_label;
     ESP_LOGI(TAG_PRIOS,
              "%s: start=%lu capture=%lu timeout=%lu reject_noise=%lu reject_quality=%lu reject_b_short=%lu reject_sim=%lu overflow=%lu empty=%lu fallback=%lu stored=%lu evict=%lu",
              mode_label,
@@ -75,6 +78,7 @@ PriosCaptureRecord PriosBringUpSession::finalise(int8_t rssi_dbm, uint8_t lqi,
     rec.radio_crc_ok          = crc_ok;
     rec.radio_crc_available   = crc_available;
     rec.total_bytes_captured  = len_;
+    rec.radio_profile         = radio_profile_;
     rec.manchester_enabled    = manchester_enabled_;  // record which variant was active
 
     const size_t captured_length = std::min(static_cast<size_t>(len_),
@@ -157,10 +161,10 @@ PriosBringUpSession::Result PriosBringUpSession::process(
             if (copy > 0) {
                 if (len_ == 0 && copy >= 1 && should_emit_verbose_session_log()) {
                     if (copy >= 2) {
-                        ESP_LOGD(TAG_PRIOS, "PRIOS R3 first bytes: %02X %02X",
+                        ESP_LOGD(TAG_PRIOS, "PRIOS first bytes: %02X %02X",
                                  tmp[0], tmp[1]);
                     } else {
-                        ESP_LOGD(TAG_PRIOS, "PRIOS R3 first byte: %02X", tmp[0]);
+                        ESP_LOGD(TAG_PRIOS, "PRIOS first byte: %02X", tmp[0]);
                     }
                 }
                 std::memcpy(buf_ + len_, tmp, copy);
@@ -176,7 +180,7 @@ PriosBringUpSession::Result PriosBringUpSession::process(
         if (last_overflow_log_ms_ == 0 ||
             (now_ms - last_overflow_log_ms_) >= kOverflowLogCadenceMs) {
             last_overflow_log_ms_ = now_ms;
-            ESP_LOGW(TAG_PRIOS, "PRIOS R3 overflow: bytes=%u sessions=%lu captures=%lu",
+            ESP_LOGW(TAG_PRIOS, "PRIOS overflow: bytes=%u sessions=%lu captures=%lu",
                      len_,
                      static_cast<unsigned long>(counters_.sessions_started),
                      static_cast<unsigned long>(counters_.captures_completed));
@@ -224,7 +228,7 @@ PriosBringUpSession::Result PriosBringUpSession::process(
         }
         if (should_emit_verbose_session_log()) {
             ESP_LOGD(TAG_PRIOS,
-                     "PRIOS R3 capture complete: %u bytes rssi=%d lqi=%u prefix=%02X %02X %02X %02X",
+                     "PRIOS capture complete: %u bytes rssi=%d lqi=%u prefix=%02X %02X %02X %02X",
                      len_, rssi, lqi,
                      len_ > 0 ? buf_[0] : 0u,
                      len_ > 1 ? buf_[1] : 0u,

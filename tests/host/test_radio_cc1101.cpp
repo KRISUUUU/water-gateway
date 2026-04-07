@@ -2,6 +2,7 @@
 #include "radio_cc1101/cc1101_irq.hpp"
 #include "radio_cc1101/cc1101_owner_events.hpp"
 #include "radio_cc1101/cc1101_profile_prios_r3.hpp"
+#include "radio_cc1101/cc1101_profile_prios_r4.hpp"
 #include "radio_cc1101/cc1101_profile_tmode.hpp"
 #include "radio_cc1101/radio_cc1101.hpp"
 #include <cassert>
@@ -138,6 +139,21 @@ static void test_prios_profile_apply_rearms_rx() {
     printf("  PASS: PRIOS profile apply leaves radio RX-ready\n");
 }
 
+static void test_prios_r4_profile_apply_rearms_rx() {
+    auto& radio = RadioCc1101::instance();
+    void* owner = reinterpret_cast<void*>(0xD00F);
+    const SpiPins pins{23, 19, 18, 5, -1, -1};
+
+    const auto init = radio.initialize(pins);
+    assert(init.is_ok() || init.error() == common::ErrorCode::AlreadyInitialized);
+    assert(radio.claim_owner(owner).is_ok());
+    const auto apply = radio.owner_apply_prios_r4_profile(owner, false);
+    assert(apply.is_ok());
+    assert(radio.state() == RadioState::Receiving);
+    radio.release_owner(owner);
+    printf("  PASS: PRIOS R4 profile apply leaves radio RX-ready\n");
+}
+
 static void test_tmode_profile_apply_rearms_rx() {
     auto& radio = RadioCc1101::instance();
     void* owner = reinterpret_cast<void*>(0xD00C);
@@ -166,6 +182,56 @@ static void test_prios_discovery_profile_apply_rearms_rx() {
     assert(radio.state() == RadioState::Receiving);
     radio.release_owner(owner);
     printf("  PASS: PRIOS discovery profile apply leaves radio RX-ready\n");
+}
+
+static void test_prios_r4_discovery_profile_apply_rearms_rx() {
+    auto& radio = RadioCc1101::instance();
+    void* owner = reinterpret_cast<void*>(0xD010);
+    const SpiPins pins{23, 19, 18, 5, -1, -1};
+
+    const auto init = radio.initialize(pins);
+    assert(init.is_ok() || init.error() == common::ErrorCode::AlreadyInitialized);
+    assert(radio.claim_owner(owner).is_ok());
+    const auto apply = radio.owner_apply_prios_r4_discovery_profile(owner, true);
+    assert(apply.is_ok());
+    assert(radio.state() == RadioState::Receiving);
+    radio.release_owner(owner);
+    printf("  PASS: PRIOS R4 discovery profile apply leaves radio RX-ready\n");
+}
+
+static void test_prios_r4_profile_uses_868_30_mhz() {
+    size_t count = 0;
+    const auto* profile = prios_r4_profile(false, count);
+    assert(profile != nullptr);
+    bool found_freq2 = false;
+    bool found_freq1 = false;
+    bool found_freq0 = false;
+    bool found_sync1 = false;
+    bool found_sync0 = false;
+    for (size_t i = 0; i < count; ++i) {
+        if (profile[i].addr == registers::FREQ2) {
+            assert(profile[i].value == 0x21);
+            found_freq2 = true;
+        }
+        if (profile[i].addr == registers::FREQ1) {
+            assert(profile[i].value == 0x65);
+            found_freq1 = true;
+        }
+        if (profile[i].addr == registers::FREQ0) {
+            assert(profile[i].value == 0x6A);
+            found_freq0 = true;
+        }
+        if (profile[i].addr == registers::SYNC1) {
+            assert(profile[i].value == 0x1E);
+            found_sync1 = true;
+        }
+        if (profile[i].addr == registers::SYNC0) {
+            assert(profile[i].value == 0x9B);
+            found_sync0 = true;
+        }
+    }
+    assert(found_freq2 && found_freq1 && found_freq0 && found_sync1 && found_sync0);
+    printf("  PASS: PRIOS R4 profile uses 868.30 MHz and sync 0x1E9B\n");
 }
 
 static void test_prios_variant_b_profile_is_stricter_than_variant_a() {
@@ -233,9 +299,12 @@ int main() {
     test_owner_only_rx_helpers_require_claim_and_return_status();
     test_tmode_profile_apply_rearms_rx();
     test_prios_profile_apply_rearms_rx();
+    test_prios_r4_profile_apply_rearms_rx();
     test_prios_discovery_profile_apply_rearms_rx();
+    test_prios_r4_discovery_profile_apply_rearms_rx();
     test_prios_variant_b_profile_is_stricter_than_variant_a();
     test_prios_discovery_profile_disables_sync_word_trigger();
+    test_prios_r4_profile_uses_868_30_mhz();
     printf("All radio_cc1101 tests passed.\n");
     return 0;
 }

@@ -260,6 +260,7 @@ PriosCapturePreviewSnapshot PriosCaptureService::preview_snapshot() const {
         dst.lqi                  = src.lqi;
         dst.total_bytes_captured = src.total_bytes_captured;
         dst.manchester_enabled   = src.manchester_enabled;
+        dst.radio_profile        = src.radio_profile;
         const size_t preview_len =
             src.total_bytes_captured < PriosCapturePreviewRecord::kPreviewBytes
                 ? src.total_bytes_captured

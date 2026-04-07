@@ -59,6 +59,10 @@ int detected_index_by_key(const std::vector<DetectedMeter>& list, const std::str
     return -1;
 }
 
+const char* prios_protocol_name(protocol_driver::RadioProfileId profile) {
+    return profile == protocol_driver::RadioProfileId::WMbusPriosR4 ? "PRIOS_R4" : "PRIOS_R3";
+}
+
 } // namespace
 
 MeterRegistry& MeterRegistry::instance() {
@@ -257,8 +261,8 @@ void MeterRegistry::observe_prios_telegram(
     t.canonical_frame_length = telegram.captured_length;
     t.decoded_ok            = true;
     t.raw_frame_contract_valid = true;
-    t.payload_offset        = 13;
-    t.payload_length        = (telegram.captured_length > 13) ? static_cast<uint16_t>(telegram.captured_length - 13) : 0;
+    t.payload_offset        = 11;
+    t.payload_length        = (telegram.captured_length > 11) ? static_cast<uint16_t>(telegram.captured_length - 11) : 0;
     t.first_data_byte       = 0;
     t.rssi_dbm              = telegram.rssi_dbm;
     t.lqi                   = telegram.lqi;
@@ -267,7 +271,7 @@ void MeterRegistry::observe_prios_telegram(
     t.duplicate             = false;
     t.meter_key             = key;
     t.watched               = watched;
-    t.protocol_name         = wmbus_prios_rx::PriosDecodedTelegram::kProtocolName;
+    t.protocol_name         = prios_protocol_name(telegram.radio_profile);
     t.vendor                = telegram.manufacturer;
 
     const size_t insert_idx = (s.recent_head + s.recent_count) % kMaxRecentTelegrams;

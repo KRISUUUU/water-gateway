@@ -91,6 +91,12 @@ ValidationResult validate_config(const AppConfig& config) {
                          "At least one radio profile must be enabled");
     }
 
+    if (config.radio.prios_profile != protocol_driver::RadioProfileId::WMbusPriosR3 &&
+        config.radio.prios_profile != protocol_driver::RadioProfileId::WMbusPriosR4) {
+        result.add_error("radio.prios_profile",
+                         "PRIOS profile must be WMbusPriosR3 or WMbusPriosR4");
+    }
+
     if (config.radio.prios_capture_campaign && config.radio.prios_discovery_mode) {
         result.add_error("radio.prios_discovery_mode",
                          "PRIOS campaign mode and discovery mode cannot both be enabled");

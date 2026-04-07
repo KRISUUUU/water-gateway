@@ -108,6 +108,20 @@ static void test_qos_out_of_range() {
     printf("  PASS: QoS > 2 fails\n");
 }
 
+static void test_invalid_prios_profile_fails() {
+    auto cfg = AppConfig::make_default();
+    std::strncpy(cfg.mqtt.host, "broker", sizeof(cfg.mqtt.host) - 1);
+    cfg.radio.prios_profile = protocol_driver::RadioProfileId::WMbusT868;
+    auto result = validate_config(cfg);
+    assert(!result.valid);
+    bool found = false;
+    for (auto& issue : result.issues) {
+        if (issue.field == "radio.prios_profile") found = true;
+    }
+    assert(found);
+    printf("  PASS: invalid PRIOS profile fails\n");
+}
+
 int main() {
     printf("=== test_config_validation ===\n");
     test_default_config_is_valid();
@@ -120,6 +134,7 @@ int main() {
     test_frequency_out_of_range();
     test_session_timeout_bounds();
     test_qos_out_of_range();
+    test_invalid_prios_profile_fails();
     printf("All config validation tests passed.\n");
     return 0;
 }

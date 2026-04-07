@@ -57,7 +57,7 @@ struct RecentTelegram {
     std::string meter_key;
     bool watched = false;
     // Protocol identity — populated for all protocols.
-    // Defaults: "WMBUS_T" / "" for T-mode; "PRIOS_R3" / "Techem" for PRIOS.
+    // Defaults: "WMBUS_T" / "" for T-mode; "PRIOS_R3" or "PRIOS_R4" for PRIOS.
     std::string protocol_name = "WMBUS_T";
     std::string vendor;
 };
@@ -82,7 +82,7 @@ class MeterRegistry {
     // - detected meters model
     // - recent telegram list
     void observe_telegram(const wmbus_link::ValidatedTelegram& telegram, bool duplicate);
-    // PRIOS R3 decoded telegram: update detected meters and recent telegrams lists.
+    // PRIOS decoded telegram: update detected meters and recent telegrams lists.
     void observe_prios_telegram(const wmbus_prios_rx::PriosDecodedTelegram& telegram);
 
     std::vector<DetectedMeter> detected_meters() const;

@@ -77,8 +77,9 @@ void test_decode_meter_key_is_meter_id_bcds() {
 }
 
 void test_decode_protocol_constants() {
-    assert(std::strcmp(PriosDecodedTelegram::kProtocolName, "PRIOS") == 0);
-    printf("  PASS: protocol constants correct (PRIOS)\n");
+    PriosCaptureRecord r{};
+    assert(r.radio_profile == protocol_driver::RadioProfileId::WMbusPriosR3);
+    printf("  PASS: default PRIOS capture profile is R3\n");
 }
 
 void test_decode_copies_radio_metadata() {
@@ -89,6 +90,7 @@ void test_decode_copies_radio_metadata() {
     r.timestamp_ms      = 123456789LL;
     r.sequence          = 77;
     r.manchester_enabled = true;
+    r.radio_profile      = protocol_driver::RadioProfileId::WMbusPriosR4;
     r.total_bytes_captured = 18;
 
     const auto decoded = PriosDecoder::decode(r);
@@ -98,6 +100,7 @@ void test_decode_copies_radio_metadata() {
     assert(decoded.timestamp_ms      == 123456789LL);
     assert(decoded.sequence          == 77);
     assert(decoded.manchester_enabled == true);
+    assert(decoded.radio_profile     == protocol_driver::RadioProfileId::WMbusPriosR4);
     assert(decoded.captured_length   == 18);
     printf("  PASS: radio metadata copied into decoded telegram\n");
 }
@@ -109,6 +112,7 @@ void test_decode_display_prefix_hex_length_bounded_at_32_bytes() {
     for (size_t i = 0; i < PriosCaptureRecord::kMaxCaptureBytes; ++i) {
         r.captured_bytes[i] = (i >= 9 && i < 15) ? static_cast<uint8_t>(i) : 0xAA;
     }
+    r.captured_bytes[12] = 0xA2;
 
     const auto decoded = PriosDecoder::decode(r);
     assert(decoded.valid);

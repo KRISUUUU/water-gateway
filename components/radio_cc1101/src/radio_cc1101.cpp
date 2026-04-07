@@ -4,6 +4,7 @@
 #include "cc1101_hal.hpp"
 #include "cc1101_irq_hw.hpp"
 #include "radio_cc1101/cc1101_profile_prios_r3.hpp"
+#include "radio_cc1101/cc1101_profile_prios_r4.hpp"
 #include "radio_cc1101/cc1101_profile_tmode.hpp"
 #include "radio_cc1101/cc1101_registers.hpp"
 
@@ -654,6 +655,120 @@ common::Result<void> RadioCc1101::owner_apply_prios_r3_discovery_profile(
     if (rx_result.is_error()) {
 #ifndef HOST_TEST_BUILD
         ESP_LOGE(TAG, "PRIOS R3 discovery apply: start_rx failed (%d)",
+                 static_cast<int>(rx_result.error()));
+#endif
+        state_ = RadioState::Error;
+        return rx_result;
+    }
+
+    state_ = RadioState::Receiving;
+    return common::Result<void>::ok();
+}
+
+common::Result<void> RadioCc1101::owner_apply_prios_r4_profile(void* owner_token,
+                                                               bool  manchester_enabled) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "PRIOS R4 apply: begin variant_%s",
+             manchester_enabled ? "manchester_on" : "manchester_off");
+
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
+        state_ = RadioState::Error;
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+
+    size_t count = 0;
+    const PriosR4RegisterConfig* profile = prios_r4_profile(manchester_enabled, count);
+    auto result = device::apply_register_profile(spi_handle_, counters_, profile, count);
+    if (result.is_error()) {
+        state_ = RadioState::Error;
+        return result;
+    }
+
+    ESP_LOGI(TAG, "PRIOS R4 apply: profile_ok variant_%s regs=%zu",
+             manchester_enabled ? "manchester_on" : "manchester_off", count);
+#else
+    (void)manchester_enabled;
+#endif
+
+    auto flush_result = flush_rx_fifo();
+    if (flush_result.is_error()) {
+        state_ = RadioState::Error;
+        return flush_result;
+    }
+
+    auto rx_result = start_rx();
+    if (rx_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "PRIOS R4 apply: start_rx failed (%d)", static_cast<int>(rx_result.error()));
+#endif
+        state_ = RadioState::Error;
+        return rx_result;
+    }
+
+#ifndef HOST_TEST_BUILD
+    auto marc_result = device::read_marcstate(spi_handle_, counters_);
+    if (marc_result.is_ok()) {
+        ESP_LOGI(TAG, "PRIOS R4 apply: rx_started state=%s marc=0x%02X",
+                 radio_state_str(state_), marc_result.value());
+    } else {
+        ESP_LOGW(TAG, "PRIOS R4 apply: rx_started state=%s marc=read_error(%d)",
+                 radio_state_str(state_), static_cast<int>(marc_result.error()));
+    }
+#endif
+
+    return common::Result<void>::ok();
+}
+
+common::Result<void> RadioCc1101::owner_apply_prios_r4_discovery_profile(
+    void* owner_token, bool manchester_enabled) {
+    if (!initialized_) {
+        return common::Result<void>::error(common::ErrorCode::NotInitialized);
+    }
+    if (!owner_claim_.owned_by(owner_token)) {
+        return common::Result<void>::error(common::ErrorCode::InvalidArgument);
+    }
+
+#ifndef HOST_TEST_BUILD
+    ESP_LOGI(TAG, "PRIOS R4 discovery apply: begin variant_%s",
+             manchester_enabled ? "manchester_on" : "manchester_off");
+
+    if (!safe_strobe(spi_handle_, counters_, registers::SIDLE)) {
+        state_ = RadioState::Error;
+        return common::Result<void>::error(common::ErrorCode::RadioSpiError);
+    }
+
+    size_t count = 0;
+    const PriosR4RegisterConfig* profile =
+        prios_r4_discovery_profile(manchester_enabled, count);
+    auto result = device::apply_register_profile(spi_handle_, counters_, profile, count);
+    if (result.is_error()) {
+        state_ = RadioState::Error;
+        return result;
+    }
+
+    ESP_LOGI(TAG, "PRIOS R4 discovery apply: profile_ok variant_%s regs=%zu",
+             manchester_enabled ? "manchester_on" : "manchester_off", count);
+#else
+    (void)manchester_enabled;
+#endif
+
+    auto flush_result = flush_rx_fifo();
+    if (flush_result.is_error()) {
+        state_ = RadioState::Error;
+        return flush_result;
+    }
+
+    auto rx_result = start_rx();
+    if (rx_result.is_error()) {
+#ifndef HOST_TEST_BUILD
+        ESP_LOGE(TAG, "PRIOS R4 discovery apply: start_rx failed (%d)",
                  static_cast<int>(rx_result.error()));
 #endif
         state_ = RadioState::Error;

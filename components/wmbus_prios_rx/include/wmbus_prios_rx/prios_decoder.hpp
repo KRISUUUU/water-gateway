@@ -1,5 +1,6 @@
 #pragma once
 
+#include "protocol_driver/protocol_ids.hpp"
 #include "wmbus_prios_rx/prios_capture_service.hpp"
 
 #include <cstddef>
@@ -21,12 +22,12 @@
 namespace wmbus_prios_rx {
 
 struct PriosDecodedTelegram {
-    static constexpr const char* kProtocolName   = "PRIOS";
-
     // Max raw bytes shown as hex in display_prefix_hex (matches kDisplayPrefixBytes).
     static constexpr size_t kDisplayPrefixRawBytes = PriosCaptureRecord::kDisplayPrefixBytes;
 
     bool valid = false;  // false when capture is too short or not PRIOS
+    protocol_driver::RadioProfileId radio_profile =
+        protocol_driver::RadioProfileId::WMbusPriosR3;
 
     // Identity: meter ID as 8-char hex string, e.g. "12345678"
     char meter_key[16]{};

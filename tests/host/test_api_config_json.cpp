@@ -22,6 +22,7 @@ void test_config_json_includes_radio_scheduler_and_prios_fields() {
     cfg.radio.scheduler_mode = RadioSchedulerMode::Scan;
     cfg.radio.enabled_profiles =
         static_cast<RadioProfileMask>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3);
+    cfg.radio.prios_profile = RadioProfileId::WMbusPriosR4;
     cfg.radio.prios_capture_campaign = true;
     cfg.radio.prios_discovery_mode = false;
     cfg.radio.prios_manchester_enabled = true;
@@ -33,6 +34,8 @@ void test_config_json_includes_radio_scheduler_and_prios_fields() {
     assert(radio != nullptr);
     assert(cJSON_GetObjectItemCaseSensitive(radio, "scheduler_mode") != nullptr);
     assert(cJSON_GetObjectItemCaseSensitive(radio, "enabled_profiles") != nullptr);
+    assert(std::strcmp(cJSON_GetObjectItemCaseSensitive(radio, "prios_profile")->valuestring,
+                       "WMbusPriosR4") == 0);
     assert(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(radio, "prios_capture_campaign")));
     assert(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(radio, "prios_discovery_mode")));
     assert(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(radio, "prios_manchester_enabled")));
@@ -55,6 +58,7 @@ void test_apply_config_json_updates_radio_scheduler_and_prios_fields() {
     cJSON_AddNumberToObject(
         radio, "enabled_profiles",
         static_cast<double>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3));
+    cJSON_AddStringToObject(radio, "prios_profile", "prios_r4");
     cJSON_AddBoolToObject(radio, "prios_capture_campaign", false);
     cJSON_AddBoolToObject(radio, "prios_discovery_mode", true);
     cJSON_AddBoolToObject(radio, "prios_manchester_enabled", true);
@@ -65,6 +69,7 @@ void test_apply_config_json_updates_radio_scheduler_and_prios_fields() {
     assert(cfg.radio.scheduler_mode == RadioSchedulerMode::Priority);
     assert(cfg.radio.enabled_profiles ==
            static_cast<RadioProfileMask>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3));
+    assert(cfg.radio.prios_profile == RadioProfileId::WMbusPriosR4);
     assert(!cfg.radio.prios_capture_campaign);
     assert(cfg.radio.prios_discovery_mode);
     assert(cfg.radio.prios_manchester_enabled);
@@ -81,6 +86,7 @@ void test_apply_config_json_accepts_profile_name_array() {
     cJSON* profiles = cJSON_AddArrayToObject(radio, "enabled_profiles");
     cJSON_AddItemToArray(profiles, cJSON_CreateString("WMbusT868"));
     cJSON_AddItemToArray(profiles, cJSON_CreateString("prios_r3"));
+    cJSON_AddStringToObject(radio, "prios_profile", "WMbusPriosR3");
 
     api_handlers::detail::apply_config_json(root, cfg);
     cJSON_Delete(root);
@@ -88,6 +94,7 @@ void test_apply_config_json_accepts_profile_name_array() {
     assert(cfg.radio.scheduler_mode == RadioSchedulerMode::Scan);
     assert(cfg.radio.enabled_profiles ==
            static_cast<RadioProfileMask>(kRadioProfileMaskWMbusT868 | kRadioProfileMaskWMbusPriosR3));
+    assert(cfg.radio.prios_profile == RadioProfileId::WMbusPriosR3);
     std::printf("  PASS: apply_config_json accepts scheduler names and profile arrays\n");
 }
 

@@ -2,6 +2,7 @@
 #include "wmbus_prios_rx/prios_analyzer.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace wmbus_prios_rx {
@@ -26,6 +27,7 @@ PriosDecodedTelegram PriosDecoder::decode(const PriosCaptureRecord& record) {
     }
 
     result.valid = true;
+    result.radio_profile = record.radio_profile;
 
     // Manufacturer ID (SAP = Diehl)
     result.manufacturer_id = static_cast<uint16_t>(b[2] | (b[3] << 8));

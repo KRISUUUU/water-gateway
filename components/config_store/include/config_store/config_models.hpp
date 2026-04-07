@@ -7,7 +7,7 @@
 
 namespace config_store {
 
-static constexpr uint32_t kCurrentConfigVersion = 5;
+static constexpr uint32_t kCurrentConfigVersion = 6;
 static constexpr const char* kNvsNamespace = "wg_config";
 static constexpr const char* kNvsKey = "config";
 static constexpr const char* kNvsBackupKey = "config_bak";
@@ -85,15 +85,20 @@ struct RadioConfig {
 
     // --- PRIOS experimental receive modes (v4+) ---
     //
+    // Which PRIOS radio profile the bounded capture runtime should use.
+    // Default stays on R3 so existing deployments remain unchanged.
+    protocol_driver::RadioProfileId prios_profile =
+        protocol_driver::RadioProfileId::WMbusPriosR3;
+
     // When prios_capture_campaign is true:
-    //   - The radio scheduler is locked to WMbusPriosR3 regardless of
+    //   - The radio scheduler is locked to prios_profile regardless of
     //     scheduler_mode and enabled_profiles.
     //   - T-mode reception is suspended for the duration of the campaign.
     //   - The CC1101 is reconfigured with the PRIOS R3 experimental profile.
     //   - All bounded captures are stored in PriosCaptureService.
     //
     // When prios_discovery_mode is true:
-    //   - The radio scheduler is locked to WMbusPriosR3 as well.
+    //   - The radio scheduler is locked to prios_profile as well.
     //   - T-mode reception is suspended for the duration of discovery.
     //   - The CC1101 uses a PRIOS sniffer/discovery profile that does not
     //     depend on the placeholder sync word.
@@ -115,6 +120,7 @@ struct RadioConfig {
         c.auto_recovery           = true;
         c.scheduler_mode          = protocol_driver::RadioSchedulerMode::Locked;
         c.enabled_profiles        = protocol_driver::kRadioProfileMaskWMbusT868;
+        c.prios_profile           = protocol_driver::RadioProfileId::WMbusPriosR3;
         c.prios_capture_campaign  = false;
         c.prios_discovery_mode    = false;
         c.prios_manchester_enabled = false;

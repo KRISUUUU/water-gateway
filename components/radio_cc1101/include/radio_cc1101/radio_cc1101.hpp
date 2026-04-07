@@ -123,6 +123,10 @@ class RadioCc1101 {
     // placeholder sync-word assumption.
     common::Result<void> owner_apply_prios_r3_discovery_profile(void* owner_token,
                                                                  bool  manchester_enabled);
+    common::Result<void> owner_apply_prios_r4_profile(void* owner_token,
+                                                      bool  manchester_enabled);
+    common::Result<void> owner_apply_prios_r4_discovery_profile(void* owner_token,
+                                                                bool  manchester_enabled);
 
   private:
     RadioCc1101() = default;

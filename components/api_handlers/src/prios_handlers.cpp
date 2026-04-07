@@ -75,6 +75,10 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
 
     const bool discovery_active = cfg.radio.prios_discovery_mode;
     const bool campaign_active = cfg.radio.prios_capture_campaign;
+    const auto prios_profile = cfg.radio.prios_profile ==
+                                       protocol_driver::RadioProfileId::WMbusPriosR4
+                                   ? protocol_driver::RadioProfileId::WMbusPriosR4
+                                   : protocol_driver::RadioProfileId::WMbusPriosR3;
     const char* mode = "inactive";
     if (discovery_active) {
         mode = "discovery_sniffer";
@@ -94,8 +98,7 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
     cJSON_AddStringToObject(root.get(), "variant",
                             cfg.radio.prios_manchester_enabled ? "manchester_on" : "manchester_off");
     cJSON_AddStringToObject(root.get(), "profile",
-                            protocol_driver::radio_profile_id_to_string(
-                                protocol_driver::RadioProfileId::WMbusPriosR3));
+                            protocol_driver::radio_profile_id_to_string(prios_profile));
     cJSON_AddStringToObject(root.get(), "support_level", "header_decoded");
     cJSON_AddBoolToObject(root.get(), "header_decoded_active",
                           campaign_active || discovery_active);
@@ -171,6 +174,8 @@ esp_err_t handle_diagnostics_prios(httpd_req_t* req) {
                                 static_cast<double>(r.total_bytes_captured));
         cJSON_AddStringToObject(rec, "variant",
                                 r.manchester_enabled ? "manchester_on" : "manchester_off");
+        cJSON_AddStringToObject(rec, "profile",
+                                protocol_driver::radio_profile_id_to_string(r.radio_profile));
 
         // Device fingerprint (meter ID is bytes 4-7 in wM-Bus Format A header)
         if (r.preview_length >= 13 && r.preview_bytes[12] == 0xA2) {
